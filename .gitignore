@@ -3,6 +3,8 @@
 
 # Allow project files
 !.gitignore
+!.github/
+!.github/*
 !hacs.json
 !LICENSE
 !README.md
