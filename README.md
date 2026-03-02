@@ -91,3 +91,7 @@ Update any automations using `ticker.notify` before removing. Then delete the in
 ## License
 
 MIT
+
+## Support Ticker
+
+If Ticker is useful to you, consider sponsoring development via GitHub Sponsors. It helps keep the project active and growing.
