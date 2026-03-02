@@ -1,0 +1,20 @@
+# Ignore everything
+*
+
+# Allow project files
+!.gitignore
+!hacs.json
+!LICENSE
+!README.md
+!manifest.json
+!*.py
+!*.yaml
+!*.json
+!frontend/
+!frontend/*.js
+!translations/
+!translations/*.json
+
+# Always ignore
+__pycache__/
+*.py[cod]
