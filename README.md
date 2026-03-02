@@ -90,7 +90,7 @@ Update any automations using `ticker.notify` before removing. Then delete the in
 
 ## License
 
-MIT
+GPL-3.0
 
 ## Support Ticker
 
