@@ -74,7 +74,7 @@ Queued notifications are bundled and delivered as a summary when the person arri
 
 ## Admin panel
 
-Manage categories, view users and their linked notify services, set subscriptions, inspect the notification queue, view logs, and run the migration wizard to convert existing automations.
+Only visible to users in the "Administrator" group. Manage categories, view users and their linked notify services, set subscriptions, inspect the notification queue, view logs, and run the migration wizard to convert existing automations.
 
 ## User panel
 
