@@ -95,3 +95,4 @@ GPL-3.0
 ## Support Ticker
 
 If Ticker is useful to you, consider sponsoring development via GitHub Sponsors. It helps keep the project active and growing.
+Join our Discord server to find out more and get support: https://discord.gg/NCcG4GpP
