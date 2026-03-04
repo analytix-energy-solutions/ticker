@@ -1,0 +1,142 @@
+# Integration Quality Scale tracking for Ticker
+# https://developers.home-assistant.io/docs/core/integration-quality-scale/
+
+rules:
+  # ============================================================================
+  # Bronze tier (minimum for new integrations)
+  # ============================================================================
+  
+  # Config flow
+  action-setup: done
+  appropriate-polling: done
+  brands: done
+  common-modules: done
+  config-flow: done
+  config-flow-test-coverage:
+    status: todo
+    comment: Tests not yet implemented
+  dependency-transparency: done
+  docs-actions: done
+  docs-high-level-description: done
+  docs-installation-instructions: done
+  docs-removal-instructions: done
+  entity-event-setup:
+    status: exempt
+    comment: Integration has no entities
+  entity-unique-id:
+    status: exempt
+    comment: Integration has no entities
+  has-entity-name:
+    status: exempt
+    comment: Integration has no entities
+  runtime-data: done
+  test-before-setup:
+    status: todo
+    comment: Should verify setup will succeed before proceeding
+  unique-config-entry: done
+
+  # ============================================================================
+  # Silver tier
+  # ============================================================================
+  
+  action-exceptions: done
+  config-entry-unloading: done
+  docs-configuration-parameters:
+    status: todo
+    comment: Configuration options not fully documented
+  docs-troubleshooting:
+    status: todo
+    comment: Troubleshooting section not yet added
+  entity-unavailable:
+    status: exempt
+    comment: Integration has no entities
+  integration-owner: done
+  log-when-unavailable:
+    status: exempt
+    comment: Integration has no entities
+  parallel-updates:
+    status: exempt
+    comment: Integration has no entities
+  reauthentication-flow:
+    status: exempt
+    comment: Integration has no authentication
+  test-coverage:
+    status: todo
+    comment: Tests not yet implemented
+
+  # ============================================================================
+  # Gold tier
+  # ============================================================================
+  
+  devices:
+    status: exempt
+    comment: Integration does not create devices
+  diagnostics:
+    status: todo
+    comment: Diagnostics handler not yet implemented
+  discovery:
+    status: exempt
+    comment: Integration is not discoverable
+  discovery-update-info:
+    status: exempt
+    comment: Integration is not discoverable
+  docs-data-update:
+    status: exempt
+    comment: Integration does not poll external data
+  docs-examples:
+    status: done
+    comment: README includes service call examples
+  docs-known-limitations:
+    status: todo
+    comment: Known limitations not documented
+  docs-supported-devices:
+    status: exempt
+    comment: Integration does not support devices
+  docs-supported-functions:
+    status: todo
+    comment: Full function documentation pending
+  docs-use-cases:
+    status: done
+    comment: README explains use cases
+  dynamic-devices:
+    status: exempt
+    comment: Integration does not create devices
+  entity-category:
+    status: exempt
+    comment: Integration has no entities
+  entity-device-class:
+    status: exempt
+    comment: Integration has no entities
+  entity-disabled-by-default:
+    status: exempt
+    comment: Integration has no entities
+  entity-translations:
+    status: exempt
+    comment: Integration has no entities
+  exception-translations: done
+  icon-translations:
+    status: exempt
+    comment: Integration has no entities
+  reconfiguration-flow:
+    status: todo
+    comment: Reconfiguration not yet implemented
+  repair-issues:
+    status: todo
+    comment: Repair issues not yet implemented
+  stale-devices:
+    status: exempt
+    comment: Integration does not create devices
+
+  # ============================================================================
+  # Platinum tier
+  # ============================================================================
+  
+  async-dependency:
+    status: done
+    comment: No external dependencies
+  inject-websession:
+    status: exempt
+    comment: No HTTP client usage
+  strict-typing:
+    status: todo
+    comment: Full strict typing not yet verified

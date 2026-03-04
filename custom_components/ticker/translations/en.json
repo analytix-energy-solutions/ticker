@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Ticker",
+        "description": "Set up Ticker notification hub for Home Assistant."
+      }
+    },
+    "abort": {
+      "already_configured": "Ticker is already configured."
+    }
+  },
+  "exceptions": {
+    "no_config_entry": {
+      "message": "Ticker integration is not configured. Please add it via Settings > Devices & Services."
+    },
+    "entry_not_loaded": {
+      "message": "Ticker integration is not loaded. Please check the logs for errors."
+    },
+    "invalid_category": {
+      "message": "Category {category} not found. Please check the category name or ID."
+    }
+  }
+}

@@ -1,0 +1,7 @@
+# Service descriptions are dynamically generated in services.py
+# This file is kept minimal as the UI schema is built at runtime
+# to include current categories in the dropdown
+
+notify:
+  name: Send notification
+  description: Send a notification through Ticker to subscribed users
