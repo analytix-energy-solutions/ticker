@@ -932,6 +932,7 @@ class TickerStore:
         outcome: str,
         notify_service: str | None = None,
         reason: str | None = None,
+        notification_id: str | None = None,
     ) -> dict[str, Any]:
         """Add a log entry (with debounced save)."""
         log_id = str(uuid.uuid4())
@@ -953,6 +954,9 @@ class TickerStore:
         
         if reason:
             entry["reason"] = reason
+        
+        if notification_id:
+            entry["notification_id"] = notification_id
         
         self._logs.append(entry)
         

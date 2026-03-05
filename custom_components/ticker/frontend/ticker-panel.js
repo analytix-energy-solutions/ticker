@@ -477,6 +477,23 @@ class TickerPanel extends HTMLElement {
     return zone ? zone.name : zoneId.replace("zone.", "");
   }
 
+  _getGroupedHistoryCount() {
+    const seen = new Set();
+    let count = 0;
+    for (const entry of this._history) {
+      const nid = entry.notification_id;
+      if (nid) {
+        if (!seen.has(nid)) {
+          seen.add(nid);
+          count++;
+        }
+      } else {
+        count++;
+      }
+    }
+    return count;
+  }
+
   _render() {
     const styles = `
       <style>
@@ -617,7 +634,7 @@ class TickerPanel extends HTMLElement {
       content = `<div class="card"><div class="no-person-state"><h3>No Person Entity Found</h3><p>Your Home Assistant user account is not linked to a person entity.<br>Ask an administrator to link your account in Settings → People.</p></div></div>`;
     } else {
       const queueCount = this._queue.length;
-      const historyCount = this._history.length;
+      const historyCount = this._getGroupedHistoryCount();
       const tabs = `
         <div class="tabs">
           <button class="tab ${this._activeTab === 'subscriptions' ? 'active' : ''}" onclick="this.getRootNode().host._switchTab('subscriptions')">Subscriptions</button>
@@ -971,21 +988,58 @@ class TickerPanel extends HTMLElement {
       return cat ? cat.name : catId;
     };
 
+    // Group entries by notification_id, then by date
+    // Entries without notification_id are treated as individual notifications
+    const notifications = [];
+    const groupedById = {};
+    
+    for (const entry of this._history) {
+      const nid = entry.notification_id;
+      if (nid) {
+        if (!groupedById[nid]) {
+          groupedById[nid] = {
+            notification_id: nid,
+            title: entry.title,
+            message: entry.message,
+            category_id: entry.category_id,
+            timestamp: entry.timestamp,
+            devices: [],
+          };
+          notifications.push(groupedById[nid]);
+        }
+        if (entry.notify_service) {
+          groupedById[nid].devices.push(entry.notify_service);
+        }
+      } else {
+        // Legacy entry without notification_id
+        notifications.push({
+          title: entry.title,
+          message: entry.message,
+          category_id: entry.category_id,
+          timestamp: entry.timestamp,
+          devices: entry.notify_service ? [entry.notify_service] : [],
+        });
+      }
+    }
+
     // Group by date
     const grouped = {};
-    for (const entry of this._history) {
-      const date = new Date(entry.timestamp);
+    for (const notif of notifications) {
+      const date = new Date(notif.timestamp);
       const dateKey = date.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
       if (!grouped[dateKey]) grouped[dateKey] = [];
-      grouped[dateKey].push(entry);
+      grouped[dateKey].push(notif);
     }
 
     const sections = Object.entries(grouped).map(([dateLabel, entries]) => {
-      const items = entries.map(entry => {
-        const escTitle = this._esc(entry.title);
-        const escMessage = this._esc(entry.message);
-        const escCatName = this._esc(getCategoryName(entry.category_id));
-        const time = new Date(entry.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      const items = entries.map(notif => {
+        const escTitle = this._esc(notif.title);
+        const escMessage = this._esc(notif.message);
+        const escCatName = this._esc(getCategoryName(notif.category_id));
+        const time = new Date(notif.timestamp).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+        const deviceTags = notif.devices.length > 0
+          ? notif.devices.map(d => `<span class="notify-service-tag">${this._esc(d)}</span>`).join('')
+          : '';
         return `
           <div class="history-item">
             <div class="history-item-header">
@@ -995,6 +1049,7 @@ class TickerPanel extends HTMLElement {
             <div class="history-item-message">${escMessage}</div>
             <div class="history-item-meta">
               <span class="notify-service-tag">${escCatName}</span>
+              ${deviceTags}
             </div>
           </div>
         `;

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
@@ -195,10 +196,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Resolve category (raises ServiceValidationError if invalid)
         category_id = _resolve_category_id(category_input, store)
 
+        # Generate a unique ID for this notification call to group log entries
+        notification_id = str(uuid.uuid4())
+
         _LOGGER.info(
-            "Processing notification for category '%s': %s",
+            "Processing notification for category '%s': %s (notification_id: %s)",
             category_id,
             title,
+            notification_id,
         )
 
         persons = hass.states.async_all("person")
@@ -235,12 +240,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     message=message,
                     outcome=LOG_OUTCOME_SKIPPED,
                     reason="Subscription mode: never",
+                    notification_id=notification_id,
                 )
                 continue
 
             if mode == MODE_ALWAYS:
                 await _async_send_notification(
-                    hass, store, person_id, person_name, category_id, title, message, data
+                    hass, store, person_id, person_name, category_id, title, message, data,
+                    notification_id=notification_id,
                 )
             
             elif mode == MODE_CONDITIONAL:
@@ -255,6 +262,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     message=message,
                     data=data,
                     expiration=expiration,
+                    notification_id=notification_id,
                 )
 
     hass.services.async_register(
@@ -311,6 +319,7 @@ async def _async_handle_conditional_notification(
     message: str,
     data: dict[str, Any],
     expiration: int,
+    notification_id: str | None = None,
 ) -> None:
     """Handle notification delivery for conditional mode.
     
@@ -329,7 +338,8 @@ async def _async_handle_conditional_notification(
             category_id,
         )
         await _async_send_notification(
-            hass, store, person_id, person_name, category_id, title, message, data
+            hass, store, person_id, person_name, category_id, title, message, data,
+            notification_id=notification_id,
         )
         return
     
@@ -391,7 +401,8 @@ async def _async_handle_conditional_notification(
     # Execute actions
     if should_send_now:
         await _async_send_notification(
-            hass, store, person_id, person_name, category_id, title, message, data
+            hass, store, person_id, person_name, category_id, title, message, data,
+            notification_id=notification_id,
         )
     elif should_queue:
         # Queue the notification
@@ -411,6 +422,7 @@ async def _async_handle_conditional_notification(
             message=message,
             outcome=LOG_OUTCOME_QUEUED,
             reason=f"Conditional: waiting for arrival at {', '.join(queue_zones)}",
+            notification_id=notification_id,
         )
         _LOGGER.debug(
             "Queued notification for %s (conditional: waiting for %s)",
@@ -432,6 +444,7 @@ async def _async_handle_conditional_notification(
             message=message,
             outcome=LOG_OUTCOME_SKIPPED,
             reason=f"Conditional: no matching conditions (currently in {person_zone})",
+            notification_id=notification_id,
         )
 
 
@@ -444,6 +457,7 @@ async def _async_send_notification(
     title: str,
     message: str,
     data: dict[str, Any],
+    notification_id: str | None = None,
 ) -> None:
     """Send notification to a person via their notify services.
     
@@ -467,6 +481,7 @@ async def _async_send_notification(
             message=message,
             outcome=LOG_OUTCOME_FAILED,
             reason="No notify services found",
+            notification_id=notification_id,
         )
         return
 
@@ -526,6 +541,7 @@ async def _async_send_notification(
             message=message,
             outcome=LOG_OUTCOME_FAILED,
             reason="No target devices after applying preferences",
+            notification_id=notification_id,
         )
         return
     
@@ -580,6 +596,7 @@ async def _async_send_notification(
                 message=message,
                 outcome=LOG_OUTCOME_SENT,
                 notify_service=f"{service_id} ({service_name_display})",
+                notification_id=notification_id,
             )
         except asyncio.TimeoutError:
             _LOGGER.error(
@@ -597,6 +614,7 @@ async def _async_send_notification(
                 outcome=LOG_OUTCOME_FAILED,
                 notify_service=service_id,
                 reason=f"Timeout after {NOTIFY_SERVICE_TIMEOUT}s",
+                notification_id=notification_id,
             )
         except HomeAssistantError as err:
             _LOGGER.error(
@@ -614,6 +632,7 @@ async def _async_send_notification(
                 outcome=LOG_OUTCOME_FAILED,
                 notify_service=service_id,
                 reason=str(err),
+                notification_id=notification_id,
             )
         except Exception as err:
             _LOGGER.error(
@@ -631,6 +650,7 @@ async def _async_send_notification(
                 outcome=LOG_OUTCOME_FAILED,
                 notify_service=service_id,
                 reason=str(err),
+                notification_id=notification_id,
             )
 
 

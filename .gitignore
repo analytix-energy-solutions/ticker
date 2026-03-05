@@ -1,2 +1,21 @@
+# Ignore everything by default
+*
+
+# Allow repo root files
+!.gitignore
+!hacs.json
+!LICENSE
+!README.md
+
+# Allow GitHub config
+!.github/
+!.github/**
+
+# Allow integration source
+!custom_components/
+!custom_components/ticker/
+!custom_components/ticker/**
+
+# Python artifacts (within allowed paths)
 __pycache__/
 *.py[cod]
