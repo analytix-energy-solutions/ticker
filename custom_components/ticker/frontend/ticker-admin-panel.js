@@ -284,7 +284,7 @@ class TickerAdminPanel extends HTMLElement {
     const exp = u.enabled && this._expandedUsers.has(u.person_id);
     const canExpand = u.enabled;
     const ei = canExpand ? `<svg class="exp ${exp?'open':''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"></polyline></svg>` : '';
-    const nt = u.notify_services.length ? `<div class="ns">${u.notify_services.map(s=>`<span class="nst">${this._esc(s)}</span>`).join("")}</div>` : `<span class="badge bg-w">No services</span>`;
+    const nt = u.notify_services.length ? `<div class="ns">${u.notify_services.map(s=>`<span class="nst">${this._esc(s.name || s.service || s)}</span>`).join("")}</div>` : `<span class="badge bg-w">No services</span>`;
     const acc = exp ? this._rUsrSubs(u) : '';
     const hdrStyle = canExpand ? '' : 'cursor:default';
     return `<div class="li ${u.enabled?'':'dis'}"><div class="lih" onclick="this.getRootNode().host._toggleUserExpanded('${escPid}')" style="${hdrStyle}"><div class="lic"><span class="lit">${escName}${!u.enabled?'<span class="badge bg-g">Disabled</span>':''}</span>${nt}</div><div class="lia"><button class="btn bs bsm" onclick="event.stopPropagation();this.getRootNode().host._sendTestNotification('${escPid}')" ${!u.enabled?'disabled':''}>Test</button><label class="tog" onclick="event.stopPropagation()"><input type="checkbox" ${u.enabled?'checked':''} onchange="this.getRootNode().host._toggleUserEnabled('${escPid}',${u.enabled})"><span class="tsl"></span></label>${ei}</div></div>${acc}</div>`;
