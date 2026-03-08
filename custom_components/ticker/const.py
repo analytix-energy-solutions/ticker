@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 # Storage keys
 STORAGE_VERSION = 1
