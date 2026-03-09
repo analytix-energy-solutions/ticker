@@ -46,8 +46,8 @@ _LOGGER = logging.getLogger(__name__)
 # URL path for serving static files
 FRONTEND_URL_BASE = f"/{DOMAIN}_frontend"
 
-# No entity platforms for this integration
-PLATFORMS: list[Platform] = []
+# Entity platforms for this integration
+PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 
 @dataclass
@@ -93,6 +93,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     # Create runtime data
     runtime_data = TickerData(store=store)
     entry.runtime_data = runtime_data
+
+    # Initialize hass.data for sensor storage
+    hass.data.setdefault(DOMAIN, {})
+
+    # Forward setup to entity platforms (sensor)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     # Register static path for frontend files
     await _async_register_static_paths(hass)
@@ -160,14 +166,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> b
     """Unload a Ticker config entry."""
     _LOGGER.info("Unloading Ticker integration")
 
+    # Unload entity platforms
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
     # Unload store (saves any pending debounced data)
     await entry.runtime_data.store.async_unload()
 
     # Remove panels
     _async_unregister_panels(hass)
 
+    # Clean up hass.data
+    if DOMAIN in hass.data:
+        hass.data.pop(DOMAIN)
+
     _LOGGER.info("Ticker integration unloaded")
-    return True
+    return unload_ok
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

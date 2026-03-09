@@ -68,6 +68,9 @@ MAX_QUEUE_RETRIES = 3  # Max retry attempts before discarding queued notificatio
 MAX_LOG_ENTRIES = 500
 LOG_RETENTION_DAYS = 7
 
+# Sensor settings
+MAX_SENSOR_NOTIFICATIONS = 10
+
 # Log outcomes
 LOG_OUTCOME_SENT = "sent"
 LOG_OUTCOME_QUEUED = "queued"

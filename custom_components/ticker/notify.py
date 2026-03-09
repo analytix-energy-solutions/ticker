@@ -40,7 +40,7 @@ async def async_handle_conditional_notification(
     data: dict[str, Any],
     expiration: int,
     notification_id: str | None = None,
-) -> None:
+) -> dict[str, list[str]]:
     """Handle notification delivery for conditional mode.
 
     Supports F-2 Advanced Conditions with:
@@ -52,6 +52,9 @@ async def async_handle_conditional_notification(
     - Send immediately (all rules met + deliver_when_met)
     - Queue for later (queue_until_met rules not met)
     - Skip (no matching delivery path)
+
+    Returns:
+        Dict with 'delivered', 'queued', 'dropped' lists of service IDs/descriptions.
     """
     from .conditions import (
         should_deliver_now,
@@ -68,11 +71,10 @@ async def async_handle_conditional_notification(
             person_id,
             category_id,
         )
-        await async_send_notification(
+        return await async_send_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id,
         )
-        return
 
     # Convert legacy zones format to rules if needed
     rules = conditions.get("rules", [])
@@ -88,11 +90,10 @@ async def async_handle_conditional_notification(
                 person_id,
                 category_id,
             )
-            await async_send_notification(
+            return await async_send_notification(
                 hass, store, person_id, person_name, category_id, title, message, data,
                 notification_id=notification_id,
             )
-            return
 
     # Check if we should deliver now (all conditions met + deliver_when_met)
     deliver, deliver_reason = should_deliver_now(hass, conditions, person_state)
@@ -104,11 +105,10 @@ async def async_handle_conditional_notification(
             category_id,
             deliver_reason,
         )
-        await async_send_notification(
+        return await async_send_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id,
         )
-        return
 
     # Check if we should queue (has queue_until_met flag and conditions not met)
     do_queue, queue_reason = should_queue(hass, conditions, person_state)
@@ -139,7 +139,7 @@ async def async_handle_conditional_notification(
             category_id,
             queue_reason,
         )
-        return
+        return {"delivered": [], "queued": [f"{person_id}: {queue_reason}"], "dropped": []}
 
     # No delivery path - skip
     _LOGGER.debug(
@@ -158,6 +158,7 @@ async def async_handle_conditional_notification(
         reason=f"Conditional: {deliver_reason}",
         notification_id=notification_id,
     )
+    return {"delivered": [], "queued": [], "dropped": [f"{person_id}: {deliver_reason}"]}
 
 
 async def async_send_notification(
@@ -170,13 +171,17 @@ async def async_send_notification(
     message: str,
     data: dict[str, Any],
     notification_id: str | None = None,
-) -> None:
+) -> dict[str, list[str]]:
     """Send notification to a person via their notify services.
 
     Respects device preferences:
     - Global device preference (all vs selected devices)
     - Per-category device override (additive)
+
+    Returns:
+        Dict with 'delivered', 'queued', 'dropped' lists of service IDs/descriptions.
     """
+    results: dict[str, list[str]] = {"delivered": [], "queued": [], "dropped": []}
     # Get all discovered services for this person (list of dicts with service/name/device_id)
     all_services = await async_get_notify_services_for_person(hass, person_id)
 
@@ -195,7 +200,8 @@ async def async_send_notification(
             reason="No notify services found",
             notification_id=notification_id,
         )
-        return
+        results["dropped"].append(f"{person_id}: No notify services found")
+        return results
 
     # Build a lookup of service ID to service info
     service_lookup = {svc["service"]: svc for svc in all_services}
@@ -255,7 +261,8 @@ async def async_send_notification(
             reason="No target devices after applying preferences",
             notification_id=notification_id,
         )
-        return
+        results["dropped"].append(f"{person_id}: No target devices")
+        return results
 
     _LOGGER.debug(
         "Sending notification to %s via %d device(s): %s",
@@ -310,6 +317,7 @@ async def async_send_notification(
                 notify_service=f"{service_id} ({service_name_display})",
                 notification_id=notification_id,
             )
+            results["delivered"].append(service_id)
         except asyncio.TimeoutError:
             _LOGGER.error(
                 "Timeout sending notification to %s via %s (exceeded %ds)",
@@ -328,6 +336,7 @@ async def async_send_notification(
                 reason=f"Timeout after {NOTIFY_SERVICE_TIMEOUT}s",
                 notification_id=notification_id,
             )
+            results["dropped"].append(f"{service_id}: Timeout")
         except HomeAssistantError as err:
             _LOGGER.error(
                 "Failed to send notification to %s via %s: %s",
@@ -346,6 +355,7 @@ async def async_send_notification(
                 reason=str(err),
                 notification_id=notification_id,
             )
+            results["dropped"].append(f"{service_id}: {err}")
         except Exception as err:
             _LOGGER.error(
                 "Unexpected error sending notification to %s via %s: %s",
@@ -364,3 +374,6 @@ async def async_send_notification(
                 reason=str(err),
                 notification_id=notification_id,
             )
+            results["dropped"].append(f"{service_id}: {err}")
+
+    return results

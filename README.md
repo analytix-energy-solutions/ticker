@@ -64,7 +64,13 @@ data:
 
 **Never** — Silently skipped. Useful for opting out of categories that aren't relevant to you.
 
-**Conditional** — Delivery depends on zone-based rules. You can configure per zone whether to deliver while present, queue until arrival, or both. If no conditions are configured, falls back to Always.
+**Conditional** — Delivery depends on rules you define. Rules use AND logic — all must be met for immediate delivery. Three rule types are available:
+
+- **Zone** — Deliver while in a specific zone, queue until arrival, or both.
+- **Time** — Deliver during a time window (e.g., 09:00–17:00). Supports day-of-week filtering and overnight spans.
+- **Entity state** — Deliver when a Home Assistant entity is in a specific state (e.g., `binary_sensor.tv_power` is `off`).
+
+Each rule has independent "deliver when met" and "queue until met" toggles. If no valid rules are configured, falls back to Always.
 
 ### How routing works
 
@@ -83,6 +89,37 @@ View and change your own subscription preferences per category, and manage your 
 ## Migration
 
 The admin panel includes a migration wizard that scans your automations and scripts for existing `notify.*` and `persistent_notification.*` calls. It walks you through each one, letting you convert to `ticker.notify` with a category of your choice.
+
+## Dashboard sensors
+
+Ticker creates sensor entities for each category, exposing the last 10 notifications as attributes. Use these to display notification feeds on your HA dashboards.
+
+Each sensor:
+- **State**: Count of notifications (0-10)
+- **Attributes**: `notifications` (list), `category_id`, `category_name`, `last_triggered`
+- **Entity ID**: `sensor.ticker_<category_id>`
+
+### Markdown card example
+
+```yaml
+type: markdown
+title: "Security Notifications"
+content: >
+  {% set notifs = state_attr('sensor.ticker_security', 'notifications') %}
+  {% if notifs %}
+  {% for n in notifs | reverse %}
+  **{{ n.header }}** — {{ n.timestamp | as_timestamp | timestamp_custom('%H:%M') }}
+  {{ n.body }}
+  _Delivered: {{ n.delivered | join(', ') }}_
+  {% if n.queued %}_Queued: {{ n.queued | join(', ') }}_{% endif %}
+  ---
+  {% endfor %}
+  {% else %}
+  No recent notifications.
+  {% endif %}
+```
+
+**Note:** Sensor data is in-memory only and clears on HA restart. For full history, use the Ticker panel.
 
 ## Uninstalling
 

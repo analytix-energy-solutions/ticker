@@ -14,6 +14,8 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_set_service_schema
 
+from homeassistant.util import dt as dt_util
+
 from .const import (
     DOMAIN,
     SERVICE_NOTIFY,
@@ -31,6 +33,7 @@ from .const import (
     CATEGORY_DEFAULT_NAME,
 )
 from .notify import async_handle_conditional_notification, async_send_notification
+from .sensor import get_category_sensor
 
 if TYPE_CHECKING:
     from . import TickerConfigEntry
@@ -203,6 +206,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             _LOGGER.warning("No person entities found, notification not sent")
             return
 
+        # Accumulate delivery results for sensor update
+        delivery_results: dict[str, list[str]] = {
+            "delivered": [],
+            "queued": [],
+            "dropped": [],
+        }
+
         for person_state in persons:
             person_id = person_state.entity_id
             person_name = person_state.attributes.get("friendly_name", person_id)
@@ -233,16 +243,20 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     reason="Subscription mode: never",
                     notification_id=notification_id,
                 )
+                delivery_results["dropped"].append(f"{person_id}: mode never")
                 continue
 
             if mode == MODE_ALWAYS:
-                await async_send_notification(
-                    hass, store, person_id, person_name, category_id, title, message, data,
-                    notification_id=notification_id,
+                results = await async_send_notification(
+                    hass, store, person_id, person_name, category_id, title, message,
+                    data, notification_id=notification_id,
                 )
+                delivery_results["delivered"].extend(results["delivered"])
+                delivery_results["queued"].extend(results["queued"])
+                delivery_results["dropped"].extend(results["dropped"])
 
             elif mode == MODE_CONDITIONAL:
-                await async_handle_conditional_notification(
+                results = await async_handle_conditional_notification(
                     hass=hass,
                     store=store,
                     person_id=person_id,
@@ -255,6 +269,22 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     expiration=expiration,
                     notification_id=notification_id,
                 )
+                delivery_results["delivered"].extend(results["delivered"])
+                delivery_results["queued"].extend(results["queued"])
+                delivery_results["dropped"].extend(results["dropped"])
+
+        # Update category sensor with notification data
+        sensor = get_category_sensor(hass, category_id)
+        if sensor:
+            sensor.async_add_notification(
+                header=title,
+                body=message,
+                delivered=delivery_results["delivered"],
+                queued=delivery_results["queued"],
+                dropped=delivery_results["dropped"],
+                priority="normal",
+                timestamp=dt_util.utcnow().isoformat(),
+            )
 
     hass.services.async_register(
         DOMAIN,

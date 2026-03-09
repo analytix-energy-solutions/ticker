@@ -7,13 +7,17 @@ import logging
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from .category_user import (
+from .categories import (
     ws_get_categories,
     ws_create_category,
     ws_update_category,
     ws_delete_category,
+)
+from .users import (
     ws_get_users,
     ws_set_user_enabled,
+)
+from .subscriptions import (
     ws_get_subscriptions,
     ws_set_subscription,
 )
