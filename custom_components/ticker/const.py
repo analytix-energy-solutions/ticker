@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -31,6 +31,15 @@ DEVICE_MODE_SELECTED = "selected"
 
 # Default zone for conditional mode
 DEFAULT_CONDITION_ZONE = "zone.home"
+
+# Rule types for F-2 Advanced Conditions
+RULE_TYPE_ZONE = "zone"
+RULE_TYPE_TIME = "time"
+RULE_TYPE_STATE = "state"
+RULE_TYPES = [RULE_TYPE_ZONE, RULE_TYPE_TIME, RULE_TYPE_STATE]
+
+# Days of week (1=Monday, 7=Sunday per ISO 8601)
+WEEKDAYS = list(range(1, 8))
 
 # Legacy modes (for migration from v1)
 LEGACY_MODE_ALWAYS = "ALWAYS"
