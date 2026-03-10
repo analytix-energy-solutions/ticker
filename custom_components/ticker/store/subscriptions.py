@@ -74,19 +74,34 @@ class SubscriptionMixin:
     def get_subscription_mode(
         self, person_id: str, category_id: str
     ) -> str:
-        """Get subscription mode, defaulting to always if not set."""
+        """Get subscription mode, falling back to category default."""
         sub = self.get_subscription(person_id, category_id)
         if sub:
             return sub.get("mode", DEFAULT_SUBSCRIPTION_MODE)
+
+        # Fall back to category default mode
+        category = self._categories.get(category_id)
+        if category and "default_mode" in category:
+            return category["default_mode"]
+
         return DEFAULT_SUBSCRIPTION_MODE
 
     def get_subscription_conditions(
         self, person_id: str, category_id: str
     ) -> dict[str, Any] | None:
-        """Get subscription conditions for conditional mode."""
+        """Get subscription conditions, falling back to category default."""
         sub = self.get_subscription(person_id, category_id)
         if sub and sub.get("mode") == MODE_CONDITIONAL:
             return sub.get("conditions", {})
+
+        # Fall back to category default conditions
+        if not sub:
+            category = self._categories.get(category_id)
+            if (category
+                    and category.get("default_mode") == MODE_CONDITIONAL
+                    and "default_conditions" in category):
+                return category["default_conditions"]
+
         return None
 
     def get_device_override(

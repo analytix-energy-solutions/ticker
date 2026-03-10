@@ -35,10 +35,6 @@ class CategoryMixin:
     _subscriptions: dict[str, dict[str, Any]]
     _category_listeners: list[Callable[[], None]]
 
-    async def async_save_subscriptions(self) -> None:
-        """Save subscriptions to storage."""
-        raise NotImplementedError
-
     async def async_save_categories(self) -> None:
         """Save categories to storage."""
         await self._categories_store.async_save(self._categories)
@@ -79,15 +75,21 @@ class CategoryMixin:
         name: str,
         icon: str | None = None,
         color: str | None = None,
+        default_mode: str | None = None,
+        default_conditions: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new category."""
-        category = {
+        category: dict[str, Any] = {
             "id": category_id,
             "name": name,
             "icon": icon or "mdi:bell",
             "color": color,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
+        if default_mode:
+            category["default_mode"] = default_mode
+        if default_conditions:
+            category["default_conditions"] = default_conditions
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -99,8 +101,15 @@ class CategoryMixin:
         name: str | None = None,
         icon: str | None = None,
         color: str | None = None,
+        default_mode: str | None = None,
+        default_conditions: dict[str, Any] | None = None,
+        clear_defaults: bool = False,
     ) -> dict[str, Any] | None:
-        """Update an existing category."""
+        """Update an existing category.
+
+        Args:
+            clear_defaults: If True, remove default_mode and default_conditions.
+        """
         if category_id not in self._categories:
             return None
 
@@ -112,6 +121,15 @@ class CategoryMixin:
             category["icon"] = icon
         if color is not None:
             category["color"] = color
+
+        if clear_defaults:
+            category.pop("default_mode", None)
+            category.pop("default_conditions", None)
+        else:
+            if default_mode is not None:
+                category["default_mode"] = default_mode
+            if default_conditions is not None:
+                category["default_conditions"] = default_conditions
 
         category["updated_at"] = datetime.now(timezone.utc).isoformat()
 

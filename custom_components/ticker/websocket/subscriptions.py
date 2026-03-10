@@ -234,12 +234,16 @@ def _validate_conditions(
             if validation_error:
                 return validation_error
 
-        # Ensure at least one action is set per rule
-        if not rule.get("deliver_when_met") and not rule.get("queue_until_met"):
+    # Validate conditions-level action flags (deliver/queue apply to the
+    # entire ruleset, not individual rules)
+    if rules:
+        has_deliver = conditions.get("deliver_when_met", False)
+        has_queue = conditions.get("queue_until_met", False)
+        if not has_deliver and not has_queue:
             return (
                 msg_id,
                 "invalid_rule_actions",
-                f"Rule {idx}: At least one of 'deliver_when_met' or "
+                "At least one of 'deliver_when_met' or "
                 "'queue_until_met' must be true",
             )
 

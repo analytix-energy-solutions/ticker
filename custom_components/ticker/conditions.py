@@ -235,11 +235,8 @@ def should_deliver_now(
         # No rules = always deliver (fallback behavior)
         return True, "No conditions configured"
 
-    # Check for deliver_when_met at conditions level first (new format)
-    # Fall back to checking per-rule flags (legacy format)
+    # Check for deliver_when_met at conditions level
     has_deliver = conditions.get("deliver_when_met", False)
-    if not has_deliver:
-        has_deliver = any(rule.get("deliver_when_met", False) for rule in rules)
 
     if not has_deliver:
         return False, "Delivery not enabled for these conditions"
@@ -283,11 +280,8 @@ def should_queue(
     if not rules:
         return False, "No conditions configured"
 
-    # Check for queue_until_met at conditions level first (new format)
-    # Fall back to checking per-rule flags (legacy format)
+    # Check for queue_until_met at conditions level
     has_queue = conditions.get("queue_until_met", False)
-    if not has_queue:
-        has_queue = any(rule.get("queue_until_met", False) for rule in rules)
 
     if not has_queue:
         return False, "Queueing not enabled for these conditions"
@@ -303,14 +297,16 @@ def should_queue(
 
 
 def get_queue_triggers(
-    rules: list[dict[str, Any]],
+    conditions: dict[str, Any],
 ) -> dict[str, Any]:
     """Extract triggers needed for queue release monitoring.
 
-    Returns entities and time windows that should trigger re-evaluation.
+    Only returns triggers if queue_until_met is enabled at conditions level.
+    All rules contribute triggers since AND logic means any rule becoming
+    met could complete the set.
 
     Args:
-        rules: List of rule dicts
+        conditions: Conditions dict with 'rules' and 'queue_until_met'
 
     Returns:
         Dict with 'zones', 'entities', 'time_windows' keys
@@ -321,10 +317,14 @@ def get_queue_triggers(
         "time_windows": [],
     }
 
-    for rule in rules:
-        if not rule.get("queue_until_met", False):
-            continue
+    # Only collect triggers if queueing is enabled
+    if not conditions.get("queue_until_met", False):
+        triggers["zones"] = []
+        triggers["entities"] = []
+        return triggers
 
+    rules = conditions.get("rules", [])
+    for rule in rules:
         rule_type = rule.get("type", "")
 
         if rule_type == RULE_TYPE_ZONE:
@@ -357,8 +357,8 @@ def get_queue_triggers(
 
 def convert_legacy_zones_to_rules(
     zones_config: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Convert legacy zones format to rules format.
+) -> dict[str, Any]:
+    """Convert legacy zones format to new conditions format.
 
     Legacy format:
         {
@@ -368,34 +368,45 @@ def convert_legacy_zones_to_rules(
             }
         }
 
-    New rules format:
-        [
-            {
-                "type": "zone",
-                "zone_id": "zone.home",
-                "deliver_when_met": True,
-                "queue_until_met": True
-            }
-        ]
+    New conditions format:
+        {
+            "deliver_when_met": True,
+            "queue_until_met": True,
+            "rules": [
+                {"type": "zone", "zone_id": "zone.home"}
+            ]
+        }
+
+    Since legacy format only had zone conditions, the per-zone flags
+    are promoted to conditions-level (1:1 conversion).
 
     Args:
         zones_config: Legacy zones dict
 
     Returns:
-        List of rule dicts in new format
+        Complete conditions dict with rules and top-level flags
     """
     rules = []
+    has_deliver = False
+    has_queue = False
 
     for zone_id, zone_config in zones_config.items():
+        if zone_config.get("deliver_while_here", False):
+            has_deliver = True
+        if zone_config.get("queue_until_arrival", False):
+            has_queue = True
+
         rule = {
             "type": RULE_TYPE_ZONE,
             "zone_id": zone_id,
-            "deliver_when_met": zone_config.get("deliver_while_here", False),
-            "queue_until_met": zone_config.get("queue_until_arrival", False),
         }
         rules.append(rule)
 
-    return rules
+    return {
+        "deliver_when_met": has_deliver,
+        "queue_until_met": has_queue,
+        "rules": rules,
+    }
 
 
 def has_valid_rules(conditions: dict[str, Any] | None) -> bool:
@@ -405,19 +416,15 @@ def has_valid_rules(conditions: dict[str, Any] | None) -> bool:
         conditions: Conditions dict with 'rules' key
 
     Returns:
-        True if deliver_when_met or queue_until_met is enabled
-               (at conditions level or in any rule)
+        True if rules exist and deliver_when_met or queue_until_met is
+        enabled at conditions level.
     """
     if not conditions:
         return False
 
-    # Check conditions-level flags first (new format)
-    if conditions.get("deliver_when_met") or conditions.get("queue_until_met"):
-        return bool(conditions.get("rules", []))
-
     rules = conditions.get("rules", [])
     if not rules:
-        # Check legacy zones format
+        # Check legacy zones format (pre-migration data)
         zones = conditions.get("zones", {})
         if zones:
             for zone_config in zones.values():
@@ -425,9 +432,8 @@ def has_valid_rules(conditions: dict[str, Any] | None) -> bool:
                     return True
         return False
 
-    # Check per-rule flags (legacy format)
-    for rule in rules:
-        if rule.get("deliver_when_met") or rule.get("queue_until_met"):
-            return True
-
-    return False
+    # Conditions-level flags (current format)
+    return bool(
+        conditions.get("deliver_when_met")
+        or conditions.get("queue_until_met")
+    )

@@ -39,14 +39,6 @@ class MigrationMixin:
     _subscriptions: dict[str, dict[str, Any]]
     _users: dict[str, dict[str, Any]]
 
-    async def async_save_subscriptions(self) -> None:
-        """Save subscriptions to storage."""
-        raise NotImplementedError
-
-    async def async_save_users(self) -> None:
-        """Save users to storage."""
-        raise NotImplementedError
-
     async def _async_migrate_subscriptions(self) -> int:
         """Migrate subscriptions from v1 to v2 format.
 
@@ -130,6 +122,56 @@ class MigrationMixin:
 
         return migrated_count
 
+    async def _async_migrate_rule_flags_to_conditions(self) -> int:
+        """Migrate deliver/queue flags from per-rule to conditions level.
+
+        Previously, each rule had its own deliver_when_met/queue_until_met.
+        Now these flags live at the conditions level (apply to the entire
+        ruleset). This migrates already-converted rules data.
+
+        Returns count of migrated subscriptions.
+        """
+        migrated_count = 0
+
+        for key, sub in self._subscriptions.items():
+            if sub.get("mode") != MODE_CONDITIONAL:
+                continue
+
+            conditions = sub.get("conditions", {})
+            rules = conditions.get("rules", [])
+            if not rules:
+                continue
+
+            # Skip if conditions-level flags already exist
+            if "deliver_when_met" in conditions:
+                continue
+
+            # Promote per-rule flags to conditions level
+            has_deliver = any(
+                rule.get("deliver_when_met", False) for rule in rules
+            )
+            has_queue = any(
+                rule.get("queue_until_met", False) for rule in rules
+            )
+            conditions["deliver_when_met"] = has_deliver
+            conditions["queue_until_met"] = has_queue
+
+            # Strip per-rule flags
+            for rule in rules:
+                rule.pop("deliver_when_met", None)
+                rule.pop("queue_until_met", None)
+
+            migrated_count += 1
+            _LOGGER.debug(
+                "Migrated subscription %s flags to conditions level",
+                key,
+            )
+
+        if migrated_count > 0:
+            await self.async_save_subscriptions()
+
+        return migrated_count
+
     async def _async_migrate_conditions_to_rules(self) -> int:
         """Migrate conditions from zones format to rules format (F-2).
 
@@ -168,9 +210,8 @@ class MigrationMixin:
             if not zones:
                 continue
 
-            # Convert to rules format
-            rules = convert_legacy_zones_to_rules(zones)
-            sub["conditions"] = {"rules": rules}
+            # Convert to new conditions format with top-level flags
+            sub["conditions"] = convert_legacy_zones_to_rules(zones)
             migrated_count += 1
 
             _LOGGER.debug(

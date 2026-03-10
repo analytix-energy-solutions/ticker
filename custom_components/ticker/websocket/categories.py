@@ -51,6 +51,8 @@ async def ws_get_categories(
         vol.Required("name"): str,
         vol.Optional("icon"): str,
         vol.Optional("color"): str,
+        vol.Optional("default_mode"): vol.In(["always", "conditional"]),
+        vol.Optional("default_conditions"): dict,
     }
 )
 @websocket_api.async_response
@@ -97,11 +99,16 @@ async def ws_create_category(
         )
         return
 
+    default_mode = msg.get("default_mode")
+    default_conditions = msg.get("default_conditions")
+
     category = await store.async_create_category(
         category_id=category_id,
         name=name,
         icon=icon,
         color=color,
+        default_mode=default_mode,
+        default_conditions=default_conditions,
     )
 
     connection.send_result(msg["id"], {"category": category})
@@ -114,6 +121,8 @@ async def ws_create_category(
         vol.Optional("name"): str,
         vol.Optional("icon"): str,
         vol.Optional("color"): vol.Any(str, None),
+        vol.Optional("default_mode"): vol.Any(vol.In(["always", "conditional"]), None),
+        vol.Optional("default_conditions"): vol.Any(dict, None),
     }
 )
 @websocket_api.async_response
@@ -166,11 +175,19 @@ async def ws_update_category(
             connection.send_error(msg["id"], "invalid_color", error)
             return
 
+    default_mode = msg.get("default_mode")
+    default_conditions = msg.get("default_conditions")
+    # clear_defaults when default_mode is explicitly set to None
+    clear_defaults = "default_mode" in msg and msg["default_mode"] is None
+
     category = await store.async_update_category(
         category_id=category_id,
         name=name,
         icon=icon,
         color=color,
+        default_mode=default_mode,
+        default_conditions=default_conditions,
+        clear_defaults=clear_defaults,
     )
 
     # Update service schema if name changed

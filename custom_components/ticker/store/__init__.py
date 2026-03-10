@@ -101,6 +101,14 @@ class TickerStore(
                     "Migrated %d subscriptions to rules format", migrated_rules
                 )
 
+            # Migrate per-rule flags to conditions level
+            migrated_flags = await self._async_migrate_rule_flags_to_conditions()
+            if migrated_flags:
+                _LOGGER.info(
+                    "Migrated %d subscriptions flags to conditions level",
+                    migrated_flags,
+                )
+
         users_data = await self._users_store.async_load()
         self._users = users_data if users_data else {}
 

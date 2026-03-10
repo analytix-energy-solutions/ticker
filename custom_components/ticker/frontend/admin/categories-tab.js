@@ -88,6 +88,9 @@ window.Ticker.AdminCategoriesTab = {
       return `<div class="list-item">${header}</div>`;
     }
 
+    const defaultMode = c.default_mode || 'always';
+    const hasDefaultConditions = defaultMode === 'conditional';
+
     const accordion = `
       <div class="accordion-content">
         <div class="form-row" style="padding-top:12px">
@@ -103,6 +106,25 @@ window.Ticker.AdminCategoriesTab = {
             <label>Color</label>
             <input type="color" id="edit-color-${escId}" value="${escColor}">
           </div>
+        </div>
+        <div style="padding-top:12px;border-top:1px solid var(--divider,#e0e0e0);margin-top:12px">
+          <div class="form-group">
+            <label>Default subscription mode</label>
+            <select id="edit-default-mode-${escId}" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)"
+              onchange="window.Ticker.AdminCategoriesTab.handlers.defaultModeChanged(window.Ticker._adminPanel, '${escId}', this.value)">
+              <option value="always" ${defaultMode === 'always' ? 'selected' : ''}>Always</option>
+              <option value="conditional" ${defaultMode === 'conditional' ? 'selected' : ''}>Conditional</option>
+            </select>
+            <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:4px">
+              Pre-populates for new users. Users can change this afterwards.
+            </div>
+          </div>
+          ${hasDefaultConditions ? `
+            <div class="form-group" style="margin-top:8px">
+              <label>Default conditions</label>
+              <ticker-conditions-ui id="cat-conditions-ui-${escId}"></ticker-conditions-ui>
+            </div>
+          ` : ''}
         </div>
         <div class="button-row">
           <button class="btn btn-primary" onclick="window.Ticker.AdminCategoriesTab.handlers.save(window.Ticker._adminPanel, '${escId}')">Save</button>
@@ -206,6 +228,27 @@ window.Ticker.AdminCategoriesTab = {
     cancelEdit(panel) {
       panel._editingCategory = null;
       panel._addingCategory = false;
+      panel._pendingDefaultConditions = null;
+      panel._renderTabContent();
+    },
+
+    defaultModeChanged(panel, categoryId, mode) {
+      // Update the category object temporarily for re-render
+      const cat = panel._categories.find(c => c.id === categoryId);
+      if (cat) {
+        cat.default_mode = mode;
+        if (mode === 'conditional' && !cat.default_conditions) {
+          // Set initial default conditions
+          cat.default_conditions = {
+            deliver_when_met: true,
+            queue_until_met: true,
+            rules: [{ type: 'zone', zone_id: 'zone.home' }],
+          };
+          panel._pendingDefaultConditions = cat.default_conditions;
+        } else if (mode === 'always') {
+          panel._pendingDefaultConditions = null;
+        }
+      }
       panel._renderTabContent();
     },
 
@@ -247,6 +290,8 @@ window.Ticker.AdminCategoriesTab = {
       const name = panel.shadowRoot.getElementById(`edit-name-${categoryId}`)?.value?.trim();
       const icon = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`)?.value?.trim();
       const color = panel.shadowRoot.getElementById(`edit-color-${categoryId}`)?.value || null;
+      const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
+      const defaultMode = defaultModeEl?.value || 'always';
 
       if (!name) {
         panel._showError('Name required');
@@ -254,14 +299,25 @@ window.Ticker.AdminCategoriesTab = {
       }
 
       try {
-        await panel._hass.callWS({
+        const params = {
           type: 'ticker/category/update',
           category_id: categoryId,
           name: name,
           icon: icon,
           color: color,
-        });
+        };
+
+        if (defaultMode === 'conditional') {
+          params.default_mode = 'conditional';
+          params.default_conditions = panel._pendingDefaultConditions || null;
+        } else {
+          // Clear defaults by sending null
+          params.default_mode = null;
+        }
+
+        await panel._hass.callWS(params);
         panel._editingCategory = null;
+        panel._pendingDefaultConditions = null;
         await panel._loadCategories();
         panel._renderTabContent();
         panel._showSuccess('Updated');

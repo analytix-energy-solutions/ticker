@@ -170,7 +170,8 @@ window.Ticker.UserSubscriptionsTab = {
 
     const escCatId = escAttr(cat.id);
     const escCatName = esc(cat.name || cat.id);
-    const sub = subscriptions[cat.id] || { mode: 'always' };
+    // Fall back to category defaults if no explicit subscription
+    const sub = subscriptions[cat.id] || this._getCategoryDefault(cat);
     const currentMode = sub.mode || 'always';
     const isConditional = currentMode === 'conditional';
     const isAlways = currentMode === 'always';
@@ -294,21 +295,36 @@ window.Ticker.UserSubscriptionsTab = {
   },
 
   /**
+   * Build a default subscription from category defaults.
+   * Used when user has no explicit subscription yet.
+   */
+  _getCategoryDefault(cat) {
+    if (cat.default_mode) {
+      const sub = { mode: cat.default_mode };
+      if (cat.default_mode === 'conditional' && cat.default_conditions) {
+        sub.conditions = cat.default_conditions;
+      }
+      return sub;
+    }
+    return { mode: 'always' };
+  },
+
+  /**
    * Get rules from conditions (with legacy zones conversion).
+   * Note: deliver_when_met/queue_until_met live at conditions level,
+   * not per-rule. Legacy zones are converted to rule objects only.
    */
   _getSubscriptionRules(conditions) {
     if (conditions.rules && conditions.rules.length > 0) {
       return conditions.rules;
     }
 
-    // Convert legacy zones format
+    // Convert legacy zones format (rules only, flags are at conditions level)
     const zones = conditions.zones || {};
     if (Object.keys(zones).length > 0) {
       return Object.entries(zones).map(([zoneId, config]) => ({
         type: 'zone',
         zone_id: zoneId,
-        deliver_when_met: config.deliver_while_here || false,
-        queue_until_met: config.queue_until_arrival || false,
       }));
     }
 
@@ -393,17 +409,52 @@ window.Ticker.UserSubscriptionsTab = {
     /**
      * Save rules without triggering a full re-render.
      * This preserves the conditions UI expanded state.
+     * Incomplete rules (e.g. state rules missing entity_id/state)
+     * are kept in local state but excluded from the backend call.
      */
     async _saveRulesWithoutRerender(panel, categoryId, conditions, deviceOverride) {
       if (!panel._currentPerson) return;
 
+      // Filter out incomplete rules for backend validation
+      const validRules = (conditions.rules || []).filter(rule => {
+        if (rule.type === 'state') {
+          return rule.entity_id && rule.state;
+        }
+        if (rule.type === 'zone') {
+          return !!rule.zone_id;
+        }
+        if (rule.type === 'time') {
+          return rule.after && rule.before;
+        }
+        return true;
+      });
+
+      // Always update local state with full rules (including incomplete)
+      if (!panel._subscriptions[categoryId]) {
+        panel._subscriptions[categoryId] = {};
+      }
+      panel._subscriptions[categoryId].mode = 'conditional';
+      panel._subscriptions[categoryId].conditions = conditions;
+      if (deviceOverride !== null) {
+        panel._subscriptions[categoryId].device_override = deviceOverride;
+      }
+
+      // Skip backend save if no complete rules yet
+      if (validRules.length === 0) return;
+
       try {
+        const saveConditions = {
+          deliver_when_met: conditions.deliver_when_met,
+          queue_until_met: conditions.queue_until_met,
+          rules: validRules,
+        };
+
         const params = {
           type: 'ticker/subscription/set',
           person_id: panel._currentPerson.person_id,
           category_id: categoryId,
           mode: 'conditional',
-          conditions: conditions,
+          conditions: saveConditions,
         };
 
         if (deviceOverride !== null) {
@@ -411,18 +462,6 @@ window.Ticker.UserSubscriptionsTab = {
         }
 
         await panel._hass.callWS(params);
-
-        // Update local state without re-render
-        if (!panel._subscriptions[categoryId]) {
-          panel._subscriptions[categoryId] = {};
-        }
-        panel._subscriptions[categoryId].mode = 'conditional';
-        panel._subscriptions[categoryId].conditions = conditions;
-        if (deviceOverride !== null) {
-          panel._subscriptions[categoryId].device_override = deviceOverride;
-        }
-
-        // Show subtle success feedback without re-render
         panel._showSuccess('Saved');
       } catch (err) {
         panel._showError(err.message || 'Failed to save');

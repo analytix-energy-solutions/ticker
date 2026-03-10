@@ -369,12 +369,15 @@ class TickerPanel extends HTMLElement {
     }
   }
 
-  async _loadEntities() {
+  _loadEntities() {
     try {
-      const result = await this._hass.callWS({ type: 'ticker/entities' });
-      this._entities = result.entities || [];
+      const states = this._hass.states;
+      this._entities = Object.keys(states).map(entityId => ({
+        entity_id: entityId,
+        name: states[entityId].attributes.friendly_name || entityId,
+      })).sort((a, b) => a.name.localeCompare(b.name));
     } catch (err) {
-      // Entity endpoint may not exist yet
+      console.error('Failed to load entities:', err);
       this._entities = [];
     }
   }
@@ -533,7 +536,8 @@ class TickerPanel extends HTMLElement {
 
   _setupConditionsUI() {
     for (const cat of this._categories) {
-      const sub = this._subscriptions[cat.id] || { mode: 'always' };
+      const sub = this._subscriptions[cat.id]
+        || window.Ticker.UserSubscriptionsTab._getCategoryDefault(cat);
       const isConditional = sub.mode === 'conditional';
       const isExpanded = this._expandedCategories.has(cat.id);
 

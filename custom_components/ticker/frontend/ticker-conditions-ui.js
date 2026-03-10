@@ -134,12 +134,14 @@ class TickerConditionsUI extends HTMLElement {
     this._render();
   }
 
-  _updateRule(index, field, value) {
+  _updateRule(index, field, value, skipRender = false) {
     const rule = { ...this._rules[index] };
     rule[field] = value;
     this._rules = this._rules.map((r, i) => i === index ? rule : r);
     this._dispatchRulesChanged();
-    this._render();
+    if (!skipRender) {
+      this._render();
+    }
   }
 
   _toggleDay(index, day) {
@@ -200,6 +202,60 @@ class TickerConditionsUI extends HTMLElement {
     } else {
       // Debounce by 400ms to allow for multiple rapid changes
       this._dispatchTimer = setTimeout(dispatch, 400);
+    }
+  }
+
+  /**
+   * Handle entity input: update rule data, filter datalist in-place.
+   * Filters entities client-side and only populates the datalist
+   * with the top 20 matches for performance.
+   * Also updates the state select when the entity domain changes.
+   */
+  _onEntityInput(index, value) {
+    // Track domain before update for state select refresh
+    const oldDomain = (this._rules[index].entity_id || '').split('.')[0];
+
+    // Update rule data without re-render
+    this._updateRule(index, 'entity_id', value, true);
+
+    // Filter entities and update datalist directly
+    const datalist = this.shadowRoot.getElementById(`entity-list-${index}`);
+    if (datalist) {
+      if (!value || value.length < 2) {
+        datalist.innerHTML = '';
+      } else {
+        const query = value.toLowerCase();
+        const matches = [];
+        for (let i = 0; i < this._entities.length && matches.length < 20; i++) {
+          const e = this._entities[i];
+          if (e.entity_id.toLowerCase().includes(query) ||
+              (e.name && e.name.toLowerCase().includes(query))) {
+            matches.push(e);
+          }
+        }
+        datalist.innerHTML = matches.map(e =>
+          `<option value="${this._escAttr(e.entity_id)}">${this._esc(e.name || e.entity_id)}</option>`
+        ).join('');
+      }
+    }
+
+    // Refresh state select if domain changed
+    const newDomain = (value || '').split('.')[0];
+    if (newDomain !== oldDomain) {
+      const stateSelect = this.shadowRoot.getElementById(`state-select-${index}`);
+      if (stateSelect) {
+        const suggestions = this._getStateSuggestions(value);
+        const currentState = this._rules[index].state || '';
+        const hasCurrentInList = !currentState || suggestions.includes(currentState);
+        let html = '<option value="">Select state...</option>';
+        if (currentState && !hasCurrentInList) {
+          html += `<option value="${this._escAttr(currentState)}" selected>${this._esc(currentState)}</option>`;
+        }
+        html += suggestions.map(s =>
+          `<option value="${this._escAttr(s)}" ${s === currentState ? 'selected' : ''}>${this._esc(s)}</option>`
+        ).join('');
+        stateSelect.innerHTML = html;
+      }
     }
   }
 
@@ -646,37 +702,41 @@ class TickerConditionsUI extends HTMLElement {
         </div>
       `;
     } else if (rule.type === 'state') {
-      // Build entity options for datalist
-      const entityOptions = this._entities.map(e =>
-        `<option value="${this._escAttr(e.entity_id)}">${this._esc(e.name || e.entity_id)}</option>`
-      ).join('');
-
       // Get state suggestions based on entity domain
       const stateSuggestions = this._getStateSuggestions(rule.entity_id);
-      const stateOptions = stateSuggestions.map(s =>
-        `<option value="${this._escAttr(s)}">${this._esc(s)}</option>`
+      const currentState = rule.state || '';
+      const stateSelectOptions = stateSuggestions.map(s =>
+        `<option value="${this._escAttr(s)}" ${s === currentState ? 'selected' : ''}>${this._esc(s)}</option>`
       ).join('');
+      // Include current value as option if not in suggestions (custom state)
+      const hasCurrentInList = !currentState || stateSuggestions.includes(currentState);
+      const customOption = !hasCurrentInList
+        ? `<option value="${this._escAttr(currentState)}" selected>${this._esc(currentState)}</option>`
+        : '';
 
+      // Entity datalist starts empty — populated on input via _onEntityInput
       return `
         <div class="rule-content">
           <div class="form-row">
             <div class="form-group" style="flex:2">
               <label class="form-label">Entity</label>
               <input type="text" class="form-input" list="entity-list-${index}"
+                id="entity-input-${index}"
                 placeholder="Start typing to search..."
                 value="${this._escAttr(rule.entity_id || '')}"
-                oninput="this.getRootNode().host._updateRule(${index}, 'entity_id', this.value)"
+                oninput="this.getRootNode().host._onEntityInput(${index}, this.value)"
                 ${disabledAttr}>
-              <datalist id="entity-list-${index}">${entityOptions}</datalist>
+              <datalist id="entity-list-${index}"></datalist>
             </div>
             <div class="form-group" style="flex:1">
               <label class="form-label">State</label>
-              <input type="text" class="form-input" list="state-list-${index}"
-                placeholder="${stateSuggestions.length > 0 ? stateSuggestions[0] : 'on, off, etc.'}"
-                value="${this._escAttr(rule.state || '')}"
-                oninput="this.getRootNode().host._updateRule(${index}, 'state', this.value)"
+              <select class="form-select" id="state-select-${index}"
+                onchange="this.getRootNode().host._updateRule(${index}, 'state', this.value)"
                 ${disabledAttr}>
-              <datalist id="state-list-${index}">${stateOptions}</datalist>
+                <option value=""${!currentState ? ' selected' : ''}>Select state...</option>
+                ${customOption}
+                ${stateSelectOptions}
+              </select>
             </div>
           </div>
         </div>

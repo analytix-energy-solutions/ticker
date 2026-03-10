@@ -25,6 +25,8 @@ class TickerAdminPanel extends HTMLElement {
     this._queue = [];
     this._logs = [];
     this._logStats = {};
+    this._zones = [];
+    this._entities = [];
 
     // UI state
     this._expandedUsers = new Set();
@@ -69,6 +71,7 @@ class TickerAdminPanel extends HTMLElement {
     const scripts = [
       `${base}/ticker-utils.js`,
       `${base}/ticker-styles.js`,
+      `${base}/ticker-conditions-ui.js`,
       `${base}/admin/categories-tab.js`,
       `${base}/admin/users-tab.js`,
       `${base}/admin/queue-tab.js`,
@@ -197,6 +200,46 @@ class TickerAdminPanel extends HTMLElement {
     }
 
     this._els.content.innerHTML = html;
+
+    // Post-render: set up conditions UI components in categories tab
+    if (this._activeTab === 'categories') {
+      this._setupCategoryConditionsUI();
+    }
+  }
+
+  /**
+   * Wire up conditions UI components for category default conditions.
+   */
+  _setupCategoryConditionsUI() {
+    const editId = this._editingCategory;
+    if (!editId) return;
+
+    const cat = this._categories.find(c => c.id === editId);
+    if (!cat) return;
+
+    const conditionsUI = this.shadowRoot.getElementById(`cat-conditions-ui-${editId}`);
+    if (!conditionsUI) return;
+
+    const conditions = cat.default_conditions || {};
+    const rules = conditions.rules || [];
+
+    conditionsUI.rules = rules;
+    conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
+    conditionsUI.queueUntilMet = conditions.queue_until_met || false;
+    conditionsUI.zones = this._zones;
+    conditionsUI.entities = this._entities;
+
+    // Listen for changes
+    conditionsUI.removeEventListener('rules-changed', conditionsUI._rulesHandler);
+    conditionsUI._rulesHandler = (e) => {
+      // Store temporarily on the panel for the save handler to pick up
+      this._pendingDefaultConditions = {
+        deliver_when_met: e.detail.deliver_when_met,
+        queue_until_met: e.detail.queue_until_met,
+        rules: e.detail.rules,
+      };
+    };
+    conditionsUI.addEventListener('rules-changed', conditionsUI._rulesHandler);
   }
 
   /**
@@ -211,6 +254,8 @@ class TickerAdminPanel extends HTMLElement {
       queue: this._queue,
       logs: this._logs,
       logStats: this._logStats,
+      zones: this._zones,
+      entities: this._entities,
       expandedUsers: this._expandedUsers,
       editingCategory: this._editingCategory,
       addingCategory: this._addingCategory,
@@ -232,6 +277,8 @@ class TickerAdminPanel extends HTMLElement {
       this._loadQueue(),
       this._loadLogs(),
       this._loadLogStats(),
+      this._loadZones(),
+      this._loadEntities(),
     ]);
     this._renderTabs();
   }
@@ -293,6 +340,29 @@ class TickerAdminPanel extends HTMLElement {
       this._logStats = result.stats || {};
     } catch (err) {
       console.error('[Ticker] Failed to load log stats:', err);
+    }
+  }
+
+  async _loadZones() {
+    try {
+      const result = await this._hass.callWS({ type: 'ticker/zones' });
+      this._zones = result.zones || [];
+    } catch (err) {
+      console.error('[Ticker] Failed to load zones:', err);
+      this._zones = [];
+    }
+  }
+
+  _loadEntities() {
+    try {
+      const states = this._hass.states;
+      this._entities = Object.keys(states).map(entityId => ({
+        entity_id: entityId,
+        name: states[entityId].attributes.friendly_name || entityId,
+      })).sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      console.error('[Ticker] Failed to load entities:', err);
+      this._entities = [];
     }
   }
 

@@ -97,7 +97,7 @@ class ConditionListenerManager:
             if not rules:
                 continue
 
-            triggers = get_queue_triggers(rules)
+            triggers = get_queue_triggers(conditions)
 
             # Collect entity triggers
             for entity_id in triggers.get("entities", []):
