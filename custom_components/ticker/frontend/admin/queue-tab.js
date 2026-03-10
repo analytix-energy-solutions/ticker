@@ -101,7 +101,8 @@ window.Ticker.AdminQueueTab = {
           person_id: personId,
         });
         await panel._loadQueue();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
         panel._showSuccess('Cleared');
       } catch (err) {
         panel._showError(err.message);
@@ -115,7 +116,8 @@ window.Ticker.AdminQueueTab = {
           queue_id: queueId,
         });
         await panel._loadQueue();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
       } catch (err) {
         panel._showError(err.message);
       }

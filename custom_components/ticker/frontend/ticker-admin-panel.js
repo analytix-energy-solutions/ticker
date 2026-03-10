@@ -43,6 +43,10 @@ class TickerAdminPanel extends HTMLElement {
     // DOM cache
     this._els = {};
     this._dependenciesLoaded = false;
+
+    // BUG-040: Scroll preservation
+    this._scrollPositions = {};
+    this._pendingScrollRestore = null;
   }
 
   set hass(hass) {
@@ -169,8 +173,24 @@ class TickerAdminPanel extends HTMLElement {
    * @param {string} tabId - Tab identifier
    */
   _switchTab(tabId) {
+    // BUG-040: Save scroll position of current tab before switching
+    if (this._els && this._els.content) {
+      this._scrollPositions[this._activeTab] = this._els.content.scrollTop;
+    }
     this._activeTab = tabId;
+    // Schedule scroll restoration after render
+    this._pendingScrollRestore = this._scrollPositions[tabId] || 0;
     this._renderTabs();
+    this._renderTabContent();
+  }
+
+  /**
+   * BUG-040: Re-render tab content while preserving scroll position.
+   * Use this for same-tab updates like user expansion.
+   */
+  _renderTabContentPreserveScroll() {
+    const scrollTop = this._els?.content?.scrollTop || 0;
+    this._pendingScrollRestore = scrollTop;
     this._renderTabContent();
   }
 
@@ -200,6 +220,12 @@ class TickerAdminPanel extends HTMLElement {
     }
 
     this._els.content.innerHTML = html;
+
+    // BUG-040: Restore scroll position if pending
+    if (this._pendingScrollRestore !== null && this._els.content) {
+      this._els.content.scrollTop = this._pendingScrollRestore;
+      this._pendingScrollRestore = null;
+    }
 
     // Post-render: set up conditions UI components in categories tab
     if (this._activeTab === 'categories') {

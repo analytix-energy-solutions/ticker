@@ -143,7 +143,8 @@ window.Ticker.AdminLogsTab = {
           type: 'ticker/logs/clear',
         });
         await Promise.all([panel._loadLogs(), panel._loadLogStats()]);
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
         panel._showSuccess('Cleared');
       } catch (err) {
         panel._showError(err.message);

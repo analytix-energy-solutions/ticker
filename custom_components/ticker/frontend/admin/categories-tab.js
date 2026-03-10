@@ -216,20 +216,23 @@ window.Ticker.AdminCategoriesTab = {
     toggleAdd(panel) {
       panel._addingCategory = !panel._addingCategory;
       panel._editingCategory = null;
-      panel._renderTabContent();
+      // BUG-040: Preserve scroll position during same-tab update
+      panel._renderTabContentPreserveScroll();
     },
 
     startEdit(panel, categoryId) {
       panel._editingCategory = panel._editingCategory === categoryId ? null : categoryId;
       panel._addingCategory = false;
-      panel._renderTabContent();
+      // BUG-040: Preserve scroll position during same-tab update
+      panel._renderTabContentPreserveScroll();
     },
 
     cancelEdit(panel) {
       panel._editingCategory = null;
       panel._addingCategory = false;
       panel._pendingDefaultConditions = null;
-      panel._renderTabContent();
+      // BUG-040: Preserve scroll position during same-tab update
+      panel._renderTabContentPreserveScroll();
     },
 
     defaultModeChanged(panel, categoryId, mode) {
@@ -249,7 +252,8 @@ window.Ticker.AdminCategoriesTab = {
           panel._pendingDefaultConditions = null;
         }
       }
-      panel._renderTabContent();
+      // BUG-040: Preserve scroll position during same-tab update
+      panel._renderTabContentPreserveScroll();
     },
 
     async create(panel) {
@@ -279,7 +283,8 @@ window.Ticker.AdminCategoriesTab = {
         });
         panel._addingCategory = false;
         await panel._loadCategories();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
         panel._showSuccess('Category created');
       } catch (err) {
         panel._showError(err.message);
@@ -319,7 +324,8 @@ window.Ticker.AdminCategoriesTab = {
         panel._editingCategory = null;
         panel._pendingDefaultConditions = null;
         await panel._loadCategories();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
         panel._showSuccess('Updated');
       } catch (err) {
         panel._showError(err.message);
@@ -335,7 +341,8 @@ window.Ticker.AdminCategoriesTab = {
           category_id: categoryId,
         });
         await panel._loadCategories();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
       } catch (err) {
         panel._showError(err.message);
       }

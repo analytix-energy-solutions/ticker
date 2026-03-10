@@ -225,7 +225,7 @@ window.Ticker.UserSubscriptionsTab = {
       : '';
 
     return `
-      <div class="subscription-item">
+      <div class="subscription-item" data-category-id="${escCatId}">
         <div class="subscription-header ${isExpanded ? 'expanded' : ''}" ${headerClick}>
           <div class="subscription-label">
             ${showExpand ? `<span class="chevron ${isExpanded ? 'expanded' : ''}">▶</span>` : ''}
@@ -378,7 +378,7 @@ window.Ticker.UserSubscriptionsTab = {
 
         await panel._hass.callWS(params);
         await panel._loadSubscriptions();
-        panel._renderTabContent();
+        panel._renderTabContentPreserveScroll();
         panel._showSuccess('Subscription updated');
       } catch (err) {
         panel._showError(err.message || 'Failed to update subscription');
@@ -469,12 +469,29 @@ window.Ticker.UserSubscriptionsTab = {
     },
 
     toggleCategoryExpand(panel, categoryId) {
+      const shadowRoot = panel.shadowRoot;
+      const item = shadowRoot.querySelector(`[data-category-id="${categoryId}"]`)
+        || shadowRoot.querySelector(`.subscription-item:has([onclick*="${categoryId}"])`);
+
       if (panel._expandedCategories.has(categoryId)) {
+        // Collapse: remove expandable content via targeted DOM update
         panel._expandedCategories.delete(categoryId);
+        if (item) {
+          const content = item.querySelector('.conditional-content');
+          const header = item.querySelector('.subscription-header');
+          if (content) content.remove();
+          if (header) header.classList.remove('expanded');
+          const chevron = header?.querySelector('.chevron');
+          if (chevron) chevron.classList.remove('expanded');
+        } else {
+          panel._renderTabContentPreserveScroll();
+        }
       } else {
+        // Expand: insert expandable content via targeted DOM update
         panel._expandedCategories.add(categoryId);
+        // For expansion, we need to render the content - use scroll-preserving render
+        panel._renderTabContentPreserveScroll();
       }
-      panel._renderTabContent();
     },
 
     async toggleDeviceOverride(panel, categoryId) {
@@ -519,7 +536,32 @@ window.Ticker.UserSubscriptionsTab = {
         panel._devicePrefDevices = [];
       }
       panel._devicePrefDirty = true;
-      panel._renderTabContent();
+
+      // BUG-040: Targeted DOM update for device list visibility
+      const shadowRoot = panel.shadowRoot;
+      const deviceList = shadowRoot.querySelector('.device-section .device-list');
+      const actionsContainer = shadowRoot.querySelector('.device-section .device-actions');
+
+      if (mode === 'all' && deviceList) {
+        deviceList.style.display = 'none';
+      } else if (mode === 'selected' && deviceList) {
+        deviceList.style.display = 'flex';
+      } else {
+        // Fallback to scroll-preserving re-render if elements not found
+        panel._renderTabContentPreserveScroll();
+        return;
+      }
+
+      // Update radio button states
+      const radios = shadowRoot.querySelectorAll('.device-section input[type="radio"]');
+      radios.forEach(radio => {
+        radio.checked = radio.value === mode;
+      });
+
+      // Show save/cancel buttons if not already visible
+      if (!actionsContainer && panel._devicePrefDirty) {
+        panel._renderTabContentPreserveScroll();
+      }
     },
 
     handleDevicePrefDeviceToggle(panel, serviceId) {
@@ -530,7 +572,13 @@ window.Ticker.UserSubscriptionsTab = {
         panel._devicePrefDevices.push(serviceId);
       }
       panel._devicePrefDirty = true;
-      panel._renderTabContent();
+
+      // BUG-040: Checkbox state is already updated by browser, just show actions if needed
+      const shadowRoot = panel.shadowRoot;
+      const actionsContainer = shadowRoot.querySelector('.device-section .device-actions');
+      if (!actionsContainer) {
+        panel._renderTabContentPreserveScroll();
+      }
     },
 
     async saveDevicePreference(panel) {
@@ -550,7 +598,7 @@ window.Ticker.UserSubscriptionsTab = {
 
         await panel._loadCurrentPerson();
         panel._initDevicePrefState();
-        panel._renderTabContent();
+        panel._renderTabContentPreserveScroll();
         panel._showSuccess('Device preference saved');
       } catch (err) {
         panel._showError(err.message || 'Failed to save device preference');
@@ -559,7 +607,7 @@ window.Ticker.UserSubscriptionsTab = {
 
     cancelDevicePreference(panel) {
       panel._initDevicePrefState();
-      panel._renderTabContent();
+      panel._renderTabContentPreserveScroll();
     },
   },
 };

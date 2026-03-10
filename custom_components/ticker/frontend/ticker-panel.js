@@ -33,6 +33,9 @@ class TickerPanel extends HTMLElement {
     this._devicePrefDirty = false;
     this._dependenciesLoaded = false;
     this._els = null;
+    // BUG-040: Scroll/focus preservation
+    this._scrollPositions = {};
+    this._pendingScrollRestore = null;
   }
 
   set hass(hass) {
@@ -530,6 +533,11 @@ class TickerPanel extends HTMLElement {
   }
 
   _afterRender() {
+    // BUG-040: Restore scroll position if pending
+    if (this._pendingScrollRestore !== null && this._els && this._els.tabContent) {
+      this._els.tabContent.scrollTop = this._pendingScrollRestore;
+      this._pendingScrollRestore = null;
+    }
     // Set up conditions UI components
     this._setupConditionsUI();
   }
@@ -570,7 +578,23 @@ class TickerPanel extends HTMLElement {
   }
 
   _switchTab(tab) {
+    // BUG-040: Save scroll position of current tab before switching
+    if (this._els && this._els.tabContent) {
+      this._scrollPositions[this._activeTab] = this._els.tabContent.scrollTop;
+    }
     this._activeTab = tab;
+    // Schedule scroll restoration after render
+    this._pendingScrollRestore = this._scrollPositions[tab] || 0;
+    this._renderTabContent();
+  }
+
+  /**
+   * BUG-040: Re-render tab content while preserving scroll position.
+   * Use this for same-tab updates like category expansion.
+   */
+  _renderTabContentPreserveScroll() {
+    const scrollTop = this._els?.tabContent?.scrollTop || 0;
+    this._pendingScrollRestore = scrollTop;
     this._renderTabContent();
   }
 

@@ -168,7 +168,8 @@ window.Ticker.AdminUsersTab = {
       } else {
         panel._expandedUsers.add(personId);
       }
-      panel._renderTabContent();
+      // BUG-040: Preserve scroll position during same-tab update
+      panel._renderTabContentPreserveScroll();
     },
 
     async toggleEnabled(panel, personId, currentEnabled) {
@@ -182,7 +183,8 @@ window.Ticker.AdminUsersTab = {
           panel._expandedUsers.delete(personId);
         }
         await panel._loadUsers();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
       } catch (err) {
         panel._showError(err.message);
       }
@@ -197,7 +199,8 @@ window.Ticker.AdminUsersTab = {
           mode: currentSubscribed ? 'never' : 'always',
         });
         await panel._loadSubscriptions();
-        panel._renderTabContent();
+        // BUG-040: Preserve scroll position during same-tab update
+        panel._renderTabContentPreserveScroll();
       } catch (err) {
         panel._showError(err.message);
       }

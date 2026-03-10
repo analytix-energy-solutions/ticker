@@ -72,6 +72,32 @@ data:
 
 Each rule has independent "deliver when met" and "queue until met" toggles. If no valid rules are configured, falls back to Always.
 
+### Condition examples
+
+**Quiet hours** — Only deliver notifications between 8 AM and 10 PM on weekdays:
+```
+Type: Time
+After: 08:00
+Before: 22:00
+Days: Mon, Tue, Wed, Thu, Fri
+☑ Deliver when met  ☑ Queue until met
+```
+
+**When TV is off** — Deliver when the living room TV is off, queue otherwise:
+```
+Type: Entity state
+Entity: media_player.living_room_tv
+State: off
+☑ Deliver when met  ☑ Queue until met
+```
+
+**Combined** — Deliver security alerts only when at home AND TV is off:
+```
+Rule 1: Type: Zone, Zone: Home, ☑ Deliver when met, ☑ Queue until met
+Rule 2: Type: Entity state, Entity: media_player.tv, State: off, ☑ Deliver when met, ☑ Queue until met
+```
+All rules use AND logic — both must be satisfied for immediate delivery.
+
 ### How routing works
 
 Ticker automatically discovers notification services linked to each person entity. When `ticker.notify` is called, it checks each person's subscription for that category and either sends immediately, queues for later, or skips — depending on their mode and location.
