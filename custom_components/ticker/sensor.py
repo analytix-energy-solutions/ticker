@@ -138,20 +138,20 @@ class TickerCategorySensor(SensorEntity):
         self._notifications: list[dict[str, Any]] = []
         self._last_triggered: str | None = None
 
-    @property
-    def native_value(self) -> int:
-        """Return the count of notifications."""
-        return len(self._notifications)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return additional state attributes."""
-        return {
+        # Set initial attributes via _attr_ convention (HA 2024.1+ uses
+        # @cached_property for extra_state_attributes; @property overrides
+        # are silently bypassed during state serialization)
+        self._attr_extra_state_attributes: dict[str, Any] = {
             "notifications": self._notifications,
             "category_id": self._category_id,
             "category_name": self._category_name,
             "last_triggered": self._last_triggered,
         }
+
+    @property
+    def native_value(self) -> int:
+        """Return the count of notifications."""
+        return len(self._notifications)
 
     def async_add_notification(
         self,
@@ -192,6 +192,14 @@ class TickerCategorySensor(SensorEntity):
 
         # Update last_triggered
         self._last_triggered = timestamp
+
+        # Refresh attributes dict (HA reads _attr_extra_state_attributes)
+        self._attr_extra_state_attributes = {
+            "notifications": self._notifications,
+            "category_id": self._category_id,
+            "category_name": self._category_name,
+            "last_triggered": self._last_triggered,
+        }
 
         # Trigger state update
         self.async_write_ha_state()
