@@ -1,0 +1,244 @@
+"""Category WebSocket commands for Ticker integration."""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+import voluptuous as vol
+
+from homeassistant.components import websocket_api
+from homeassistant.core import HomeAssistant
+
+from ..const import DOMAIN
+from .validation import (
+    get_store,
+    sanitize_string,
+    validate_category_id,
+    validate_color,
+    validate_icon,
+    MAX_CATEGORY_NAME_LENGTH,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ticker/categories",
+    }
+)
+@websocket_api.async_response
+async def ws_get_categories(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Get all categories."""
+    store = get_store(hass)
+    categories = store.get_categories()
+
+    connection.send_result(
+        msg["id"],
+        {"categories": list(categories.values())},
+    )
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ticker/category/create",
+        vol.Required("category_id"): str,
+        vol.Required("name"): str,
+        vol.Optional("icon"): str,
+        vol.Optional("color"): str,
+        vol.Optional("default_mode"): vol.In(["always", "conditional"]),
+        vol.Optional("default_conditions"): dict,
+    }
+)
+@websocket_api.async_response
+async def ws_create_category(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Create a new category."""
+    store = get_store(hass)
+
+    # Validate and sanitize category_id
+    category_id = msg["category_id"]
+    is_valid, error = validate_category_id(category_id)
+    if not is_valid:
+        connection.send_error(msg["id"], "invalid_category_id", error)
+        return
+
+    # Sanitize name
+    name = sanitize_string(msg["name"], MAX_CATEGORY_NAME_LENGTH)
+    if not name:
+        connection.send_error(msg["id"], "invalid_name", "Category name is required")
+        return
+
+    # Validate and sanitize icon
+    icon = msg.get("icon")
+    is_valid, error = validate_icon(icon)
+    if not is_valid:
+        connection.send_error(msg["id"], "invalid_icon", error)
+        return
+
+    # Validate color
+    color = msg.get("color")
+    is_valid, error = validate_color(color)
+    if not is_valid:
+        connection.send_error(msg["id"], "invalid_color", error)
+        return
+
+    if store.category_exists(category_id):
+        connection.send_error(
+            msg["id"],
+            "already_exists",
+            f"Category '{category_id}' already exists",
+        )
+        return
+
+    default_mode = msg.get("default_mode")
+    default_conditions = msg.get("default_conditions")
+
+    category = await store.async_create_category(
+        category_id=category_id,
+        name=name,
+        icon=icon,
+        color=color,
+        default_mode=default_mode,
+        default_conditions=default_conditions,
+    )
+
+    connection.send_result(msg["id"], {"category": category})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ticker/category/update",
+        vol.Required("category_id"): str,
+        vol.Optional("name"): str,
+        vol.Optional("icon"): str,
+        vol.Optional("color"): vol.Any(str, None),
+        vol.Optional("default_mode"): vol.Any(vol.In(["always", "conditional"]), None),
+        vol.Optional("default_conditions"): vol.Any(dict, None),
+    }
+)
+@websocket_api.async_response
+async def ws_update_category(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Update an existing category."""
+    store = get_store(hass)
+
+    # Validate category_id
+    category_id = msg["category_id"]
+    is_valid, error = validate_category_id(category_id)
+    if not is_valid:
+        connection.send_error(msg["id"], "invalid_category_id", error)
+        return
+
+    if not store.category_exists(category_id):
+        connection.send_error(
+            msg["id"],
+            "not_found",
+            f"Category '{category_id}' not found",
+        )
+        return
+
+    # Sanitize name if provided
+    name = None
+    if "name" in msg and msg["name"] is not None:
+        name = sanitize_string(msg["name"], MAX_CATEGORY_NAME_LENGTH)
+        if not name:
+            connection.send_error(
+                msg["id"], "invalid_name", "Category name cannot be empty"
+            )
+            return
+
+    # Validate icon if provided
+    icon = msg.get("icon")
+    if icon is not None:
+        is_valid, error = validate_icon(icon)
+        if not is_valid:
+            connection.send_error(msg["id"], "invalid_icon", error)
+            return
+
+    # Validate color if provided
+    color = msg.get("color")
+    if color is not None:
+        is_valid, error = validate_color(color)
+        if not is_valid:
+            connection.send_error(msg["id"], "invalid_color", error)
+            return
+
+    default_mode = msg.get("default_mode")
+    default_conditions = msg.get("default_conditions")
+    # clear_defaults when default_mode is explicitly set to None
+    clear_defaults = "default_mode" in msg and msg["default_mode"] is None
+
+    category = await store.async_update_category(
+        category_id=category_id,
+        name=name,
+        icon=icon,
+        color=color,
+        default_mode=default_mode,
+        default_conditions=default_conditions,
+        clear_defaults=clear_defaults,
+    )
+
+    # Update service schema if name changed
+    if name:
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if entries and hasattr(entries[0], "runtime_data") and entries[0].runtime_data:
+            update_fn = entries[0].runtime_data.update_service_schema
+            if update_fn:
+                update_fn()
+
+    connection.send_result(msg["id"], {"category": category})
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ticker/category/delete",
+        vol.Required("category_id"): str,
+    }
+)
+@websocket_api.async_response
+async def ws_delete_category(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Delete a category."""
+    store = get_store(hass)
+
+    # Validate category_id
+    category_id = msg["category_id"]
+    is_valid, error = validate_category_id(category_id)
+    if not is_valid:
+        connection.send_error(msg["id"], "invalid_category_id", error)
+        return
+
+    if not store.category_exists(category_id):
+        connection.send_error(
+            msg["id"],
+            "not_found",
+            f"Category '{category_id}' not found",
+        )
+        return
+
+    if store.is_default_category(category_id):
+        connection.send_error(
+            msg["id"],
+            "cannot_delete_default",
+            "Cannot delete the default 'General' category",
+        )
+        return
+
+    await store.async_delete_category(category_id)
+
+    connection.send_result(msg["id"], {"success": True})

@@ -2,7 +2,7 @@
 
 Smart notification management for Home Assistant.
 
-Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.notify` service. Your automations declare what happened, and Ticker routes notifications to the right people based on their subscription preferences and location.
+Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.notify` service. Your automations declare what happened, and Ticker routes notifications to the right people based on their subscription preferences, location, time of day, and device state.
 
 ## Installation
 
@@ -21,68 +21,61 @@ Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.noti
 2. Restart Home Assistant
 3. Settings → Devices & Services → Add Integration → Ticker
 
-## Usage
+## Quick start
 
-Once installed, Ticker adds two sidebar panels: an admin panel for managing categories and users, and a user panel where individuals manage their own subscriptions.
+Once installed, Ticker adds two sidebar panels: an admin panel for managing categories and users, and a user panel for subscriptions, queue, and notification history.
 
-### Service call
-
-```yaml
-service: ticker.notify
-data:
-  category: security
-  title: "Motion Detected"
-  message: "Camera: Front Door"
-```
-
-You can pass through additional data to the underlying notify service:
+Create a category in the admin panel (e.g., "Security"), then replace your existing notify calls:
 
 ```yaml
-service: ticker.notify
-data:
-  category: security
-  title: "Motion Detected"
-  message: "Camera: Front Door"
+# Before — one call per person, per device
+- service: notify.mobile_app_johns_phone
   data:
-    image: /local/snapshots/front_door.jpg
+    title: "Motion Detected"
+    message: "Front door camera"
+- service: notify.mobile_app_janes_phone
+  data:
+    title: "Motion Detected"
+    message: "Front door camera"
+
+# After — one call, Ticker handles routing
+- service: ticker.notify
+  data:
+    category: security
+    title: "Motion Detected"
+    message: "Front door camera"
 ```
 
-Queued notifications expire after 48 hours by default. You can override this per call:
+Each person controls how they receive each category — always, never, or conditionally based on zone, time, or entity state. The admin panel includes a migration wizard that scans your existing automations and helps convert them.
 
-```yaml
-service: ticker.notify
-data:
-  category: deliveries
-  title: "Package Arriving"
-  message: "Driver is 5 minutes away"
-  expiration: 1
-```
+For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GUIDE.md).
 
-### Subscription modes
+## Key features
 
-**Always** — Delivered immediately regardless of location. This is the default.
+- **Single service call** replaces all individual `notify.mobile_app_*` calls
+- **Three subscription modes** — Always, Never, and Conditional with zone, time, and entity state rules
+- **Smart queuing** — notifications queue when conditions aren't met and deliver automatically when they are
+- **Device routing** — global device preference plus per-category overrides
+- **Notification history** — grouped by notification call, with deep-link from phone notifications
+- **Dashboard sensors** — `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
+- **Migration wizard** — scan and convert existing automations
+- **Self-healing delivery** — failed deliveries retry automatically before falling back
 
-**Never** — Silently skipped. Useful for opting out of categories that aren't relevant to you.
+## Version history
 
-**Conditional** — Delivery depends on zone-based rules. You can configure per zone whether to deliver while present, queue until arrival, or both. If no conditions are configured, falls back to Always.
+### v1.2.0 (current)
 
-### How routing works
+- Category sensor entities (`sensor.ticker_<category_id>`) for dashboard integration
+- Internal refactoring: store split into package with mixins, bundled notify logic extracted
 
-Ticker automatically discovers notification services linked to each person entity. When `ticker.notify` is called, it checks each person's subscription for that category and either sends immediately, queues for later, or skips — depending on their mode and location.
+### v1.1.0
 
-Queued notifications are bundled and delivered as a summary when the person arrives at the configured zone.
+- Notification grouping in History tab — entries from the same `ticker.notify` call grouped into a single card with device tags
+- History badge count reflects grouped notifications
 
-## Admin panel
+### v1.0.0
 
-Only visible to users in the "Administrator" group. Manage categories, view users and their linked notify services, set subscriptions, inspect the notification queue, view logs, and run the migration wizard to convert existing automations.
-
-## User panel
-
-View and change your own subscription preferences per category, and manage your personal notification queue.
-
-## Migration
-
-The admin panel includes a migration wizard that scans your automations and scripts for existing `notify.*` and `persistent_notification.*` calls. It walks you through each one, letting you convert to `ticker.notify` with a category of your choice.
+First public release with complete notification management: category routing, three subscription modes with advanced conditions, smart queuing with bundled delivery, self-healing retries, per-user device routing, notification history with phone deep-links, auto-discovery, admin and user panels, and migration wizard.
 
 ## Uninstalling
 
