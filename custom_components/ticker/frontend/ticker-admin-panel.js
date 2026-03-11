@@ -51,18 +51,117 @@ class TickerAdminPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._initialized) {
+    if (!this._initialized && this.isConnected) {
       this._initialized = true;
       this._init();
     }
+  }
+
+  connectedCallback() {
+    // Initialize if hass was set before we were connected
+    if (!this._initialized && this._hass) {
+      this._initialized = true;
+      this._init();
+    }
+
+    // FIX-029F: If visibility/resume fired while disconnected, recover now.
+    if (this._needsRecovery) {
+      this._needsRecovery = false;
+      console.log('[Ticker Admin] connectedCallback: executing deferred visibility recovery');
+      this._forceRepaint();
+      this._loadData().then(() => this._renderTabContent());
+    }
+  }
+
+  disconnectedCallback() {
+    // Clean up visibility/resume listeners
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+    if (this._resumeHandler) {
+      document.removeEventListener('resume', this._resumeHandler);
+      this._resumeHandler = null;
+    }
+    if (this._connectionReadyHandler && this._hass?.connection) {
+      this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
+      this._connectionReadyHandler = null;
+    }
+    this._initialized = false;
   }
 
   async _init() {
     await this._loadDependencies();
     this._createStructure();
     this._wireHandlers();
+    this._setupRecoveryHandlers();
     await this._loadData();
     this._renderTabContent();
+  }
+
+  /**
+   * FIX-029F: Set up recovery handlers for tab focus loss / WS reconnect.
+   */
+  _setupRecoveryHandlers() {
+    // 1. HA WebSocket reconnection
+    if (this._connectionReadyHandler && this._hass?.connection) {
+      this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
+    }
+    this._connectionReadyHandler = () => {
+      if (!this.isConnected) return;
+      console.log('[Ticker Admin] Connection ready — refreshing data');
+      this._loadData().then(() => this._renderTabContent());
+    };
+    this._hass.connection.addEventListener('ready', this._connectionReadyHandler);
+
+    // 2. Browser visibility change
+    if (!this._visibilityHandler) {
+      this._lastHiddenAt = null;
+      this._visibilityHandler = () => {
+        if (document.hidden) {
+          this._lastHiddenAt = Date.now();
+          return;
+        }
+        if (!this.isConnected) {
+          this._needsRecovery = true;
+          return;
+        }
+        const hiddenMs = this._lastHiddenAt ? Date.now() - this._lastHiddenAt : 0;
+        this._lastHiddenAt = null;
+        if (hiddenMs > 30000) {
+          console.log(`[Ticker Admin] Visible after ${Math.round(hiddenMs / 1000)}s — repaint + refresh`);
+          this._forceRepaint();
+          this._loadData().then(() => this._renderTabContent());
+        } else {
+          this._forceRepaint();
+        }
+      };
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
+
+    // 3. Chrome Page Lifecycle resume
+    if (!this._resumeHandler) {
+      this._resumeHandler = () => {
+        if (!this.isConnected) {
+          this._needsRecovery = true;
+          return;
+        }
+        console.log('[Ticker Admin] Resume from freeze — repaint + refresh');
+        this._forceRepaint();
+        this._loadData().then(() => this._renderTabContent());
+      };
+      document.addEventListener('resume', this._resumeHandler);
+    }
+  }
+
+  /**
+   * FIX-029F: Force shadow host compositor layer re-creation.
+   */
+  _forceRepaint() {
+    this.style.display = 'none';
+    void this.offsetHeight;
+    this.style.display = '';
+    void this.offsetHeight;
   }
 
   /**

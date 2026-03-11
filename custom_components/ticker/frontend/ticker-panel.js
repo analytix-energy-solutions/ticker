@@ -40,17 +40,122 @@ class TickerPanel extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    if (!this._initialized) {
+    if (!this._initialized && this.isConnected) {
       this._initialized = true;
       this._initialize();
     }
+  }
+
+  connectedCallback() {
+    // Initialize if hass was set before we were connected
+    if (!this._initialized && this._hass) {
+      this._initialized = true;
+      this._initialize();
+    }
+
+    // FIX-029F: If visibility/resume fired while disconnected, recover now.
+    if (this._needsRecovery) {
+      this._needsRecovery = false;
+      console.log('[Ticker] connectedCallback: executing deferred visibility recovery');
+      this._forceRepaint();
+      this._loadData();
+    }
+  }
+
+  disconnectedCallback() {
+    // Clean up visibility/resume listeners
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
+    if (this._resumeHandler) {
+      document.removeEventListener('resume', this._resumeHandler);
+      this._resumeHandler = null;
+    }
+    if (this._connectionReadyHandler && this._hass?.connection) {
+      this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
+      this._connectionReadyHandler = null;
+    }
+    this._initialized = false;
   }
 
   async _initialize() {
     await this._loadDependencies();
     this._createStructure();
     this._wireHandlers();
+    this._setupRecoveryHandlers();
     await this._loadData();
+  }
+
+  /**
+   * FIX-029F: Set up recovery handlers for tab focus loss / WS reconnect.
+   * Three independent mechanisms:
+   * 1. connection 'ready' — HA WebSocket reconnect → reload data
+   * 2. visibilitychange — browser tab becomes visible → force repaint + reload if stale
+   * 3. resume (Page Lifecycle API) — Chrome unfreeze → force repaint + reload
+   */
+  _setupRecoveryHandlers() {
+    // 1. HA WebSocket reconnection
+    if (this._connectionReadyHandler && this._hass?.connection) {
+      this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
+    }
+    this._connectionReadyHandler = () => {
+      if (!this.isConnected) return;
+      console.log('[Ticker] Connection ready — refreshing data');
+      this._loadData();
+    };
+    this._hass.connection.addEventListener('ready', this._connectionReadyHandler);
+
+    // 2. Browser visibility change
+    if (!this._visibilityHandler) {
+      this._lastHiddenAt = null;
+      this._visibilityHandler = () => {
+        if (document.hidden) {
+          this._lastHiddenAt = Date.now();
+          return;
+        }
+        if (!this.isConnected) {
+          this._needsRecovery = true;
+          return;
+        }
+        const hiddenMs = this._lastHiddenAt ? Date.now() - this._lastHiddenAt : 0;
+        this._lastHiddenAt = null;
+        if (hiddenMs > 30000) {
+          console.log(`[Ticker] Visible after ${Math.round(hiddenMs / 1000)}s — repaint + refresh`);
+          this._forceRepaint();
+          this._loadData();
+        } else {
+          this._forceRepaint();
+        }
+      };
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
+
+    // 3. Chrome Page Lifecycle resume
+    if (!this._resumeHandler) {
+      this._resumeHandler = () => {
+        if (!this.isConnected) {
+          this._needsRecovery = true;
+          return;
+        }
+        console.log('[Ticker] Resume from freeze — repaint + refresh');
+        this._forceRepaint();
+        this._loadData();
+      };
+      document.addEventListener('resume', this._resumeHandler);
+    }
+  }
+
+  /**
+   * FIX-029F: Force shadow host compositor layer re-creation.
+   * Toggle display on the HOST element to force Chromium to re-rasterize
+   * the shadow root paint layer after a tab freeze/discard cycle.
+   */
+  _forceRepaint() {
+    this.style.display = 'none';
+    void this.offsetHeight;
+    this.style.display = '';
+    void this.offsetHeight;
   }
 
   async _loadDependencies() {

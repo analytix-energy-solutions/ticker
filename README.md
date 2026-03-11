@@ -2,7 +2,7 @@
 
 Smart notification management for Home Assistant.
 
-Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.notify` service. Your automations declare what happened, and Ticker routes notifications to the right people based on their subscription preferences and location.
+Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.notify` service. Your automations declare what happened, and Ticker routes notifications to the right people based on their subscription preferences, location, time of day, and device state.
 
 ## Installation
 
@@ -21,135 +21,61 @@ Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.noti
 2. Restart Home Assistant
 3. Settings → Devices & Services → Add Integration → Ticker
 
-## Usage
+## Quick start
 
-Once installed, Ticker adds two sidebar panels: an admin panel for managing categories and users, and a user panel where individuals manage their own subscriptions.
+Once installed, Ticker adds two sidebar panels: an admin panel for managing categories and users, and a user panel for subscriptions, queue, and notification history.
 
-### Service call
-
-```yaml
-service: ticker.notify
-data:
-  category: security
-  title: "Motion Detected"
-  message: "Camera: Front Door"
-```
-
-You can pass through additional data to the underlying notify service:
+Create a category in the admin panel (e.g., "Security"), then replace your existing notify calls:
 
 ```yaml
-service: ticker.notify
-data:
-  category: security
-  title: "Motion Detected"
-  message: "Camera: Front Door"
+# Before — one call per person, per device
+- service: notify.mobile_app_johns_phone
   data:
-    image: /local/snapshots/front_door.jpg
+    title: "Motion Detected"
+    message: "Front door camera"
+- service: notify.mobile_app_janes_phone
+  data:
+    title: "Motion Detected"
+    message: "Front door camera"
+
+# After — one call, Ticker handles routing
+- service: ticker.notify
+  data:
+    category: security
+    title: "Motion Detected"
+    message: "Front door camera"
 ```
 
-Queued notifications expire after 48 hours by default. You can override this per call:
+Each person controls how they receive each category — always, never, or conditionally based on zone, time, or entity state. The admin panel includes a migration wizard that scans your existing automations and helps convert them.
 
-```yaml
-service: ticker.notify
-data:
-  category: deliveries
-  title: "Package Arriving"
-  message: "Driver is 5 minutes away"
-  expiration: 1
-```
+For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GUIDE.md).
 
-### Subscription modes
+## Key features
 
-**Always** — Delivered immediately regardless of location. This is the default.
+- **Single service call** replaces all individual `notify.mobile_app_*` calls
+- **Three subscription modes** — Always, Never, and Conditional with zone, time, and entity state rules
+- **Smart queuing** — notifications queue when conditions aren't met and deliver automatically when they are
+- **Device routing** — global device preference plus per-category overrides
+- **Notification history** — grouped by notification call, with deep-link from phone notifications
+- **Dashboard sensors** — `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
+- **Migration wizard** — scan and convert existing automations
+- **Self-healing delivery** — failed deliveries retry automatically before falling back
 
-**Never** — Silently skipped. Useful for opting out of categories that aren't relevant to you.
+## Version history
 
-**Conditional** — Delivery depends on rules you define. Rules use AND logic — all must be met for immediate delivery. Three rule types are available:
+### v1.2.0 (current)
 
-- **Zone** — Deliver while in a specific zone, queue until arrival, or both.
-- **Time** — Deliver during a time window (e.g., 09:00–17:00). Supports day-of-week filtering and overnight spans.
-- **Entity state** — Deliver when a Home Assistant entity is in a specific state (e.g., `binary_sensor.tv_power` is `off`).
+- Category sensor entities (`sensor.ticker_<category_id>`) for dashboard integration
+- Internal refactoring: store split into package with mixins, bundled notify logic extracted
 
-Each rule has independent "deliver when met" and "queue until met" toggles. If no valid rules are configured, falls back to Always.
+### v1.1.0
 
-### Condition examples
+- Notification grouping in History tab — entries from the same `ticker.notify` call grouped into a single card with device tags
+- History badge count reflects grouped notifications
 
-**Quiet hours** — Only deliver notifications between 8 AM and 10 PM on weekdays:
-```
-Type: Time
-After: 08:00
-Before: 22:00
-Days: Mon, Tue, Wed, Thu, Fri
-☑ Deliver when met  ☑ Queue until met
-```
+### v1.0.0
 
-**When TV is off** — Deliver when the living room TV is off, queue otherwise:
-```
-Type: Entity state
-Entity: media_player.living_room_tv
-State: off
-☑ Deliver when met  ☑ Queue until met
-```
-
-**Combined** — Deliver security alerts only when at home AND TV is off:
-```
-Rule 1: Type: Zone, Zone: Home, ☑ Deliver when met, ☑ Queue until met
-Rule 2: Type: Entity state, Entity: media_player.tv, State: off, ☑ Deliver when met, ☑ Queue until met
-```
-All rules use AND logic — both must be satisfied for immediate delivery.
-
-### How routing works
-
-Ticker automatically discovers notification services linked to each person entity. When `ticker.notify` is called, it checks each person's subscription for that category and either sends immediately, queues for later, or skips — depending on their mode and location.
-
-Queued notifications are bundled and delivered as a summary when the person arrives at the configured zone.
-
-## Admin panel
-
-Only visible to users in the "Administrator" group. Manage categories, view users and their linked notify services, set subscriptions, inspect the notification queue, view logs, and run the migration wizard to convert existing automations.
-
-### Category defaults
-
-Admins can set a default subscription mode and conditions per category. When a user has no explicit subscription for a category, the category default is used. For example, setting the "Security" category default to Conditional with a zone rule means all users start with that configuration pre-populated. Users can freely change their subscription afterwards — the default is just a starting point.
-
-## User panel
-
-View and change your own subscription preferences per category, and manage your personal notification queue.
-
-## Migration
-
-The admin panel includes a migration wizard that scans your automations and scripts for existing `notify.*` and `persistent_notification.*` calls. It walks you through each one, letting you convert to `ticker.notify` with a category of your choice.
-
-## Dashboard sensors
-
-Ticker creates sensor entities for each category, exposing the last 10 notifications as attributes. Use these to display notification feeds on your HA dashboards.
-
-Each sensor:
-- **State**: Count of notifications (0-10)
-- **Attributes**: `notifications` (list), `category_id`, `category_name`, `last_triggered`
-- **Entity ID**: `sensor.ticker_<category_id>`
-
-### Markdown card example
-
-```yaml
-type: markdown
-title: "Security Notifications"
-content: >
-  {% set notifs = state_attr('sensor.ticker_security', 'notifications') %}
-  {% if notifs %}
-  {% for n in notifs | reverse %}
-  **{{ n.header }}** — {{ n.timestamp | as_timestamp | timestamp_custom('%H:%M') }}
-  {{ n.body }}
-  _Delivered: {{ n.delivered | join(', ') }}_
-  {% if n.queued %}_Queued: {{ n.queued | join(', ') }}_{% endif %}
-  ---
-  {% endfor %}
-  {% else %}
-  No recent notifications.
-  {% endif %}
-```
-
-**Note:** Sensor data is in-memory only and clears on HA restart. For full history, use the Ticker panel.
+First public release with complete notification management: category routing, three subscription modes with advanced conditions, smart queuing with bundled delivery, self-healing retries, per-user device routing, notification history with phone deep-links, auto-discovery, admin and user panels, and migration wizard.
 
 ## Uninstalling
 
