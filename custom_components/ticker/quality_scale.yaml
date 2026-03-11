@@ -21,14 +21,14 @@ rules:
   docs-installation-instructions: done
   docs-removal-instructions: done
   entity-event-setup:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: Sensor entities set up via async_setup_entry in sensor.py
   entity-unique-id:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: Format ticker_{entry_id}_{category_id}
   has-entity-name:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: Sensors use has_entity_name = True
   runtime-data: done
   test-before-setup:
     status: todo
@@ -48,15 +48,15 @@ rules:
     status: todo
     comment: Troubleshooting section not yet added
   entity-unavailable:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: Sensors are always available (local in-memory data)
   integration-owner: done
   log-when-unavailable:
     status: exempt
-    comment: Integration has no entities
+    comment: Sensors use local data, never unavailable
   parallel-updates:
     status: exempt
-    comment: Integration has no entities
+    comment: Sensors use in-memory data, no external updates
   reauthentication-flow:
     status: exempt
     comment: Integration has no authentication
@@ -102,21 +102,21 @@ rules:
     status: exempt
     comment: Integration does not create devices
   entity-category:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: Sensors are primary entities (no category set)
   entity-device-class:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: No device class applies to notification counts
   entity-disabled-by-default:
-    status: exempt
-    comment: Integration has no entities
+    status: done
+    comment: Sensors visible by default for dashboard use
   entity-translations:
-    status: exempt
-    comment: Integration has no entities
+    status: todo
+    comment: Could add translation keys for entity name; deferred to v1.4
   exception-translations: done
   icon-translations:
-    status: exempt
-    comment: Integration has no entities
+    status: todo
+    comment: Uses category icon directly; deferred
   reconfiguration-flow:
     status: todo
     comment: Reconfiguration not yet implemented
