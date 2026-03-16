@@ -112,7 +112,9 @@ async def async_discover_notify_services(
                     if (
                         entity.platform == "mobile_app"
                         and entity.device_id
-                        and service_name in entity.entity_id
+                        and entity.domain == "device_tracker"
+                        and service_name.removeprefix("mobile_app_")
+                        in entity.entity_id
                     ):
                         if entity.device_id not in device_notify_services:
                             device_notify_services[entity.device_id] = []
