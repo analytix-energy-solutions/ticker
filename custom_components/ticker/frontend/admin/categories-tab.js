@@ -54,7 +54,7 @@ window.Ticker.AdminCategoriesTab = {
     const expanded = editingCategory === c.id;
 
     // Calculate subscriber count
-    const subCount = users.filter(u => this._isSubscribed(subscriptions, u.person_id, c.id)).length;
+    const subCount = users.filter(u => u.enabled && this._isSubscribed(subscriptions, u.person_id, c.id)).length;
     const subText = `${subCount} subscriber${subCount !== 1 ? 's' : ''}`;
 
     const colorDot = c.color ? `<span class="color-indicator" style="background:${escColor}"></span>` : '';
