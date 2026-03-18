@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.2.0"
+VERSION = "1.2.2"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -97,3 +97,5 @@ COLOR_SUBTLE = "#0e7490"   # Ticker 700
 MIGRATE_SOURCE_AUTOMATION = "automation"
 MIGRATE_SOURCE_SCRIPT = "script"
 MIGRATE_SERVICES = ["notify", "persistent_notification"]
+MAX_MIGRATION_TITLE_LENGTH = 200
+MAX_MIGRATION_MESSAGE_LENGTH = 1000
