@@ -34,6 +34,7 @@ window.Ticker.UserHistoryTab = {
             message: entry.message,
             category_id: entry.category_id,
             timestamp: entry.timestamp,
+            image_url: entry.image_url || null,
             devices: [],
           };
           notifications.push(groupedById[nid]);
@@ -48,6 +49,7 @@ window.Ticker.UserHistoryTab = {
           message: entry.message,
           category_id: entry.category_id,
           timestamp: entry.timestamp,
+          image_url: entry.image_url || null,
           devices: entry.notify_service ? [entry.notify_service] : [],
         });
       }
@@ -77,6 +79,15 @@ window.Ticker.UserHistoryTab = {
           ? notif.devices.map(d => `<span class="notify-service-tag">${esc(d)}</span>`).join('')
           : '';
 
+        let imageHtml = '';
+        if (notif.image_url) {
+          if (notif.image_url.startsWith('media-source://')) {
+            imageHtml = '<div class="history-item-image"><ha-icon icon="mdi:image"></ha-icon></div>';
+          } else {
+            imageHtml = `<div class="history-item-image"><img src="${esc(notif.image_url)}" alt="Notification image" loading="lazy" onerror="this.parentElement.style.display='none'" /></div>`;
+          }
+        }
+
         return `
           <div class="history-item">
             <div class="history-item-header">
@@ -84,6 +95,7 @@ window.Ticker.UserHistoryTab = {
               <span class="history-item-time">${time}</span>
             </div>
             <div class="history-item-message">${escMessage}</div>
+            ${imageHtml}
             <div class="history-item-meta">
               <span class="notify-service-tag">${escCatName}</span>
               ${deviceTags}

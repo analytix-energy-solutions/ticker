@@ -348,6 +348,7 @@ class QueueLogMixin:
         notify_service: str | None = None,
         reason: str | None = None,
         notification_id: str | None = None,
+        image_url: str | None = None,
     ) -> dict[str, Any]:
         """Add a log entry (with debounced save)."""
         log_id = str(uuid.uuid4())
@@ -372,6 +373,9 @@ class QueueLogMixin:
 
         if notification_id:
             entry["notification_id"] = notification_id
+
+        if image_url:
+            entry["image_url"] = image_url
 
         self._logs.append(entry)
 

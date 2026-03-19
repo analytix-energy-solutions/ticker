@@ -208,6 +208,8 @@ async def async_send_bundled_notification(
         )
         services_str = ", ".join(final_devices)
         for entry in entries:
+            entry_data = entry.get("data") or {}
+            entry_image_url = entry_data.get("image")
             await store.async_add_log(
                 category_id=entry["category_id"],
                 person_id=person_id,
@@ -217,6 +219,7 @@ async def async_send_bundled_notification(
                 outcome=LOG_OUTCOME_SENT,
                 notify_service=services_str,
                 reason="Delivered on arrival (bundled)",
+                image_url=entry_image_url,
             )
 
     return any_success
