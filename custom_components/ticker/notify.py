@@ -62,6 +62,8 @@ async def async_handle_conditional_notification(
         convert_legacy_zones_to_rules,
     )
 
+    image_url = data.get("image") if data else None
+
     conditions = store.get_subscription_conditions(person_id, category_id)
 
     if not conditions:
@@ -132,6 +134,7 @@ async def async_handle_conditional_notification(
             outcome=LOG_OUTCOME_QUEUED,
             reason=f"Conditional: {queue_reason}",
             notification_id=notification_id,
+            image_url=image_url,
         )
         _LOGGER.debug(
             "Queued notification for %s/%s: %s",
@@ -157,6 +160,7 @@ async def async_handle_conditional_notification(
         outcome=LOG_OUTCOME_SKIPPED,
         reason=f"Conditional: {deliver_reason}",
         notification_id=notification_id,
+        image_url=image_url,
     )
     return {"delivered": [], "queued": [], "dropped": [f"{person_id}: {deliver_reason}"]}
 
@@ -181,6 +185,7 @@ async def async_send_notification(
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists of service IDs/descriptions.
     """
+    image_url = data.get("image") if data else None
     results: dict[str, list[str]] = {"delivered": [], "queued": [], "dropped": []}
     # Get all discovered services for this person (list of dicts with service/name/device_id)
     all_services = await async_get_notify_services_for_person(hass, person_id)
@@ -199,6 +204,7 @@ async def async_send_notification(
             outcome=LOG_OUTCOME_FAILED,
             reason="No notify services found",
             notification_id=notification_id,
+            image_url=image_url,
         )
         results["dropped"].append(f"{person_id}: No notify services found")
         return results
@@ -260,6 +266,7 @@ async def async_send_notification(
             outcome=LOG_OUTCOME_FAILED,
             reason="No target devices after applying preferences",
             notification_id=notification_id,
+            image_url=image_url,
         )
         results["dropped"].append(f"{person_id}: No target devices")
         return results
@@ -316,6 +323,7 @@ async def async_send_notification(
                 outcome=LOG_OUTCOME_SENT,
                 notify_service=f"{service_id} ({service_name_display})",
                 notification_id=notification_id,
+                image_url=image_url,
             )
             results["delivered"].append(service_id)
         except asyncio.TimeoutError:
@@ -335,6 +343,7 @@ async def async_send_notification(
                 notify_service=service_id,
                 reason=f"Timeout after {NOTIFY_SERVICE_TIMEOUT}s",
                 notification_id=notification_id,
+                image_url=image_url,
             )
             results["dropped"].append(f"{service_id}: Timeout")
         except HomeAssistantError as err:
@@ -354,6 +363,7 @@ async def async_send_notification(
                 notify_service=service_id,
                 reason=str(err),
                 notification_id=notification_id,
+                image_url=image_url,
             )
             results["dropped"].append(f"{service_id}: {err}")
         except Exception as err:
@@ -373,6 +383,7 @@ async def async_send_notification(
                 notify_service=service_id,
                 reason=str(err),
                 notification_id=notification_id,
+                image_url=image_url,
             )
             results["dropped"].append(f"{service_id}: {err}")
 
