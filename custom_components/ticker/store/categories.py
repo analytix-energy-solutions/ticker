@@ -168,6 +168,25 @@ class CategoryMixin:
         _LOGGER.info("Deleted category: %s", category_id)
         return True
 
+    async def async_update_category_action_set(
+        self, category_id: str, action_set: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        """Set or clear the action_set on a category."""
+        if category_id not in self._categories:
+            return None
+
+        category = self._categories[category_id]
+
+        if action_set is None:
+            category.pop("action_set", None)
+        else:
+            category["action_set"] = action_set
+
+        category["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await self.async_save_categories()
+        _LOGGER.info("Updated action_set for category: %s", category_id)
+        return category
+
     async def _async_ensure_default_category(self) -> None:
         """Ensure the default 'General' category exists."""
         if CATEGORY_DEFAULT not in self._categories:

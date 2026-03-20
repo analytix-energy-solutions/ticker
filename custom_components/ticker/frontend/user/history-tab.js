@@ -36,11 +36,15 @@ window.Ticker.UserHistoryTab = {
             timestamp: entry.timestamp,
             image_url: entry.image_url || null,
             devices: [],
+            action_taken: null,
           };
           notifications.push(groupedById[nid]);
         }
         if (entry.notify_service) {
           groupedById[nid].devices.push(entry.notify_service);
+        }
+        if (entry.action_taken && !groupedById[nid].action_taken) {
+          groupedById[nid].action_taken = entry.action_taken;
         }
       } else {
         // Legacy entry without notification_id
@@ -88,6 +92,10 @@ window.Ticker.UserHistoryTab = {
           }
         }
 
+        const actionHtml = notif.action_taken
+          ? `<div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:4px">&#10003; You tapped: ${esc(notif.action_taken.title || '')}</div>`
+          : '';
+
         return `
           <div class="history-item">
             <div class="history-item-header">
@@ -96,6 +104,7 @@ window.Ticker.UserHistoryTab = {
             </div>
             <div class="history-item-message">${escMessage}</div>
             ${imageHtml}
+            ${actionHtml}
             <div class="history-item-meta">
               <span class="notify-service-tag">${escCatName}</span>
               ${deviceTags}

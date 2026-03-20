@@ -40,6 +40,12 @@ window.Ticker.AdminLogsTab = {
           <div class="stat-value">${byOutcome.failed || 0}</div>
           <div class="stat-label">Failed</div>
         </div>
+        ${byOutcome.snoozed ? `
+        <div class="stat-card stat-skipped">
+          <div class="stat-value">${byOutcome.snoozed}</div>
+          <div class="stat-label">Snoozed</div>
+        </div>
+        ` : ''}
       </div>
     `;
 
@@ -78,6 +84,7 @@ window.Ticker.AdminLogsTab = {
               <span>Cat: ${escCname}</span>
               ${escService ? `<span>·</span><span>Via: ${escService}</span>` : ''}
               ${escReason ? `<span>·</span><span class="log-reason">${escReason}</span>` : ''}
+              ${log.action_taken ? `<span>·</span><span style="background:rgba(6,182,212,0.1);color:#0e7490;padding:2px 8px;border-radius:10px;font-size:11px">${esc(this._getPersonName(users, log.person_id))} · ${esc(log.action_taken.title || '')}</span>` : ''}
             </div>
           </div>
           <div class="log-item-time">${formatTime(log.timestamp)}</div>
@@ -124,6 +131,8 @@ window.Ticker.AdminLogsTab = {
         return '<span class="badge">Queued</span>';
       case 'skipped':
         return '<span class="badge badge-warning">Skipped</span>';
+      case 'snoozed':
+        return '<span class="badge badge-warning">Snoozed</span>';
       case 'failed':
         return '<span class="badge badge-danger">Failed</span>';
       default:

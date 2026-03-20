@@ -14,9 +14,11 @@ from .const import (
     LOG_OUTCOME_QUEUED,
     LOG_OUTCOME_SKIPPED,
     LOG_OUTCOME_FAILED,
+    LOG_OUTCOME_SNOOZED,
     DEVICE_MODE_ALL,
     DEVICE_MODE_SELECTED,
 )
+from .actions import build_action_payload
 from .discovery import async_get_notify_services_for_person
 
 if TYPE_CHECKING:
@@ -40,6 +42,7 @@ async def async_handle_conditional_notification(
     data: dict[str, Any],
     expiration: int,
     notification_id: str | None = None,
+    suppress_actions: bool = False,
 ) -> dict[str, list[str]]:
     """Handle notification delivery for conditional mode.
 
@@ -75,7 +78,7 @@ async def async_handle_conditional_notification(
         )
         return await async_send_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
-            notification_id=notification_id,
+            notification_id=notification_id, suppress_actions=suppress_actions,
         )
 
     # Convert legacy zones format to rules if needed
@@ -94,7 +97,7 @@ async def async_handle_conditional_notification(
             )
             return await async_send_notification(
                 hass, store, person_id, person_name, category_id, title, message, data,
-                notification_id=notification_id,
+                notification_id=notification_id, suppress_actions=suppress_actions,
             )
 
     # Check if we should deliver now (all conditions met + deliver_when_met)
@@ -109,7 +112,7 @@ async def async_handle_conditional_notification(
         )
         return await async_send_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
-            notification_id=notification_id,
+            notification_id=notification_id, suppress_actions=suppress_actions,
         )
 
     # Check if we should queue (has queue_until_met flag and conditions not met)
@@ -175,6 +178,7 @@ async def async_send_notification(
     message: str,
     data: dict[str, Any],
     notification_id: str | None = None,
+    suppress_actions: bool = False,
 ) -> dict[str, list[str]]:
     """Send notification to a person via their notify services.
 
@@ -187,6 +191,18 @@ async def async_send_notification(
     """
     image_url = data.get("image") if data else None
     results: dict[str, list[str]] = {"delivered": [], "queued": [], "dropped": []}
+
+    # F-5: Snooze pre-check
+    if store.is_snoozed(person_id, category_id):
+        await store.async_add_log(
+            category_id=category_id, person_id=person_id, person_name=person_name,
+            title=title, message=message, outcome=LOG_OUTCOME_SNOOZED,
+            reason="Snoozed by user", notification_id=notification_id,
+            image_url=image_url,
+        )
+        results["dropped"].append(f"{person_id}: Snoozed")
+        return results
+
     # Get all discovered services for this person (list of dicts with service/name/device_id)
     all_services = await async_get_notify_services_for_person(hass, person_id)
 
@@ -291,6 +307,14 @@ async def async_send_notification(
             service_data["data"] = dict(data)  # Copy to avoid mutating caller's dict
         else:
             service_data["data"] = {}
+
+        # F-5: Inject action buttons if category has action_set
+        if not suppress_actions and "actions" not in service_data["data"]:
+            category = store.get_category(category_id)
+            if category and category.get("action_set") and notification_id:
+                service_data["data"]["actions"] = build_action_payload(
+                    category, notification_id
+                )
 
         # Inject deep-link to Ticker history tab (don't override user-set values)
         if "url" not in service_data["data"]:
