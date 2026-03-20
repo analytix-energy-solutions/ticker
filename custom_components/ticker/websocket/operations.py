@@ -11,8 +11,9 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from ..discovery import async_get_notify_services_for_person
+from ..const import MAX_MIGRATION_TITLE_LENGTH, MAX_MIGRATION_MESSAGE_LENGTH
 from .validation import (
-    sanitize_string,
+    sanitize_for_storage,
     validate_category_id,
     validate_entity_id,
     MAX_CATEGORY_NAME_LENGTH,
@@ -144,14 +145,14 @@ async def ws_migrate_convert(
         return
 
     # Sanitize category_name
-    category_name = sanitize_string(msg["category_name"], MAX_CATEGORY_NAME_LENGTH)
+    category_name = sanitize_for_storage(msg["category_name"], MAX_CATEGORY_NAME_LENGTH)
     if not category_name:
         connection.send_error(msg["id"], "invalid_category_name", "Category name is required")
         return
 
     # Sanitize title and message if provided
-    title = sanitize_string(msg.get("title"), 200) if msg.get("title") else None
-    message = sanitize_string(msg.get("message"), 1000) if msg.get("message") else None
+    title = sanitize_for_storage(msg.get("title"), MAX_MIGRATION_TITLE_LENGTH) if msg.get("title") else None
+    message = sanitize_for_storage(msg.get("message"), MAX_MIGRATION_MESSAGE_LENGTH) if msg.get("message") else None
 
     try:
         result = await async_convert_notification(

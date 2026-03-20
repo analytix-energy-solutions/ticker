@@ -375,6 +375,20 @@ class TickerPanel extends HTMLElement {
         white-space: pre-wrap;
         word-break: break-word;
       }
+      .history-item-image { margin: 8px 0; max-width: 100%; }
+      .history-item-image img {
+        max-width: 280px;
+        max-height: 200px;
+        border-radius: 4px;
+        object-fit: cover;
+        cursor: pointer;
+        transition: opacity 150ms ease;
+      }
+      .history-item-image img:hover { opacity: 0.85; }
+      .history-item-image ha-icon {
+        color: var(--text-secondary);
+        --mdc-icon-size: 24px;
+      }
       .history-item-meta { display: flex; gap: 8px; flex-wrap: wrap; }
 
       /* No person state */

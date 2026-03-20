@@ -24,13 +24,26 @@ ICON_PATTERN = re.compile(r"^[a-z0-9_\-:]+$", re.IGNORECASE)
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
-def sanitize_string(value: str | None, max_length: int = 200) -> str | None:
-    """Sanitize a string by removing/escaping dangerous characters.
+def sanitize_for_storage(value: str | None, max_length: int = 200) -> str | None:
+    """Sanitize a string for safe storage without HTML escaping.
 
-    - Strips leading/trailing whitespace
-    - Removes null bytes
-    - Escapes HTML special characters
-    - Truncates to max_length
+    Performs safe cleanup suitable for values persisted to HA storage,
+    passed to service calls, or written to YAML. Does NOT escape HTML
+    entities -- the frontend handles display-escaping via its own
+    esc() and escAttr() utilities.
+
+    Steps (in order):
+      1. Coerce non-string values to str
+      2. Strip leading/trailing whitespace
+      3. Remove null bytes
+      4. Truncate to max_length
+
+    Args:
+        value: The input string (or None).
+        max_length: Maximum allowed length after cleaning. Defaults to 200.
+
+    Returns:
+        The cleaned string, or None if the input was None.
     """
     if value is None:
         return None
@@ -41,7 +54,34 @@ def sanitize_string(value: str | None, max_length: int = 200) -> str | None:
     # Strip whitespace and remove null bytes
     value = value.strip().replace("\x00", "")
 
-    # Escape HTML special characters to prevent XSS
+    # Truncate to max length
+    if len(value) > max_length:
+        value = value[:max_length]
+
+    return value
+
+
+def sanitize_for_html(value: str | None, max_length: int = 200) -> str | None:
+    """Sanitize a string for safe inclusion in HTML content.
+
+    Calls sanitize_for_storage first, then applies HTML entity escaping
+    for the five dangerous characters: & < > " '
+
+    Currently has no callers -- exists as a utility for future use if
+    the backend ever needs to build HTML strings directly.
+
+    Args:
+        value: The input string (or None).
+        max_length: Maximum allowed length after cleaning (before escaping).
+
+    Returns:
+        The HTML-escaped string, or None if the input was None.
+    """
+    value = sanitize_for_storage(value, max_length)
+    if value is None:
+        return None
+
+    # Escape HTML special characters (& must be first)
     value = (
         value
         .replace("&", "&amp;")
@@ -50,10 +90,6 @@ def sanitize_string(value: str | None, max_length: int = 200) -> str | None:
         .replace('"', "&quot;")
         .replace("'", "&#x27;")
     )
-
-    # Truncate to max length
-    if len(value) > max_length:
-        value = value[:max_length]
 
     return value
 
