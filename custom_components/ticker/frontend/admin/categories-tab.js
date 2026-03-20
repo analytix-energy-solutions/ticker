@@ -292,11 +292,15 @@ window.Ticker.AdminCategoriesTab = {
     },
 
     async save(panel, categoryId) {
-      const name = panel.shadowRoot.getElementById(`edit-name-${categoryId}`)?.value?.trim();
-      const icon = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`)?.value?.trim();
-      const color = panel.shadowRoot.getElementById(`edit-color-${categoryId}`)?.value || null;
+      const cat = panel._categories.find(c => c.id === categoryId);
+      const nameInput = panel.shadowRoot.getElementById(`edit-name-${categoryId}`);
+      const iconInput = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`);
+      const colorInput = panel.shadowRoot.getElementById(`edit-color-${categoryId}`);
+      const name = nameInput?.value?.trim() || cat?.name || '';
+      const icon = iconInput?.value?.trim() || cat?.icon;
+      const color = colorInput?.value || cat?.color || null;
       const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
-      const defaultMode = defaultModeEl?.value || 'always';
+      const defaultMode = defaultModeEl?.value || cat?.default_mode || 'always';
 
       if (!name) { panel._showError('Name required'); return; }
 
