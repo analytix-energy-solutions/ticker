@@ -1,19 +1,13 @@
 /**
  * Ticker Admin Panel - Categories Tab
- * Handles category management.
+ * Handles category management with inner sub-tabs per category.
  *
  * Brand: See branding/README.md
  */
 window.Ticker = window.Ticker || {};
 
 window.Ticker.AdminCategoriesTab = {
-  /**
-   * Render the categories tab content.
-   * @param {Object} state - Panel state
-   * @returns {string} - HTML string
-   */
   render(state) {
-    const { esc, escAttr } = window.Ticker.utils;
     const { categories, users, subscriptions, editingCategory, addingCategory } = state;
 
     const sorted = [...categories].sort((a, b) => {
@@ -29,23 +23,14 @@ window.Ticker.AdminCategoriesTab = {
       <div class="card">
         <h2 class="card-title">Categories</h2>
         <p class="card-description">Click category to edit settings.</p>
-        <div class="list">
-          ${items}
-          ${addItem}
-        </div>
+        <div class="list">${items}${addItem}</div>
       </div>
     `;
   },
 
-  /**
-   * Render a single category item.
-   * @param {Object} state - Panel state
-   * @param {Object} c - Category object
-   * @returns {string} - HTML string
-   */
   _renderCategoryItem(state, c) {
     const { esc, escAttr } = window.Ticker.utils;
-    const { categories, users, subscriptions, editingCategory } = state;
+    const { users, subscriptions, editingCategory, editingCategorySubTab } = state;
 
     const escId = escAttr(c.id);
     const escName = esc(c.name || c.id);
@@ -53,10 +38,8 @@ window.Ticker.AdminCategoriesTab = {
     const escColor = escAttr(c.color || '#06b6d4');
     const expanded = editingCategory === c.id;
 
-    // Calculate subscriber count
-    const subCount = users.filter(u => this._isSubscribed(subscriptions, u.person_id, c.id)).length;
+    const subCount = users.filter(u => u.enabled && this._isSubscribed(subscriptions, u.person_id, c.id)).length;
     const subText = `${subCount} subscriber${subCount !== 1 ? 's' : ''}`;
-
     const colorDot = c.color ? `<span class="color-indicator" style="background:${escColor}"></span>` : '';
 
     const expandIcon = `
@@ -78,9 +61,7 @@ window.Ticker.AdminCategoriesTab = {
           </span>
           <span class="list-item-subtitle">${subText}</span>
         </div>
-        <div class="list-item-actions">
-          ${expandIcon}
-        </div>
+        <div class="list-item-actions">${expandIcon}</div>
       </div>
     `;
 
@@ -88,46 +69,24 @@ window.Ticker.AdminCategoriesTab = {
       return `<div class="list-item">${header}</div>`;
     }
 
-    const defaultMode = c.default_mode || 'always';
-    const hasDefaultConditions = defaultMode === 'conditional';
+    const subTab = editingCategorySubTab || 'general';
+    const tabBar = this._renderSubTabs(escId, subTab);
+    let content = '';
+
+    if (subTab === 'general') {
+      content = this._renderGeneralTab(c, escId, escIcon, escColor);
+    } else if (subTab === 'mode') {
+      content = this._renderModeTab(c, escId);
+    } else if (subTab === 'actions') {
+      content = this._renderActionsTab(c, state);
+    }
 
     const accordion = `
-      <div class="accordion-content">
-        <div class="form-row" style="padding-top:12px">
-          <div class="form-group">
-            <label>Name</label>
-            <input type="text" id="edit-name-${escId}" value="${escAttr(c.name || '')}" style="min-width:180px">
-          </div>
-          <div class="form-group">
-            <label>Icon</label>
-            <input type="text" id="edit-icon-${escId}" value="${escIcon}" style="width:100px">
-          </div>
-          <div class="form-group">
-            <label>Color</label>
-            <input type="color" id="edit-color-${escId}" value="${escColor}">
-          </div>
-        </div>
-        <div style="padding-top:12px;border-top:1px solid var(--divider,#e0e0e0);margin-top:12px">
-          <div class="form-group">
-            <label>Default subscription mode</label>
-            <select id="edit-default-mode-${escId}" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)"
-              onchange="window.Ticker.AdminCategoriesTab.handlers.defaultModeChanged(window.Ticker._adminPanel, '${escId}', this.value)">
-              <option value="always" ${defaultMode === 'always' ? 'selected' : ''}>Always</option>
-              <option value="conditional" ${defaultMode === 'conditional' ? 'selected' : ''}>Conditional</option>
-            </select>
-            <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:4px">
-              Pre-populates for new users. Users can change this afterwards.
-            </div>
-          </div>
-          ${hasDefaultConditions ? `
-            <div class="form-group" style="margin-top:8px">
-              <label>Default conditions</label>
-              <ticker-conditions-ui id="cat-conditions-ui-${escId}"></ticker-conditions-ui>
-            </div>
-          ` : ''}
-        </div>
+      <div class="accordion-content" style="padding-top:0">
+        ${tabBar}
+        ${content}
         <div class="button-row">
-          <button class="btn btn-primary" onclick="window.Ticker.AdminCategoriesTab.handlers.save(window.Ticker._adminPanel, '${escId}')">Save</button>
+          ${subTab === 'general' ? `<button class="btn btn-primary" onclick="window.Ticker.AdminCategoriesTab.handlers.save(window.Ticker._adminPanel, '${escId}')">Save</button>` : ''}
           <button class="btn btn-secondary" onclick="window.Ticker.AdminCategoriesTab.handlers.cancelEdit(window.Ticker._adminPanel)">Cancel</button>
           ${!c.is_default ? `<button class="btn btn-danger" onclick="window.Ticker.AdminCategoriesTab.handlers.delete(window.Ticker._adminPanel, '${escId}')">Delete</button>` : ''}
         </div>
@@ -137,20 +96,87 @@ window.Ticker.AdminCategoriesTab = {
     return `<div class="list-item">${header}${accordion}</div>`;
   },
 
-  /**
-   * Render the add new category item.
-   * @param {Object} state - Panel state
-   * @returns {string} - HTML string
-   */
+  _renderSubTabs(escId, activeTab) {
+    const tabs = [
+      { id: 'general', label: 'General' },
+      { id: 'mode', label: 'Default Mode' },
+      { id: 'actions', label: 'Actions' },
+    ];
+
+    const btns = tabs.map(t => {
+      const active = t.id === activeTab;
+      const style = active
+        ? 'color:var(--ticker-500);border-bottom:2px solid var(--ticker-500);font-weight:500'
+        : 'color:var(--secondary-text-color,#727272);border-bottom:2px solid transparent';
+      return `<button onclick="window.Ticker.AdminCategoriesTab.handlers.switchSubTab(window.Ticker._adminPanel, '${t.id}')"
+        style="background:none;border:none;padding:8px 16px;cursor:pointer;font-size:13px;${style}">${t.label}</button>`;
+    }).join('');
+
+    return `<div style="display:flex;border-bottom:1px solid var(--divider,#e0e0e0);margin-bottom:12px">${btns}</div>`;
+  },
+
+  _renderGeneralTab(c, escId, escIcon, escColor) {
+    const { escAttr } = window.Ticker.utils;
+    return `
+      <div class="form-row" style="padding-top:8px">
+        <div class="form-group">
+          <label>Name</label>
+          <input type="text" id="edit-name-${escId}" value="${escAttr(c.name || '')}" style="min-width:180px">
+        </div>
+        <div class="form-group">
+          <label>Icon</label>
+          <input type="text" id="edit-icon-${escId}" value="${escIcon}" style="width:100px">
+        </div>
+        <div class="form-group">
+          <label>Color</label>
+          <input type="color" id="edit-color-${escId}" value="${escColor}">
+        </div>
+      </div>
+    `;
+  },
+
+  _renderModeTab(c, escId) {
+    const defaultMode = c.default_mode || 'always';
+    const hasConditions = defaultMode === 'conditional';
+
+    return `
+      <div style="padding-top:8px">
+        <div class="form-group">
+          <label>Default subscription mode</label>
+          <select id="edit-default-mode-${escId}" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)"
+            onchange="window.Ticker.AdminCategoriesTab.handlers.defaultModeChanged(window.Ticker._adminPanel, '${escId}', this.value)">
+            <option value="always" ${defaultMode === 'always' ? 'selected' : ''}>Always</option>
+            <option value="conditional" ${defaultMode === 'conditional' ? 'selected' : ''}>Conditional</option>
+          </select>
+          <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:4px">
+            Pre-populates for new users. Users can change this afterwards.
+          </div>
+        </div>
+        ${hasConditions ? `
+          <div class="form-group" style="margin-top:8px">
+            <label>Default conditions</label>
+            <ticker-conditions-ui id="cat-conditions-ui-${escId}"></ticker-conditions-ui>
+          </div>
+        ` : ''}
+        <div class="button-row" style="margin-top:12px">
+          <button class="btn btn-primary" onclick="window.Ticker.AdminCategoriesTab.handlers.save(window.Ticker._adminPanel, '${escId}')">Save</button>
+        </div>
+      </div>
+    `;
+  },
+
+  _renderActionsTab(c, state) {
+    if (!window.Ticker.ActionSetEditor) return '<p>Action editor not loaded.</p>';
+    return `<div style="padding-top:8px">${window.Ticker.ActionSetEditor.render(c.id, c.action_set || null, state.scripts || [])}</div>`;
+  },
+
   _renderNewCategoryItem(state) {
     const expanded = state.addingCategory;
-
     const expandIcon = `
       <svg class="expand-icon ${expanded ? 'open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <polyline points="6,9 12,15 18,9"></polyline>
       </svg>
     `;
-
     const headerStyle = `border-left:3px solid ${expanded ? 'var(--ticker-500)' : 'transparent'};background:${expanded ? 'rgba(6,182,212,0.08)' : 'transparent'}`;
 
     const header = `
@@ -161,15 +187,11 @@ window.Ticker.AdminCategoriesTab = {
             <span style="color:var(--ticker-500)">Add new category</span>
           </span>
         </div>
-        <div class="list-item-actions">
-          ${expandIcon}
-        </div>
+        <div class="list-item-actions">${expandIcon}</div>
       </div>
     `;
 
-    if (!expanded) {
-      return `<div class="list-item">${header}</div>`;
-    }
+    if (!expanded) return `<div class="list-item">${header}</div>`;
 
     const accordion = `
       <div class="accordion-content">
@@ -197,33 +219,31 @@ window.Ticker.AdminCategoriesTab = {
     return `<div class="list-item">${header}${accordion}</div>`;
   },
 
-  /**
-   * Check if user is subscribed to category.
-   * @param {Object} subscriptions - Subscriptions map
-   * @param {string} personId - Person ID
-   * @param {string} categoryId - Category ID
-   * @returns {boolean}
-   */
   _isSubscribed(subscriptions, personId, categoryId) {
     const s = subscriptions[personId];
     return s && s[categoryId] ? s[categoryId].mode !== 'never' : true;
   },
 
-  /**
-   * Handler methods.
-   */
   handlers: {
     toggleAdd(panel) {
       panel._addingCategory = !panel._addingCategory;
       panel._editingCategory = null;
-      // BUG-040: Preserve scroll position during same-tab update
       panel._renderTabContentPreserveScroll();
     },
 
     startEdit(panel, categoryId) {
-      panel._editingCategory = panel._editingCategory === categoryId ? null : categoryId;
+      if (panel._editingCategory === categoryId) {
+        panel._editingCategory = null;
+      } else {
+        panel._editingCategory = categoryId;
+        panel._editingCategorySubTab = 'general';
+      }
       panel._addingCategory = false;
-      // BUG-040: Preserve scroll position during same-tab update
+      panel._renderTabContentPreserveScroll();
+    },
+
+    switchSubTab(panel, subTab) {
+      panel._editingCategorySubTab = subTab;
       panel._renderTabContentPreserveScroll();
     },
 
@@ -231,17 +251,14 @@ window.Ticker.AdminCategoriesTab = {
       panel._editingCategory = null;
       panel._addingCategory = false;
       panel._pendingDefaultConditions = null;
-      // BUG-040: Preserve scroll position during same-tab update
       panel._renderTabContentPreserveScroll();
     },
 
     defaultModeChanged(panel, categoryId, mode) {
-      // Update the category object temporarily for re-render
       const cat = panel._categories.find(c => c.id === categoryId);
       if (cat) {
         cat.default_mode = mode;
         if (mode === 'conditional' && !cat.default_conditions) {
-          // Set initial default conditions
           cat.default_conditions = {
             deliver_when_met: true,
             queue_until_met: true,
@@ -252,7 +269,6 @@ window.Ticker.AdminCategoriesTab = {
           panel._pendingDefaultConditions = null;
         }
       }
-      // BUG-040: Preserve scroll position during same-tab update
       panel._renderTabContentPreserveScroll();
     },
 
@@ -262,33 +278,17 @@ window.Ticker.AdminCategoriesTab = {
       const icon = panel.shadowRoot.getElementById('new-category-icon')?.value?.trim() || 'mdi:bell';
       const color = panel.shadowRoot.getElementById('new-category-color')?.value || null;
 
-      if (!name) {
-        panel._showError('Enter a category name');
-        return;
-      }
-
+      if (!name) { panel._showError('Enter a category name'); return; }
       const id = generateCategoryId(name);
-      if (!id) {
-        panel._showError('Invalid name');
-        return;
-      }
+      if (!id) { panel._showError('Invalid name'); return; }
 
       try {
-        await panel._hass.callWS({
-          type: 'ticker/category/create',
-          category_id: id,
-          name: name,
-          icon: icon,
-          color: color,
-        });
+        await panel._hass.callWS({ type: 'ticker/category/create', category_id: id, name, icon, color });
         panel._addingCategory = false;
         await panel._loadCategories();
-        // BUG-040: Preserve scroll position during same-tab update
         panel._renderTabContentPreserveScroll();
         panel._showSuccess('Category created');
-      } catch (err) {
-        panel._showError(err.message);
-      }
+      } catch (err) { panel._showError(err.message); }
     },
 
     async save(panel, categoryId) {
@@ -298,25 +298,15 @@ window.Ticker.AdminCategoriesTab = {
       const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
       const defaultMode = defaultModeEl?.value || 'always';
 
-      if (!name) {
-        panel._showError('Name required');
-        return;
-      }
+      if (!name) { panel._showError('Name required'); return; }
 
       try {
-        const params = {
-          type: 'ticker/category/update',
-          category_id: categoryId,
-          name: name,
-          icon: icon,
-          color: color,
-        };
+        const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
 
         if (defaultMode === 'conditional') {
           params.default_mode = 'conditional';
           params.default_conditions = panel._pendingDefaultConditions || null;
         } else {
-          // Clear defaults by sending null
           params.default_mode = null;
         }
 
@@ -324,28 +314,18 @@ window.Ticker.AdminCategoriesTab = {
         panel._editingCategory = null;
         panel._pendingDefaultConditions = null;
         await panel._loadCategories();
-        // BUG-040: Preserve scroll position during same-tab update
         panel._renderTabContentPreserveScroll();
         panel._showSuccess('Updated');
-      } catch (err) {
-        panel._showError(err.message);
-      }
+      } catch (err) { panel._showError(err.message); }
     },
 
     async delete(panel, categoryId) {
       if (!confirm('Delete category?')) return;
-
       try {
-        await panel._hass.callWS({
-          type: 'ticker/category/delete',
-          category_id: categoryId,
-        });
+        await panel._hass.callWS({ type: 'ticker/category/delete', category_id: categoryId });
         await panel._loadCategories();
-        // BUG-040: Preserve scroll position during same-tab update
         panel._renderTabContentPreserveScroll();
-      } catch (err) {
-        panel._showError(err.message);
-      }
+      } catch (err) { panel._showError(err.message); }
     },
   },
 };

@@ -39,6 +39,11 @@ from .operations import (
     ws_migrate_convert,
     ws_migrate_delete,
 )
+from .actions import (
+    ws_set_action_set,
+    ws_get_snoozes,
+    ws_clear_snooze,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,5 +85,10 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_migrate_scan)
     websocket_api.async_register_command(hass, ws_migrate_convert)
     websocket_api.async_register_command(hass, ws_migrate_delete)
+
+    # Action and snooze commands (F-5)
+    websocket_api.async_register_command(hass, ws_set_action_set)
+    websocket_api.async_register_command(hass, ws_get_snoozes)
+    websocket_api.async_register_command(hass, ws_clear_snooze)
 
     _LOGGER.info("Ticker WebSocket API registered")

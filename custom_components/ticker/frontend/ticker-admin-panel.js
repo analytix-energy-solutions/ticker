@@ -27,10 +27,12 @@ class TickerAdminPanel extends HTMLElement {
     this._logStats = {};
     this._zones = [];
     this._entities = [];
+    this._scripts = [];
 
     // UI state
     this._expandedUsers = new Set();
     this._editingCategory = null;
+    this._editingCategorySubTab = 'general';
     this._addingCategory = false;
 
     // Migration state
@@ -164,9 +166,6 @@ class TickerAdminPanel extends HTMLElement {
     void this.offsetHeight;
   }
 
-  /**
-   * Dynamically load tab modules and shared utilities.
-   */
   async _loadDependencies() {
     if (this._dependenciesLoaded) return;
 
@@ -176,6 +175,7 @@ class TickerAdminPanel extends HTMLElement {
       `${base}/ticker-styles.js`,
       `${base}/ticker-conditions-ui.js`,
       `${base}/admin/categories-tab.js`,
+      `${base}/admin/action-set-editor.js`,
       `${base}/admin/users-tab.js`,
       `${base}/admin/queue-tab.js`,
       `${base}/admin/logs-tab.js`,
@@ -197,17 +197,11 @@ class TickerAdminPanel extends HTMLElement {
     this._dependenciesLoaded = true;
   }
 
-  /**
-   * Expose panel reference for onclick handlers in tab modules.
-   */
   _wireHandlers() {
     window.Ticker = window.Ticker || {};
     window.Ticker._adminPanel = this;
   }
 
-  /**
-   * Create the persistent DOM structure.
-   */
   _createStructure() {
     const styles = window.Ticker.styles;
     const css = `<style>${styles.getCommonStyles()}</style>`;
@@ -236,9 +230,6 @@ class TickerAdminPanel extends HTMLElement {
     this._renderTabs();
   }
 
-  /**
-   * Render tab buttons.
-   */
   _renderTabs() {
     const queueCount = this._queue.length;
     const logCount = this._logs.length;
@@ -267,10 +258,6 @@ class TickerAdminPanel extends HTMLElement {
     });
   }
 
-  /**
-   * Switch to a different tab.
-   * @param {string} tabId - Tab identifier
-   */
   _switchTab(tabId) {
     // BUG-040: Save scroll position of current tab before switching
     if (this._els && this._els.content) {
@@ -283,19 +270,12 @@ class TickerAdminPanel extends HTMLElement {
     this._renderTabContent();
   }
 
-  /**
-   * BUG-040: Re-render tab content while preserving scroll position.
-   * Use this for same-tab updates like user expansion.
-   */
   _renderTabContentPreserveScroll() {
     const scrollTop = this._els?.content?.scrollTop || 0;
     this._pendingScrollRestore = scrollTop;
     this._renderTabContent();
   }
 
-  /**
-   * Render the active tab content.
-   */
   _renderTabContent() {
     const state = this._getState();
     let html = '';
@@ -332,9 +312,6 @@ class TickerAdminPanel extends HTMLElement {
     }
   }
 
-  /**
-   * Wire up conditions UI components for category default conditions.
-   */
   _setupCategoryConditionsUI() {
     const editId = this._editingCategory;
     if (!editId) return;
@@ -367,10 +344,6 @@ class TickerAdminPanel extends HTMLElement {
     conditionsUI.addEventListener('rules-changed', conditionsUI._rulesHandler);
   }
 
-  /**
-   * Get current state for tab modules.
-   * @returns {Object} - State object
-   */
   _getState() {
     return {
       categories: this._categories,
@@ -383,12 +356,14 @@ class TickerAdminPanel extends HTMLElement {
       entities: this._entities,
       expandedUsers: this._expandedUsers,
       editingCategory: this._editingCategory,
+      editingCategorySubTab: this._editingCategorySubTab,
       addingCategory: this._addingCategory,
       migrateFindings: this._migrateFindings,
       migrateCurrentIndex: this._migrateCurrentIndex,
       migrateScanning: this._migrateScanning,
       migrateConverting: this._migrateConverting,
       migrateDeleting: this._migrateDeleting,
+      scripts: this._scripts,
     };
   }
 
@@ -481,37 +456,31 @@ class TickerAdminPanel extends HTMLElement {
   _loadEntities() {
     try {
       const states = this._hass.states;
-      this._entities = Object.keys(states).map(entityId => ({
-        entity_id: entityId,
-        name: states[entityId].attributes.friendly_name || entityId,
+      const all = Object.keys(states);
+      this._entities = all.map(id => ({
+        entity_id: id,
+        name: states[id].attributes.friendly_name || id,
       })).sort((a, b) => a.name.localeCompare(b.name));
+      this._scripts = this._entities.filter(e => e.entity_id.startsWith('script.'));
     } catch (err) {
       console.error('[Ticker] Failed to load entities:', err);
       this._entities = [];
+      this._scripts = [];
     }
   }
 
   // ─── Messages ────────────────────────────────────────────────────────────
 
-  _showError(message) {
+  _showMessage(message, isError) {
     const el = this._els.message;
-    if (el) {
-      el.textContent = message;
-      el.className = 'message error-message';
-      el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 10000);
-    }
+    if (!el) return;
+    el.textContent = message;
+    el.className = `message ${isError ? 'error' : 'success'}-message`;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, isError ? 10000 : 3000);
   }
-
-  _showSuccess(message) {
-    const el = this._els.message;
-    if (el) {
-      el.textContent = message;
-      el.className = 'message success-message';
-      el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 3000);
-    }
-  }
+  _showError(message) { this._showMessage(message, true); }
+  _showSuccess(message) { this._showMessage(message, false); }
 }
 
 customElements.define('ticker-admin-panel', TickerAdminPanel);

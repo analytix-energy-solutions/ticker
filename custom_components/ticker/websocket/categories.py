@@ -13,7 +13,7 @@ from homeassistant.core import HomeAssistant
 from ..const import DOMAIN
 from .validation import (
     get_store,
-    sanitize_string,
+    sanitize_for_storage,
     validate_category_id,
     validate_color,
     validate_icon,
@@ -72,7 +72,7 @@ async def ws_create_category(
         return
 
     # Sanitize name
-    name = sanitize_string(msg["name"], MAX_CATEGORY_NAME_LENGTH)
+    name = sanitize_for_storage(msg["name"], MAX_CATEGORY_NAME_LENGTH)
     if not name:
         connection.send_error(msg["id"], "invalid_name", "Category name is required")
         return
@@ -152,7 +152,7 @@ async def ws_update_category(
     # Sanitize name if provided
     name = None
     if "name" in msg and msg["name"] is not None:
-        name = sanitize_string(msg["name"], MAX_CATEGORY_NAME_LENGTH)
+        name = sanitize_for_storage(msg["name"], MAX_CATEGORY_NAME_LENGTH)
         if not name:
             connection.send_error(
                 msg["id"], "invalid_name", "Category name cannot be empty"

@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -76,6 +76,18 @@ LOG_OUTCOME_SENT = "sent"
 LOG_OUTCOME_QUEUED = "queued"
 LOG_OUTCOME_SKIPPED = "skipped"
 LOG_OUTCOME_FAILED = "failed"
+LOG_OUTCOME_SNOOZED = "snoozed"
+
+# F-5: Notification Actions
+ACTION_TYPE_SCRIPT = "script"
+ACTION_TYPE_SNOOZE = "snooze"
+ACTION_TYPE_DISMISS = "dismiss"
+ACTION_TYPES = [ACTION_TYPE_SCRIPT, ACTION_TYPE_SNOOZE, ACTION_TYPE_DISMISS]
+ACTION_ID_PREFIX = "TICKER_"
+MAX_ACTIONS_PER_SET = 3
+SNOOZE_DURATIONS_MINUTES = [15, 30, 60, 120, 240]
+STORAGE_KEY_SNOOZES = f"{DOMAIN}_snoozes"
+ATTR_ACTIONS = "actions"
 
 # Panel configuration
 PANEL_ADMIN_URL = "/ticker-admin"
@@ -97,3 +109,5 @@ COLOR_SUBTLE = "#0e7490"   # Ticker 700
 MIGRATE_SOURCE_AUTOMATION = "automation"
 MIGRATE_SOURCE_SCRIPT = "script"
 MIGRATE_SERVICES = ["notify", "persistent_notification"]
+MAX_MIGRATION_TITLE_LENGTH = 200
+MAX_MIGRATION_MESSAGE_LENGTH = 1000
