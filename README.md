@@ -9,17 +9,17 @@ Ticker replaces scattered `notify.mobile_app_*` calls with a single `ticker.noti
 ### HACS
 
 1. Open HACS, go to Integrations
-2. Three dots menu → Custom repositories
+2. Three dots menu - Custom repositories
 3. Add this repository URL, select Integration
 4. Search for "Ticker" and install
 5. Restart Home Assistant
-6. Settings → Devices & Services → Add Integration → Ticker
+6. Settings - Devices & Services - Add Integration - Ticker
 
 ### Manual
 
 1. Copy the `ticker` folder into `custom_components/`
 2. Restart Home Assistant
-3. Settings → Devices & Services → Add Integration → Ticker
+3. Settings - Devices & Services - Add Integration - Ticker
 
 ## Quick start
 
@@ -28,7 +28,7 @@ Once installed, Ticker adds two sidebar panels: an admin panel for managing cate
 Create a category in the admin panel (e.g., "Security"), then replace your existing notify calls:
 
 ```yaml
-# Before — one call per person, per device
+# Before - one call per person, per device
 - service: notify.mobile_app_johns_phone
   data:
     title: "Motion Detected"
@@ -38,7 +38,7 @@ Create a category in the admin panel (e.g., "Security"), then replace your exist
     title: "Motion Detected"
     message: "Front door camera"
 
-# After — one call, Ticker handles routing
+# After - one call, Ticker handles routing
 - service: ticker.notify
   data:
     category: security
@@ -46,23 +46,27 @@ Create a category in the admin panel (e.g., "Security"), then replace your exist
     message: "Front door camera"
 ```
 
-Each person controls how they receive each category — always, never, or conditionally based on zone, time, or entity state. The admin panel includes a migration wizard that scans your existing automations and helps convert them.
+Each person controls how they receive each category - always, never, or conditionally based on zone, time, or entity state. The admin panel includes a migration wizard that scans your existing automations and helps convert them.
 
 For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GUIDE.md).
 
 ## Key features
 
 - **Single service call** replaces all individual `notify.mobile_app_*` calls
-- **Three subscription modes** — Always, Never, and Conditional with zone, time, and entity state rules
-- **Smart queuing** — notifications queue when conditions aren't met and deliver automatically when they are
-- **Notification actions** — configure action buttons per category (script, snooze, dismiss) with full lifecycle tracking *(v1.3.0)*
-- **Per-user snooze** — suppress a category's notifications temporarily without touching any automation *(v1.3.0)*
-- **Inline images in history** — camera snapshots and notification images displayed directly in the History tab *(v1.3.0)*
-- **Device routing** — global device preference plus per-category overrides
-- **Notification history** — grouped by notification call, with deep-link from phone notifications
-- **Dashboard sensors** — `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
-- **Migration wizard** — scan and convert existing automations
-- **Self-healing delivery** — failed deliveries retry automatically before falling back
+- **Three subscription modes** - Always, Never, and Conditional with zone, time, and entity state rules
+- **Smart queuing** - notifications queue when conditions aren't met and deliver automatically when they are
+- **Notification actions** - configure action buttons per category (script, snooze, dismiss) with full lifecycle tracking *(v1.3.0)*
+- **Per-user snooze** - suppress a category's notifications temporarily without touching any automation *(v1.3.0)*
+- **Inline images in history** - camera snapshots and notification images displayed directly in the History tab *(v1.3.0)*
+- **Device routing** - global device preference plus per-category overrides
+- **Notification history** - grouped by notification call, with deep-link from phone notifications
+- **Dashboard sensors** - `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
+- **Migration wizard** - scan and convert existing automations
+- **Self-healing delivery** - failed deliveries retry automatically before falling back
+
+## AI Disclosure
+
+This integration is being developed with AI assistance. 
 
 ## AI Disclosure
 
@@ -70,21 +74,25 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
-### v1.3.1 (current)
+### v1.3.2 (current)
+
+- Fixed: saving category from Default Mode or Actions sub-tab no longer fails with "Name required" (BUG-049)
+
+### v1.3.1
 
 - Added AI disclosure section to the README.
 
 ### v1.3.0
 
-- **Notification Actions & Workflows** — configure action buttons per category (script, snooze, dismiss). Ticker listens for button taps and routes them automatically — no second automation required.
-- **Per-user snooze** — tapping a snooze button suppresses that category for the configured duration for that person only, without touching any automation.
-- **Inline images in History** — notifications with a `data.image` field now show the image inline in the user History tab.
+- **Notification Actions & Workflows** - configure action buttons per category (script, snooze, dismiss). Ticker listens for button taps and routes them automatically - no second automation required.
+- **Per-user snooze** - tapping a snooze button suppresses that category for the configured duration for that person only, without touching any automation.
+- **Inline images in History** - notifications with a `data.image` field now show the image inline in the user History tab.
 - Action taken recorded in admin logs and user history.
 - Bug fixes: stray HTML entities in migration wizard output, disabled users counted as subscribers, improved Companion App notify service discovery.
 
 ### v1.2.1
 
-- Hotfix for mobile_app Companion App notify service discovery — services were not found on fresh HA installs because legacy `notify.mobile_app_*` services are not registered in the entity registry.
+- Hotfix for mobile_app Companion App notify service discovery - services were not found on fresh HA installs because legacy `notify.mobile_app_*` services are not registered in the entity registry.
 
 ### v1.2.0
 
@@ -94,7 +102,7 @@ This integration is being developed with AI assistance.
 
 ### v1.1.0
 
-- Notification grouping in History tab — entries from the same `ticker.notify` call grouped into a single card with device tags.
+- Notification grouping in History tab - entries from the same `ticker.notify` call grouped into a single card with device tags.
 - History badge count reflects grouped notifications.
 
 ### v1.0.0
@@ -103,7 +111,7 @@ First public release with complete notification management: category routing, th
 
 ## Uninstalling
 
-Update any automations using `ticker.notify` before removing. Then delete the integration from Settings → Devices & Services. Removing Ticker deletes all its data — categories, subscriptions, queue, and logs.
+Update any automations using `ticker.notify` before removing. Then delete the integration from Settings - Devices & Services. Removing Ticker deletes all its data - categories, subscriptions, queue, and logs.
 
 ## License
 

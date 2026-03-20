@@ -292,11 +292,18 @@ window.Ticker.AdminCategoriesTab = {
     },
 
     async save(panel, categoryId) {
-      const name = panel.shadowRoot.getElementById(`edit-name-${categoryId}`)?.value?.trim();
-      const icon = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`)?.value?.trim();
-      const color = panel.shadowRoot.getElementById(`edit-color-${categoryId}`)?.value || null;
+      const cat = panel._categories.find(c => c.id === categoryId);
+      if (!cat) return;
+
+      // Fall back to existing category values when inputs are on a different sub-tab
+      const nameEl = panel.shadowRoot.getElementById(`edit-name-${categoryId}`);
+      const name = nameEl ? nameEl.value.trim() : cat.name;
+      const iconEl = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`);
+      const icon = iconEl ? iconEl.value.trim() : cat.icon;
+      const colorEl = panel.shadowRoot.getElementById(`edit-color-${categoryId}`);
+      const color = colorEl ? colorEl.value : (cat.color || null);
       const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
-      const defaultMode = defaultModeEl?.value || 'always';
+      const defaultMode = defaultModeEl?.value || (cat.default_mode || 'always');
 
       if (!name) { panel._showError('Name required'); return; }
 
@@ -311,7 +318,6 @@ window.Ticker.AdminCategoriesTab = {
         }
 
         await panel._hass.callWS(params);
-        panel._editingCategory = null;
         panel._pendingDefaultConditions = null;
         await panel._loadCategories();
         panel._renderTabContentPreserveScroll();
