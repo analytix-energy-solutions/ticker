@@ -70,7 +70,11 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
-### v1.3.0 (current)
+### v1.3.1 (current)
+
+- Added AI disclosure section to the README.
+
+### v1.3.0
 
 - **Notification Actions & Workflows** — configure action buttons per category (script, snooze, dismiss). Ticker listens for button taps and routes them automatically — no second automation required.
 - **Per-user snooze** — tapping a snooze button suppresses that category for the configured duration for that person only, without touching any automation.
