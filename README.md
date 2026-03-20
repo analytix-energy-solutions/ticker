@@ -68,10 +68,6 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 
 This integration is being developed with AI assistance. 
 
-## AI Disclosure
-
-This integration is being developed with AI assistance. 
-
 ## Version history
 
 ### v1.3.2 (current)
