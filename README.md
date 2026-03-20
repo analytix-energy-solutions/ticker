@@ -64,6 +64,10 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Migration wizard** — scan and convert existing automations
 - **Self-healing delivery** — failed deliveries retry automatically before falling back
 
+## AI Disclosure
+
+This integration is being developed with AI assistance. 
+
 ## Version history
 
 ### v1.3.0 (current)
