@@ -318,7 +318,6 @@ window.Ticker.AdminCategoriesTab = {
         }
 
         await panel._hass.callWS(params);
-        panel._editingCategory = null;
         panel._pendingDefaultConditions = null;
         await panel._loadCategories();
         panel._renderTabContentPreserveScroll();
