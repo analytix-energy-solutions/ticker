@@ -24,6 +24,7 @@ from .const import (
     ATTR_MESSAGE,
     ATTR_EXPIRATION,
     ATTR_DATA,
+    ATTR_ACTIONS,
     DEFAULT_EXPIRATION_HOURS,
     MAX_EXPIRATION_HOURS,
     MODE_ALWAYS,
@@ -53,6 +54,7 @@ def _build_service_schema() -> vol.Schema:
                 vol.Coerce(int), vol.Range(min=1, max=MAX_EXPIRATION_HOURS)
             ),
             vol.Optional(ATTR_DATA, default={}): dict,
+            vol.Optional(ATTR_ACTIONS): vol.In(["category_default", "none"]),
         }
     )
 
@@ -115,6 +117,18 @@ def _build_service_description(store: "TickerStore | None") -> dict[str, Any]:
                 "required": False,
                 "example": '{"image": "/local/snapshot.jpg"}',
                 "selector": {"object": {}},
+            },
+            ATTR_ACTIONS: {
+                "name": "Actions",
+                "description": "Action button behavior: category_default (use category action set) or none (suppress)",
+                "required": False,
+                "default": "category_default",
+                "selector": {
+                    "select": {
+                        "options": ["category_default", "none"],
+                        "mode": "dropdown",
+                    }
+                },
             },
         },
     }
@@ -186,6 +200,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         message = call.data[ATTR_MESSAGE]
         expiration = call.data.get(ATTR_EXPIRATION, DEFAULT_EXPIRATION_HOURS)
         data = call.data.get(ATTR_DATA, {})
+        actions_param = call.data.get(ATTR_ACTIONS)
+        suppress_actions = actions_param == "none"
 
         # Resolve category (raises ServiceValidationError if invalid)
         category_id = _resolve_category_id(category_input, store)
@@ -250,6 +266,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 results = await async_send_notification(
                     hass, store, person_id, person_name, category_id, title, message,
                     data, notification_id=notification_id,
+                    suppress_actions=suppress_actions,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
@@ -268,6 +285,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     data=data,
                     expiration=expiration,
                     notification_id=notification_id,
+                    suppress_actions=suppress_actions,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])

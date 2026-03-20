@@ -24,12 +24,14 @@ from .const import (
     STORAGE_KEY_USERS,
     STORAGE_KEY_QUEUE,
     STORAGE_KEY_LOGS,
+    STORAGE_KEY_SNOOZES,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
     PANEL_USER_TITLE,
 )
 from .store import TickerStore
+from .actions import async_setup_action_listener
 from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
 from .condition_listeners import ConditionListenerManager
 from .discovery import invalidate_discovery_cache
@@ -57,6 +59,7 @@ class TickerData:
     store: TickerStore
     category_listener: Callable[[], None] | None = None
     unsub_arrival: Callable[[], None] | None = None
+    unsub_actions: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
     condition_listener_manager: ConditionListenerManager | None = None
 
@@ -135,6 +138,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     await condition_manager.async_setup()
     runtime_data.condition_listener_manager = condition_manager
 
+    # Set up notification action listener (F-5)
+    unsub_actions = await async_setup_action_listener(hass, store)
+    runtime_data.unsub_actions = unsub_actions
+
     # Register cleanup via async_on_unload
     entry.async_on_unload(
         lambda: _cleanup_entry(hass, entry)
@@ -155,6 +162,10 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     # Unregister arrival listener
     if runtime_data.unsub_arrival:
         runtime_data.unsub_arrival()
+
+    # Unregister action listener
+    if runtime_data.unsub_actions:
+        runtime_data.unsub_actions()
 
     # Clean up condition listener manager (sync cleanup only)
     # Note: async_unload() is called separately in async_unload_entry
@@ -197,6 +208,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         STORAGE_KEY_USERS,
         STORAGE_KEY_QUEUE,
         STORAGE_KEY_LOGS,
+        STORAGE_KEY_SNOOZES,
     ]
 
     for key in storage_keys:

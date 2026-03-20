@@ -16,11 +16,13 @@ from ..const import (
     STORAGE_KEY_USERS,
     STORAGE_KEY_QUEUE,
     STORAGE_KEY_LOGS,
+    STORAGE_KEY_SNOOZES,
 )
 from ..store_queue_log import QueueLogMixin
 from .categories import CategoryMixin
 from .users import UserMixin
 from .subscriptions import SubscriptionMixin
+from .snoozes import SnoozeMixin
 from .migrations import MigrationMixin
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +36,7 @@ class TickerStore(
     CategoryMixin,
     UserMixin,
     SubscriptionMixin,
+    SnoozeMixin,
     MigrationMixin,
 ):
     """Manage Ticker data storage.
@@ -66,6 +69,9 @@ class TickerStore(
         self._logs_store: Store[list[dict[str, Any]]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_LOGS
         )
+        self._snoozes_store: Store[dict[str, dict[str, Any]]] = Store(
+            hass, STORAGE_VERSION, STORAGE_KEY_SNOOZES
+        )
 
         # In-memory data
         self._categories: dict[str, dict[str, Any]] = {}
@@ -73,6 +79,7 @@ class TickerStore(
         self._users: dict[str, dict[str, Any]] = {}
         self._queue: dict[str, dict[str, Any]] = {}
         self._logs: list[dict[str, Any]] = []
+        self._snoozes: dict[str, dict[str, Any]] = {}
         self._category_listeners: list[Callable[[], None]] = []
 
         # Debounced log saving state (used by QueueLogMixin)
@@ -134,6 +141,11 @@ class TickerStore(
 
         # Clean up old log entries (from mixin)
         await self._async_cleanup_old_logs()
+
+        # Load snoozes and clean up expired
+        snoozes_data = await self._snoozes_store.async_load()
+        self._snoozes = snoozes_data if snoozes_data else {}
+        await self._async_cleanup_expired_snoozes()
 
         _LOGGER.debug(
             "Loaded %d categories, %d subscriptions, %d users, %d queued, %d logs",

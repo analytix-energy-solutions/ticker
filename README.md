@@ -55,6 +55,9 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Single service call** replaces all individual `notify.mobile_app_*` calls
 - **Three subscription modes** — Always, Never, and Conditional with zone, time, and entity state rules
 - **Smart queuing** — notifications queue when conditions aren't met and deliver automatically when they are
+- **Notification actions** — configure action buttons per category (script, snooze, dismiss) with full lifecycle tracking *(v1.3.0)*
+- **Per-user snooze** — suppress a category's notifications temporarily without touching any automation *(v1.3.0)*
+- **Inline images in history** — camera snapshots and notification images displayed directly in the History tab *(v1.3.0)*
 - **Device routing** — global device preference plus per-category overrides
 - **Notification history** — grouped by notification call, with deep-link from phone notifications
 - **Dashboard sensors** — `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
@@ -63,15 +66,28 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 
 ## Version history
 
-### v1.2.0 (current)
+### v1.3.0 (current)
 
-- Category sensor entities (`sensor.ticker_<category_id>`) for dashboard integration
-- Internal refactoring: store split into package with mixins, bundled notify logic extracted
+- **Notification Actions & Workflows** — configure action buttons per category (script, snooze, dismiss). Ticker listens for button taps and routes them automatically — no second automation required.
+- **Per-user snooze** — tapping a snooze button suppresses that category for the configured duration for that person only, without touching any automation.
+- **Inline images in History** — notifications with a `data.image` field now show the image inline in the user History tab.
+- Action taken recorded in admin logs and user history.
+- Bug fixes: stray HTML entities in migration wizard output, disabled users counted as subscribers, improved Companion App notify service discovery.
+
+### v1.2.1
+
+- Hotfix for mobile_app Companion App notify service discovery — services were not found on fresh HA installs because legacy `notify.mobile_app_*` services are not registered in the entity registry.
+
+### v1.2.0
+
+- Advanced conditional rules: time windows and entity state conditions in addition to zones.
+- Category sensor entities (`sensor.ticker_<category_id>`) for dashboard integration.
+- Internal refactoring: store, websocket, and arrival handling split into smaller modules, all files under 500 lines.
 
 ### v1.1.0
 
-- Notification grouping in History tab — entries from the same `ticker.notify` call grouped into a single card with device tags
-- History badge count reflects grouped notifications
+- Notification grouping in History tab — entries from the same `ticker.notify` call grouped into a single card with device tags.
+- History badge count reflects grouped notifications.
 
 ### v1.0.0
 

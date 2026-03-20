@@ -387,6 +387,40 @@ class QueueLogMixin:
         await self.async_save_logs()
         return entry
 
+    async def async_update_log_action_taken(
+        self,
+        notification_id_short: str,
+        person_id: str,
+        action_taken: dict[str, Any],
+    ) -> bool:
+        """Update log entries with action_taken for matching notification and person.
+
+        Matches by notification_id prefix (first 8 chars) and person_id.
+        Only updates entries with outcome 'sent'.
+
+        Returns True if any entries were updated.
+        """
+        updated = False
+        for log in self._logs:
+            nid = log.get("notification_id", "")
+            if (
+                nid
+                and nid[:8] == notification_id_short
+                and log.get("person_id") == person_id
+                and log.get("outcome") == "sent"
+            ):
+                log["action_taken"] = action_taken
+                updated = True
+
+        if updated:
+            await self.async_save_logs()
+            _LOGGER.debug(
+                "Updated action_taken for notification %s / %s",
+                notification_id_short, person_id,
+            )
+
+        return updated
+
     async def async_clear_logs(self) -> int:
         """Clear all logs. Returns count removed."""
         count = len(self._logs)
