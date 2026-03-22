@@ -14,7 +14,6 @@ from homeassistant.core import HomeAssistant
 
 from .const import (
     DEVICE_MODE_ALL,
-    DEVICE_MODE_SELECTED,
     LOG_OUTCOME_SENT,
 )
 from .discovery import async_get_notify_services_for_person

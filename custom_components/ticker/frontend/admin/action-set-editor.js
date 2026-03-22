@@ -54,7 +54,7 @@ window.Ticker.ActionSetEditor = {
       }
 
       return `
-        <div class="action-slot" style="display:flex;gap:8px;align-items:center;padding:8px;background:rgba(6,182,212,0.08);border-left:3px solid #06b6d4;border-radius:4px;margin-bottom:6px">
+        <div class="action-slot" style="display:flex;gap:8px;align-items:center;padding:8px;background:rgba(6,182,212,0.08);border-left:3px solid var(--ticker-500,#06b6d4);border-radius:4px;margin-bottom:6px">
           <input type="text" id="action-title-${escId}-${i}" value="${escTitle}" placeholder="Button label" style="flex:1;min-width:100px;padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)">
           <select id="action-type-${escId}-${i}" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)"
             onchange="window.Ticker.ActionSetEditor.handlers.typeChanged(window.Ticker._adminPanel, '${escId}', ${i}, this.value)">
@@ -72,7 +72,7 @@ window.Ticker.ActionSetEditor = {
     const canAdd = actions.length < 3;
     const addBtn = canAdd ? `
       <button onclick="window.Ticker.ActionSetEditor.handlers.addAction(window.Ticker._adminPanel, '${escId}')"
-        style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px dashed #06b6d4;border-radius:4px;background:transparent;color:#06b6d4;cursor:pointer;font-size:13px;width:100%;justify-content:center">
+        style="display:flex;align-items:center;gap:6px;padding:8px 12px;border:1px dashed var(--ticker-500,#06b6d4);border-radius:4px;background:transparent;color:var(--ticker-500,#06b6d4);cursor:pointer;font-size:13px;width:100%;justify-content:center">
         + Add action button
       </button>
     ` : '';

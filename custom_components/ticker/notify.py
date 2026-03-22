@@ -16,7 +16,6 @@ from .const import (
     LOG_OUTCOME_FAILED,
     LOG_OUTCOME_SNOOZED,
     DEVICE_MODE_ALL,
-    DEVICE_MODE_SELECTED,
 )
 from .actions import build_action_payload
 from .discovery import async_get_notify_services_for_person

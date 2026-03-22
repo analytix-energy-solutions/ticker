@@ -7,7 +7,6 @@ per category for dashboard integration.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity

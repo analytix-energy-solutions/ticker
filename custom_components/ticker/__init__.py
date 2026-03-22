@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.frontend import add_extra_js_url
@@ -35,13 +35,10 @@ from .actions import async_setup_action_listener
 from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
 from .condition_listeners import ConditionListenerManager
 from .discovery import invalidate_discovery_cache
-
-CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-from .services import async_setup_services, async_unload_services, register_schema_updater
+from .services import async_setup_services, register_schema_updater
 from .websocket import async_setup_websocket_api
 
-if TYPE_CHECKING:
-    from homeassistant.core import ServiceCall
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 

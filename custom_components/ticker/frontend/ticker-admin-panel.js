@@ -173,6 +173,8 @@ class TickerAdminPanel extends HTMLElement {
     const scripts = [
       `${base}/ticker-utils.js`,
       `${base}/ticker-styles.js`,
+      `${base}/ticker-styles-extended.js`,
+      `${base}/ticker-conditions-styles.js`,
       `${base}/ticker-conditions-ui.js`,
       `${base}/admin/categories-tab.js`,
       `${base}/admin/action-set-editor.js`,

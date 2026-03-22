@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.storage import Store
 
-from ..const import DEVICE_MODE_ALL, DEVICE_MODE_SELECTED
+from ..const import DEVICE_MODE_ALL
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant

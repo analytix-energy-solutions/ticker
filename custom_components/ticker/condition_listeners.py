@@ -7,7 +7,6 @@ queued notifications and release them when conditions are met.
 from __future__ import annotations
 
 import logging
-from datetime import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.core import HomeAssistant, callback, Event
@@ -28,7 +27,6 @@ from .conditions import (
 )
 
 if TYPE_CHECKING:
-    from . import TickerConfigEntry
     from .store import TickerStore
 
 _LOGGER = logging.getLogger(__name__)
