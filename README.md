@@ -58,6 +58,9 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Notification actions** - configure action buttons per category (script, snooze, dismiss) with full lifecycle tracking *(v1.3.0)*
 - **Per-user snooze** - suppress a category's notifications temporarily without touching any automation *(v1.3.0)*
 - **Inline images in history** - camera snapshots and notification images displayed directly in the History tab *(v1.3.0)*
+- **Device recipients** - send notifications to shared devices (TVs, speakers, tablets) independently of household members, with TTS and push support *(v1.4.0)*
+- **Critical notifications** - single `critical: true` flag translates to platform-specific critical alert payloads on both iOS and Android *(v1.4.0)*
+- **Alarmo and blueprint compatibility** - Ticker registers as a standard `notify.ticker` service, discoverable by Alarmo and any integration scanning for notify services *(v1.4.0)*
 - **Device routing** - global device preference plus per-category overrides
 - **Notification history** - grouped by notification call, with deep-link from phone notifications
 - **Dashboard sensors** - `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
@@ -70,7 +73,15 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
-### v1.3.2 (current)
+### v1.4.0
+
+- **Device recipients** — send notifications to shared devices (TVs, speakers, wall tablets) independently of household members. Admins manage devices in a new Devices tab. Supports push (rich or plain) and TTS delivery with announce mode, snapshot/restore, and configurable resume behaviour.
+- **Critical notifications** — pass `critical: true` on `ticker.notify` and Ticker injects the correct platform-specific critical alert payload automatically (iOS bypasses DND; Android uses high-priority FCM).
+- **Alarmo and blueprint compatibility** — Ticker now registers as a standard `notify.ticker` service. Any integration or blueprint that scans for `notify.*` services can find and use Ticker directly.
+- **Configurable category defaults** — admins can set the default subscription mode (Always / Never / Conditional) per category, so new users start with the right preference instead of always receiving everything.
+- Bug fixes: admin log timestamps truncated on mobile, device cards losing controls on mobile with long names, log list capped at 100 entries while stats showed 500, discovery cache storing empty results on startup.
+
+### v1.3.2
 
 - Fixed: saving category from Default Mode or Actions sub-tab no longer fails with "Name required" (BUG-049)
 

@@ -61,39 +61,6 @@ def sanitize_for_storage(value: str | None, max_length: int = 200) -> str | None
     return value
 
 
-def sanitize_for_html(value: str | None, max_length: int = 200) -> str | None:
-    """Sanitize a string for safe inclusion in HTML content.
-
-    Calls sanitize_for_storage first, then applies HTML entity escaping
-    for the five dangerous characters: & < > " '
-
-    Currently has no callers -- exists as a utility for future use if
-    the backend ever needs to build HTML strings directly.
-
-    Args:
-        value: The input string (or None).
-        max_length: Maximum allowed length after cleaning (before escaping).
-
-    Returns:
-        The HTML-escaped string, or None if the input was None.
-    """
-    value = sanitize_for_storage(value, max_length)
-    if value is None:
-        return None
-
-    # Escape HTML special characters (& must be first)
-    value = (
-        value
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#x27;")
-    )
-
-    return value
-
-
 def validate_category_id(category_id: str) -> tuple[bool, str | None]:
     """Validate a category ID.
 
@@ -109,6 +76,26 @@ def validate_category_id(category_id: str) -> tuple[bool, str | None]:
     if not CATEGORY_ID_PATTERN.match(category_id):
         return False, "Category ID must contain only lowercase letters, numbers, and underscores"
 
+    return True, None
+
+
+def validate_recipient_id(recipient_id: str) -> tuple[bool, str | None]:
+    """Validate a recipient ID slug ([a-z0-9_]+).
+
+    Returns (is_valid, error_message).
+    Reuses the same pattern as category IDs: lowercase alphanumeric and underscores.
+    """
+    from ..const import MAX_RECIPIENT_ID_LENGTH
+
+    if not recipient_id:
+        return False, "Recipient ID is required"
+    if len(recipient_id) > MAX_RECIPIENT_ID_LENGTH:
+        return False, f"Recipient ID must be {MAX_RECIPIENT_ID_LENGTH} chars or less"
+    if not CATEGORY_ID_PATTERN.match(recipient_id):
+        return False, (
+            "Recipient ID must contain only lowercase letters, numbers, "
+            "and underscores"
+        )
     return True, None
 
 

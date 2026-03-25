@@ -13,15 +13,16 @@ For installation and a quick overview, see the [README](../../README.md).
 3. [Conditional rules](#conditional-rules)
 4. [How routing works](#how-routing-works)
 5. [Device routing](#device-routing)
-6. [Notification actions](#notification-actions)
-7. [Notification history](#notification-history)
-8. [Self-healing delivery](#self-healing-delivery)
-9. [Admin panel](#admin-panel)
-10. [User panel](#user-panel)
-11. [Migration wizard](#migration-wizard)
-12. [Dashboard sensors](#dashboard-sensors)
-13. [Uninstalling](#uninstalling)
-14. [Version history](#version-history)
+6. [Device recipients](#device-recipients)
+7. [Notification actions](#notification-actions)
+8. [Notification history](#notification-history)
+9. [Self-healing delivery](#self-healing-delivery)
+10. [Admin panel](#admin-panel)
+11. [User panel](#user-panel)
+12. [Migration wizard](#migration-wizard)
+13. [Dashboard sensors](#dashboard-sensors)
+14. [Uninstalling](#uninstalling)
+15. [Version history](#version-history)
 
 ---
 
@@ -67,6 +68,25 @@ data:
   message: "Driver is 5 minutes away"
   expiration: 1
 ```
+
+### Critical notifications *(v1.4.0)*
+
+To send a critical alert that bypasses silent mode and DND on the recipient's device, add `critical: true` to the service call:
+
+```yaml
+service: ticker.notify
+data:
+  category: security
+  title: "Alarm Triggered"
+  message: "Motion detected at front door"
+  critical: true
+```
+
+Ticker translates this automatically per platform:
+- **iOS** — injects `push: { sound: { name: "default", critical: 1, volume: 1.0 } }`, which bypasses silent mode and DND.
+- **Android** — sets `priority: high`, `ttl: 0`, and routes to the `ticker_critical` channel for high-priority FCM delivery.
+
+You do not need to handle platform differences in your automation. The same call works for all devices.
 
 ### Controlling action button injection *(v1.3.0)*
 
@@ -207,6 +227,42 @@ Device names are displayed using friendly names from the HA device registry (e.g
 
 ---
 
+## Device recipients
+
+*Added in v1.4.0*
+
+Device recipients are notification targets that are not tied to a person entity — shared household devices like a living room TV, a hallway speaker, or a wall-mounted tablet. Admins configure them centrally in the Devices tab; they receive notifications from the same `ticker.notify` call as household members, with their own subscription modes and conditions.
+
+### Device types
+
+Each recipient has a device type that determines how Ticker delivers the notification.
+
+**Push** — Ticker calls one or more notify services, the same way it does for person devices. The delivery format (rich or plain) is auto-detected from the service identifier and can be overridden by the admin. Use this for TVs with the `nfandroidtv` integration, persistent notifications, or any notify-based target.
+
+**TTS** — Ticker calls `tts.speak` targeting a media player entity. Use this for speakers or voice assistants. The admin selects the media player and optionally a TTS service from dropdowns populated from live HA data.
+
+### TTS delivery
+
+For TTS devices, Ticker uses a 3-step priority system at delivery time:
+
+1. **Announce mode** — If the media player supports `MEDIA_ANNOUNCE` (HA 2024.1+), Ticker uses announce mode and HA handles pause/resume automatically.
+2. **Snapshot/restore** — If announce is not supported and `resume_after_tts` is enabled, Ticker snapshots the current playback state, plays the TTS, then restores playback afterwards.
+3. **Plain** — If neither applies, Ticker calls `tts.speak` with no resume behaviour.
+
+The `supports_announce` status is shown as a badge on the recipient card so admins can see at a glance which delivery path will be used.
+
+### Subscriptions and conditions
+
+Device recipients support the same subscription modes as users — Always, Never, and Conditional with time and entity state rules. Zone rules are not available for recipients (they have no location state).
+
+Recipients also support queuing: if conditions are not met at send time, the notification is held and released when conditions are satisfied, the same as for person subscriptions.
+
+### Admin log
+
+Recipient deliveries appear in the admin Logs tab alongside person deliveries, identified by the recipient's display name. They do not appear in any user's History tab.
+
+---
+
 ## Notification actions
 
 *Added in v1.3.0*
@@ -289,7 +345,7 @@ Additionally, if a conditional subscription references a zone that has been dele
 
 ## Admin panel
 
-Only visible to users in the "Administrator" group. The admin panel has five tabs.
+Only visible to users in the "Administrator" group. The admin panel has six tabs.
 
 ### Categories tab
 
@@ -312,6 +368,10 @@ Inspect all currently queued notifications across all users, grouped by person. 
 ### Logs tab
 
 View the notification log with outcome badges (sent, queued, skipped, snoozed, failed) and summary statistics. Logs are retained for 7 days with a maximum of 500 entries. The admin log is an ungrouped audit trail showing every individual delivery attempt. Entries where a user tapped an action button show a pill with the action title and person name.
+
+### Devices tab *(v1.4.0)*
+
+Create, edit, and delete device recipients — shared notification targets not tied to any person entity. Each device has a name, icon, enabled toggle, device type (Push or TTS), and one or more assigned notify services or a media player entity. Subscriptions and conditions per category are configured in the same accordion layout as the Users tab.
 
 ### Migrate tab
 
@@ -401,7 +461,20 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 
 ## Version history
 
-### v1.3.0 (current)
+### v1.4.0 (current)
+
+**Added:**
+- **Device recipients** — admins configure shared devices (TVs, speakers, tablets) in a new Devices tab. Each recipient has its own subscriptions and conditions. Push and TTS delivery types supported; TTS uses announce mode, snapshot/restore, or plain fallback in priority order.
+- **Critical notifications** — `critical: true` on `ticker.notify` injects platform-specific critical alert payloads. iOS bypasses silent/DND mode; Android uses high-priority FCM. No platform-specific logic required in automations.
+- **Alarmo and blueprint compatibility** — Ticker registers as `notify.ticker`, discoverable by Alarmo, blueprints, and any integration scanning for `notify.*` services.
+- **Configurable category default mode** — admins set the default subscription mode (Always / Never / Conditional) per category from the category create/edit dialog.
+
+**Fixed:**
+- Admin log timestamps truncated on mobile.
+- Admin log list capped at 100 entries while stats showed 500.
+- Discovery cache storing empty results on HA startup, causing delivery failures for up to 5 minutes.
+
+### v1.3.0
 
 **Added:**
 - **Notification Actions & Workflows** — configure up to 3 action buttons per category (Script, Snooze, Dismiss). Ticker listens for button taps and routes them centrally — no second automation required.

@@ -19,6 +19,7 @@ from homeassistant.helpers.entity_registry import (
 from .const import MODE_CONDITIONAL
 from .conditions import evaluate_rules
 from .bundled_notify import async_send_bundled_notification
+from .recipient_notify import async_send_to_recipient
 
 if TYPE_CHECKING:
     from . import TickerConfigEntry
@@ -148,7 +149,7 @@ async def async_setup_arrival_listener(
                 continue
 
             # F-2: Evaluate all rules with AND logic
-            all_met, reasons = evaluate_rules(
+            all_met, rule_results = evaluate_rules(
                 hass,
                 rules,
                 new_state,
@@ -160,7 +161,7 @@ async def async_setup_arrival_listener(
                     "All conditions met for %s/%s: %s",
                     person_id,
                     cat_id,
-                    reasons,
+                    [reason for _, reason in rule_results],
                 )
                 entries_to_deliver.extend(cat_entries)
             else:
@@ -168,7 +169,7 @@ async def async_setup_arrival_listener(
                     "Conditions not yet met for %s/%s: %s",
                     person_id,
                     cat_id,
-                    reasons,
+                    [reason for _, reason in rule_results],
                 )
                 entries_to_keep_queued.extend(cat_entries)
 
@@ -292,11 +293,14 @@ async def async_release_queue_for_conditions(
     """Release queued notifications when conditions are met.
 
     Called by ConditionListenerManager when state or time conditions are satisfied.
+    Handles both person-based and recipient-based queue entries. Recipients
+    (person_id prefixed with "recipient:") use async_send_to_recipient instead
+    of the bundled notification path.
 
     Args:
         hass: Home Assistant instance
         store: Ticker store instance
-        person_id: Person entity ID
+        person_id: Person entity ID or "recipient:{recipient_id}"
         category_id: Category ID
     """
     # Get queued entries for this person/category
@@ -322,10 +326,17 @@ async def async_release_queue_for_conditions(
     for entry in entries_to_deliver:
         await store.async_remove_from_queue(entry["queue_id"])
 
-    # Send bundled notification
-    success = await async_send_bundled_notification(
-        hass, person_id, entries_to_deliver, store
-    )
+    # Route to recipient or person delivery path
+    is_recipient = person_id.startswith("recipient:")
+    if is_recipient:
+        success = await _async_deliver_recipient_queue(
+            hass, store, person_id, category_id, entries_to_deliver,
+        )
+    else:
+        # Send bundled notification for person-based entries
+        success = await async_send_bundled_notification(
+            hass, person_id, entries_to_deliver, store
+        )
 
     # If sending failed, re-queue entries for retry
     if not success:
@@ -342,3 +353,61 @@ async def async_release_queue_for_conditions(
                 discarded,
                 person_id,
             )
+
+
+async def _async_deliver_recipient_queue(
+    hass: HomeAssistant,
+    store: "TickerStore",
+    person_id: str,
+    category_id: str,
+    entries: list[dict],
+) -> bool:
+    """Deliver queued entries to a recipient via async_send_to_recipient.
+
+    Sends each queued entry individually since recipients use format-aware
+    payload transformation that differs per notification.
+
+    Args:
+        hass: Home Assistant instance
+        store: Ticker store instance
+        person_id: "recipient:{recipient_id}" prefixed ID
+        category_id: Category ID
+        entries: List of queued notification entries
+
+    Returns:
+        True if at least one entry was delivered, False if all failed.
+    """
+    # Extract recipient_id from "recipient:{recipient_id}"
+    recipient_id = person_id.split(":", 1)[1] if ":" in person_id else person_id
+    recipient = store.get_recipient(recipient_id)
+
+    if not recipient:
+        _LOGGER.error(
+            "Recipient %s not found, cannot deliver %d queued notifications",
+            recipient_id,
+            len(entries),
+        )
+        return False
+
+    any_success = False
+    for entry in entries:
+        results = await async_send_to_recipient(
+            hass,
+            store,
+            recipient,
+            category_id,
+            title=entry.get("title", ""),
+            message=entry.get("message", ""),
+            data=entry.get("data"),
+            notification_id=entry.get("notification_id"),
+        )
+        if results.get("delivered"):
+            any_success = True
+
+    _LOGGER.info(
+        "Delivered %d queued notifications to recipient %s (%s)",
+        len(entries),
+        recipient_id,
+        "success" if any_success else "all failed",
+    )
+    return any_success

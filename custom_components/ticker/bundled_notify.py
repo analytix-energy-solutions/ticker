@@ -11,20 +11,26 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    DELIVERY_FORMAT_RICH,
+    DELIVERY_FORMAT_PLAIN,
     DEVICE_MODE_ALL,
     LOG_OUTCOME_SENT,
+    NOTIFY_SERVICE_TIMEOUT,
 )
 from .discovery import async_get_notify_services_for_person
+from .formatting import (
+    detect_delivery_format,
+    resolve_ios_platform,
+    transform_payload_for_format,
+)
 
 if TYPE_CHECKING:
     from .store import TickerStore
 
 _LOGGER = logging.getLogger(__name__)
-
-# Timeout for notify service calls (in seconds)
-NOTIFY_SERVICE_TIMEOUT = 30
 
 
 async def async_send_bundled_notification(
@@ -155,14 +161,32 @@ async def async_send_bundled_notification(
         service_name_display = service_info.get("name", service_id)
         domain, service_name = service_id.split(".", 1)
 
-        service_data: dict[str, Any] = {
-            "title": title,
-            "message": message,
-            "data": {
-                "url": "/ticker#history",
-                "clickAction": "/ticker#history",
-            },
+        # F-16: Detect delivery format for this service
+        delivery_format = detect_delivery_format(service_id)
+        # BUG-066: Override to plain for iOS devices (registry-based detection)
+        if delivery_format == DELIVERY_FORMAT_RICH and resolve_ios_platform(
+            hass, service_id
+        ):
+            delivery_format = DELIVERY_FORMAT_PLAIN
+        _LOGGER.debug(
+            "Bundled F-16: Service %s detected as format '%s'",
+            service_id,
+            delivery_format,
+        )
+
+        # Build enriched data dict before format transformation
+        enriched_data: dict[str, Any] = {
+            "url": "/ticker#history",
+            "clickAction": "/ticker#history",
         }
+
+        # F-16: Transform payload for the target platform's delivery format
+        service_data = transform_payload_for_format(
+            title=title,
+            message=message,
+            format_type=delivery_format,
+            data=enriched_data,
+        )
 
         try:
             await asyncio.wait_for(
@@ -189,7 +213,14 @@ async def async_send_bundled_notification(
                 service_id,
                 NOTIFY_SERVICE_TIMEOUT,
             )
-        except Exception as err:
+        except HomeAssistantError as err:
+            _LOGGER.error(
+                "HA error sending bundled notification to %s via %s: %s",
+                person_id,
+                service_id,
+                err,
+            )
+        except Exception as err:  # noqa: BLE001
             _LOGGER.error(
                 "Failed to send bundled notification to %s via %s: %s",
                 person_id,

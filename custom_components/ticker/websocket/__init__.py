@@ -44,6 +44,18 @@ from .actions import (
     ws_get_snoozes,
     ws_clear_snooze,
 )
+from .recipients import (
+    ws_get_recipients,
+    ws_create_recipient,
+    ws_update_recipient,
+    ws_delete_recipient,
+    ws_set_recipient_subscription,
+)
+from .recipient_helpers import (
+    ws_get_available_notify_services,
+    ws_get_tts_options,
+    ws_test_recipient,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,5 +102,15 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_set_action_set)
     websocket_api.async_register_command(hass, ws_get_snoozes)
     websocket_api.async_register_command(hass, ws_clear_snooze)
+
+    # Recipient commands (F-18)
+    websocket_api.async_register_command(hass, ws_get_recipients)
+    websocket_api.async_register_command(hass, ws_create_recipient)
+    websocket_api.async_register_command(hass, ws_update_recipient)
+    websocket_api.async_register_command(hass, ws_delete_recipient)
+    websocket_api.async_register_command(hass, ws_set_recipient_subscription)
+    websocket_api.async_register_command(hass, ws_get_available_notify_services)
+    websocket_api.async_register_command(hass, ws_get_tts_options)
+    websocket_api.async_register_command(hass, ws_test_recipient)
 
     _LOGGER.info("Ticker WebSocket API registered")

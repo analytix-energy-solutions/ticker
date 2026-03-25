@@ -14,10 +14,12 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.start import async_at_start
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
+    VERSION,
     STORAGE_VERSION,
     STORAGE_KEY_CATEGORIES,
     STORAGE_KEY_SUBSCRIPTIONS,
@@ -25,6 +27,7 @@ from .const import (
     STORAGE_KEY_QUEUE,
     STORAGE_KEY_LOGS,
     STORAGE_KEY_SNOOZES,
+    STORAGE_KEY_RECIPIENTS,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
@@ -34,7 +37,7 @@ from .store import TickerStore
 from .actions import async_setup_action_listener
 from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
 from .condition_listeners import ConditionListenerManager
-from .discovery import invalidate_discovery_cache
+from .discovery import async_discover_notify_services, invalidate_discovery_cache
 from .services import async_setup_services, register_schema_updater
 from .websocket import async_setup_websocket_api
 
@@ -46,7 +49,7 @@ _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL_BASE = f"/{DOMAIN}_frontend"
 
 # Entity platforms for this integration
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NOTIFY]
 
 
 @dataclass
@@ -89,6 +92,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     # Initialize storage
     store = TickerStore(hass)
     await store.async_load()
+
+    # Pre-warm discovery cache once HA signals startup is complete (BUG-060)
+    async def _prewarm_discovery(hass_ref: HomeAssistant) -> None:
+        """Pre-warm discovery cache after HA startup."""
+        await async_discover_notify_services(hass_ref, use_cache=False)
+
+    async_at_start(hass, _prewarm_discovery)
 
     # Create runtime data
     runtime_data = TickerData(store=store)
@@ -164,15 +174,17 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     if runtime_data.unsub_actions:
         runtime_data.unsub_actions()
 
-    # Clean up condition listener manager (sync cleanup only)
-    # Note: async_unload() is called separately in async_unload_entry
-    if runtime_data.condition_listener_manager:
-        runtime_data.condition_listener_manager._cleanup_listeners()
+    # Note: condition_listener_manager cleanup is handled by
+    # async_unload() in async_unload_entry — no sync cleanup here.
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bool:
     """Unload a Ticker config entry."""
     _LOGGER.info("Unloading Ticker integration")
+
+    # Tear down condition listeners before unloading platforms (BUG-068)
+    if entry.runtime_data.condition_listener_manager:
+        await entry.runtime_data.condition_listener_manager.async_unload()
 
     # Unload entity platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -206,6 +218,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         STORAGE_KEY_QUEUE,
         STORAGE_KEY_LOGS,
         STORAGE_KEY_SNOOZES,
+        STORAGE_KEY_RECIPIENTS,
     ]
 
     for key in storage_keys:
@@ -255,7 +268,7 @@ async def _async_register_panels(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_ADMIN_NAME,
         sidebar_title=PANEL_ADMIN_TITLE,
         sidebar_icon="ticker:logo",
-        module_url=f"{FRONTEND_URL_BASE}/ticker-admin-panel.js",
+        module_url=f"{FRONTEND_URL_BASE}/ticker-admin-panel.js?v={VERSION}",
         require_admin=True,
         config={"name": PANEL_ADMIN_TITLE},
     )
@@ -268,7 +281,7 @@ async def _async_register_panels(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_USER_NAME,
         sidebar_title=PANEL_USER_TITLE,
         sidebar_icon="ticker:logo",
-        module_url=f"{FRONTEND_URL_BASE}/ticker-panel.js",
+        module_url=f"{FRONTEND_URL_BASE}/ticker-panel.js?v={VERSION}",
         require_admin=False,
         config={"name": PANEL_USER_TITLE},
     )

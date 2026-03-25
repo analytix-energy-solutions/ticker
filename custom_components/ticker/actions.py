@@ -197,7 +197,7 @@ async def _async_handle_action_event(
                 )
                 _LOGGER.info("Executed script %s for %s", script_entity, person_label)
                 action_taken["script_entity"] = script_entity
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 — script failure must not abort delivery
                 _LOGGER.error("Failed to execute script %s: %s", script_entity, err)
 
     elif action_type == ACTION_TYPE_SNOOZE:

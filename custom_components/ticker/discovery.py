@@ -40,6 +40,22 @@ def invalidate_discovery_cache() -> None:
     _LOGGER.debug("Discovery cache invalidated")
 
 
+def _should_cache_result(result: dict[str, dict[str, Any]]) -> bool:
+    """Check whether a discovery result is worth caching.
+
+    Returns False if the result is empty or every person has an empty
+    notify_services list — this typically means HA registries were still
+    loading when discovery ran, and caching would lock in bad data for
+    the full TTL window.
+    """
+    if not result:
+        return False
+    return any(
+        person.get("notify_services")
+        for person in result.values()
+    )
+
+
 async def async_discover_notify_services(
     hass: HomeAssistant,
     use_cache: bool = True,
@@ -208,10 +224,15 @@ async def async_discover_notify_services(
             len(person_trackers),
         )
     
-    # Update cache
-    _discovery_cache = result
-    _cache_timestamp = time.monotonic()
-    _LOGGER.debug("Discovery cache updated with %d persons", len(result))
+    # Update cache only if result contains useful data (BUG-060)
+    if _should_cache_result(result):
+        _discovery_cache = result
+        _cache_timestamp = time.monotonic()
+        _LOGGER.debug("Discovery cache updated with %d persons", len(result))
+    else:
+        _LOGGER.warning(
+            "Discovery returned no notify services — result not cached, will retry on next call"
+        )
     
     return result
 

@@ -152,6 +152,7 @@ class TickerCategorySensor(SensorEntity):
         """Return the count of notifications."""
         return len(self._notifications)
 
+    @callback
     def async_add_notification(
         self,
         header: str,

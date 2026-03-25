@@ -28,7 +28,7 @@ window.Ticker.conditionsStyles = `
     }
 
     .rule-item {
-      background: rgba(6, 182, 212, 0.08);
+      background: var(--ticker-500-alpha-8);
       border-radius: 4px;
       overflow: hidden;
     }
@@ -67,7 +67,7 @@ window.Ticker.conditionsStyles = `
       border-radius: 12px;
       font-size: 11px;
       font-weight: 500;
-      background: rgba(6, 182, 212, 0.2);
+      background: var(--ticker-500-alpha-20);
       color: var(--ticker-700);
     }
 
@@ -198,9 +198,9 @@ window.Ticker.conditionsStyles = `
       flex-wrap: wrap;
       margin-top: 16px;
       padding: 12px;
-      background: rgba(6, 182, 212, 0.08);
+      background: var(--ticker-500-alpha-8);
       border-radius: 4px;
-      border: 1px solid rgba(6, 182, 212, 0.2);
+      border: 1px solid var(--ticker-500-alpha-20);
     }
 
     .action-toggle {
@@ -240,7 +240,7 @@ window.Ticker.conditionsStyles = `
     }
 
     .add-rule-btn:hover:not(:disabled) {
-      background: rgba(6, 182, 212, 0.08);
+      background: var(--ticker-500-alpha-8);
     }
 
     .add-rule-btn:disabled {

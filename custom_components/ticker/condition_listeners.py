@@ -20,6 +20,7 @@ from .const import (
     MODE_CONDITIONAL,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
+    RULE_TYPE_ZONE,
 )
 from .conditions import (
     evaluate_rules,
@@ -84,7 +85,9 @@ class ConditionListenerManager:
         all_times: set[str] = set()
 
         # Scan all subscriptions for conditional rules
-        subscriptions = self.store._subscriptions
+        # This includes both person-based and recipient-based subscriptions.
+        # Recipient subscriptions use keys prefixed with "recipient:".
+        subscriptions = self.store.get_all_subscriptions()
         for key, sub in subscriptions.items():
             if sub.get("mode") != MODE_CONDITIONAL:
                 continue
@@ -95,7 +98,22 @@ class ConditionListenerManager:
             if not rules:
                 continue
 
-            triggers = get_queue_triggers(conditions)
+            # For recipient subscriptions, skip zone rules (recipients
+            # have no location). Filter to time/state rules only.
+            is_recipient = key.startswith("recipient:")
+            effective_rules = rules
+            if is_recipient:
+                effective_rules = [
+                    r for r in rules
+                    if r.get("type") != RULE_TYPE_ZONE
+                ]
+                if not effective_rules:
+                    continue
+
+            # Build trigger-extraction dict preserving queue_until_met flag
+            trigger_conditions = dict(conditions)
+            trigger_conditions["rules"] = effective_rules
+            triggers = get_queue_triggers(trigger_conditions)
 
             # Collect entity triggers
             for entity_id in triggers.get("entities", []):
@@ -262,11 +280,15 @@ class ConditionListenerManager:
     ) -> None:
         """Re-evaluate conditional subscriptions and release queued notifications.
 
+        Handles both person-based and recipient-based subscriptions.
+        Recipient subscriptions (key prefix "recipient:") skip zone rules
+        and pass None for person_state since recipients have no location.
+
         Args:
             filter_type: Only check subscriptions with this rule type
             filter_value: Only check subscriptions with this value (entity_id or time)
         """
-        subscriptions = self.store._subscriptions
+        subscriptions = self.store.get_all_subscriptions()
 
         for key, sub in subscriptions.items():
             if sub.get("mode") != MODE_CONDITIONAL:
@@ -278,6 +300,8 @@ class ConditionListenerManager:
             if not person_id or not category_id:
                 continue
 
+            is_recipient = key.startswith("recipient:")
+
             # Check if this subscription has relevant rules
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
@@ -285,10 +309,20 @@ class ConditionListenerManager:
             if not rules:
                 continue
 
+            # For recipients, exclude zone rules (no location state)
+            effective_rules = rules
+            if is_recipient:
+                effective_rules = [
+                    r for r in rules
+                    if r.get("type") != RULE_TYPE_ZONE
+                ]
+                if not effective_rules:
+                    continue
+
             # Filter by rule type if specified
             if filter_type:
                 has_matching_rule = False
-                for rule in rules:
+                for rule in effective_rules:
                     if rule.get("type") != filter_type:
                         continue
                     if filter_type == RULE_TYPE_STATE:
@@ -303,25 +337,29 @@ class ConditionListenerManager:
                 if not has_matching_rule:
                     continue
 
-            # Check if user has queued notifications
+            # Check if person/recipient has queued notifications
             queued = self.store.get_queue_for_person(person_id)
             if not queued:
                 continue
 
             # Filter to this category's queued notifications
-            category_queued = [q for q in queued if q.get("category_id") == category_id]
+            category_queued = [
+                q for q in queued if q.get("category_id") == category_id
+            ]
             if not category_queued:
                 continue
 
-            # Get person state
-            person_state = self.hass.states.get(person_id)
-            if not person_state:
-                continue
+            # Get person state (None for recipients — they have no location)
+            person_state = None
+            if not is_recipient:
+                person_state = self.hass.states.get(person_id)
+                if not person_state:
+                    continue
 
-            # Evaluate all rules
-            all_met, reasons = evaluate_rules(
+            # Evaluate rules (recipients use effective_rules without zone)
+            all_met, rule_results = evaluate_rules(
                 self.hass,
-                rules,
+                effective_rules,
                 person_state,
                 dt_util.now(),
             )
@@ -341,7 +379,7 @@ class ConditionListenerManager:
                     "Conditions not yet met for %s/%s: %s",
                     person_id,
                     category_id,
-                    reasons,
+                    [reason for met, reason in rule_results if not met],
                 )
 
     async def async_unload(self) -> None:

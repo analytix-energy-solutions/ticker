@@ -292,7 +292,7 @@ class QueueLogMixin:
 
     def get_logs(
         self,
-        limit: int = 100,
+        limit: int = MAX_LOG_ENTRIES,
         person_id: str | None = None,
         category_id: str | None = None,
         outcome: str | None = None,

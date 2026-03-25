@@ -9,6 +9,7 @@ import voluptuous as vol
 
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 
 from ..discovery import async_get_notify_services_for_person
 from ..const import MAX_MIGRATION_TITLE_LENGTH, MAX_MIGRATION_MESSAGE_LENGTH
@@ -80,7 +81,10 @@ async def ws_test_notification(
             )
             results.append({"service": service, "name": service_name_display, "success": True})
             _LOGGER.info("Test notification sent to %s via %s", person_id, service)
-        except Exception as err:
+        except HomeAssistantError as err:
+            results.append({"service": service, "name": service_name_display, "success": False, "error": str(err)})
+            _LOGGER.error("Test notification failed for %s via %s: %s", person_id, service, err)
+        except Exception as err:  # noqa: BLE001
             results.append({"service": service, "name": service_name_display, "success": False, "error": str(err)})
             _LOGGER.error("Test notification failed for %s via %s: %s", person_id, service, err)
 
@@ -108,13 +112,12 @@ async def ws_migrate_scan(
     try:
         findings = await async_scan_for_notifications(hass)
         connection.send_result(msg["id"], {"findings": findings})
-    except Exception as err:
+    except HomeAssistantError as err:
         _LOGGER.error("Migration scan failed: %s", err)
-        connection.send_error(
-            msg["id"],
-            "scan_failed",
-            str(err),
-        )
+        connection.send_error(msg["id"], "scan_failed", str(err))
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.error("Migration scan failed unexpectedly: %s", err)
+        connection.send_error(msg["id"], "scan_failed", str(err))
 
 
 @websocket_api.websocket_command(
@@ -165,13 +168,12 @@ async def ws_migrate_convert(
             message=message,
         )
         connection.send_result(msg["id"], result)
-    except Exception as err:
+    except HomeAssistantError as err:
         _LOGGER.error("Migration conversion failed: %s", err)
-        connection.send_error(
-            msg["id"],
-            "convert_failed",
-            str(err),
-        )
+        connection.send_error(msg["id"], "convert_failed", str(err))
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.error("Migration conversion failed unexpectedly: %s", err)
+        connection.send_error(msg["id"], "convert_failed", str(err))
 
 
 @websocket_api.websocket_command(
@@ -195,10 +197,9 @@ async def ws_migrate_delete(
             finding=msg["finding"],
         )
         connection.send_result(msg["id"], result)
-    except Exception as err:
+    except HomeAssistantError as err:
         _LOGGER.error("Migration deletion failed: %s", err)
-        connection.send_error(
-            msg["id"],
-            "delete_failed",
-            str(err),
-        )
+        connection.send_error(msg["id"], "delete_failed", str(err))
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.error("Migration deletion failed unexpectedly: %s", err)
+        connection.send_error(msg["id"], "delete_failed", str(err))

@@ -17,12 +17,14 @@ from ..const import (
     STORAGE_KEY_QUEUE,
     STORAGE_KEY_LOGS,
     STORAGE_KEY_SNOOZES,
+    STORAGE_KEY_RECIPIENTS,
 )
 from ..store_queue_log import QueueLogMixin
 from .categories import CategoryMixin
 from .users import UserMixin
 from .subscriptions import SubscriptionMixin
 from .snoozes import SnoozeMixin
+from .recipients import RecipientMixin
 from .migrations import MigrationMixin
 
 _LOGGER = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ class TickerStore(
     UserMixin,
     SubscriptionMixin,
     SnoozeMixin,
+    RecipientMixin,
     MigrationMixin,
 ):
     """Manage Ticker data storage.
@@ -46,6 +49,7 @@ class TickerStore(
     - CategoryMixin: Category CRUD operations
     - UserMixin: User management and device preferences
     - SubscriptionMixin: Subscription management
+    - RecipientMixin: Non-user recipient management (F-18)
     - MigrationMixin: Data migration utilities
     """
 
@@ -72,6 +76,9 @@ class TickerStore(
         self._snoozes_store: Store[dict[str, dict[str, Any]]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_SNOOZES
         )
+        self._recipients_store: Store[dict[str, dict[str, Any]]] = Store(
+            hass, STORAGE_VERSION, STORAGE_KEY_RECIPIENTS
+        )
 
         # In-memory data
         self._categories: dict[str, dict[str, Any]] = {}
@@ -80,6 +87,7 @@ class TickerStore(
         self._queue: dict[str, dict[str, Any]] = {}
         self._logs: list[dict[str, Any]] = []
         self._snoozes: dict[str, dict[str, Any]] = {}
+        self._recipients: dict[str, dict[str, Any]] = {}
         self._category_listeners: list[Callable[[], None]] = []
 
         # Debounced log saving state (used by QueueLogMixin)
@@ -125,6 +133,20 @@ class TickerStore(
             if migrated_users:
                 _LOGGER.info(
                     "Migrated %d users to include device_preference", migrated_users
+                )
+
+        # Load recipients and migrate to device_type model if needed
+        recipients_data = await self._recipients_store.async_load()
+        self._recipients = recipients_data or {}
+        if self._recipients:
+            migrated_recipients = RecipientMixin.migrate_recipient_data(
+                self._recipients
+            )
+            if migrated_recipients:
+                await self.async_save_recipients()
+                _LOGGER.info(
+                    "Migrated %d recipients to device_type model",
+                    migrated_recipients,
                 )
 
         queue_data = await self._queue_store.async_load()

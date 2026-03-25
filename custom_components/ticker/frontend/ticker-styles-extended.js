@@ -85,6 +85,20 @@
       font-size: 14px;
       color: var(--text-primary);
     }
+    .subscription-select {
+      padding: 6px 10px;
+      border: 1px solid var(--divider);
+      border-radius: 4px;
+      font-size: 13px;
+      background: var(--bg-card);
+      color: var(--text-primary);
+      min-width: 120px;
+      cursor: pointer;
+    }
+    .subscription-select:focus {
+      outline: none;
+      border-color: var(--ticker-500);
+    }
   `;
 
   /** Stats grid (admin logs tab) */
@@ -124,23 +138,22 @@
       background: var(--bg-primary);
       border-radius: 4px;
       margin-bottom: 6px;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 12px;
-    }
-    .log-item-main {
-      flex: 1;
     }
     .log-item-header {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       gap: 8px;
       margin-bottom: 4px;
     }
     .log-item-title {
       font-weight: 500;
       color: var(--text-primary);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .log-item-message {
       font-size: 13px;
@@ -161,6 +174,8 @@
       font-size: 11px;
       color: var(--text-secondary);
       white-space: nowrap;
+      flex-shrink: 0;
+      margin-left: auto;
     }
   `;
 
@@ -297,11 +312,11 @@
     }
     .duplicate-warning-title {
       font-weight: 600;
-      color: #92400e;
+      color: var(--ticker-warning-text, #92400e);
     }
     .duplicate-warning-text {
       font-size: 13px;
-      color: #a16207;
+      color: var(--ticker-warning-text-alt, #a16207);
     }
     .duplicate-grid {
       display: grid;
@@ -327,6 +342,17 @@
       border-radius: 50%;
       animation: spin 1s linear infinite;
       margin-right: 8px;
+    }
+  `;
+
+  /** Notify service tag overflow (extends base .notify-service-tag from ticker-styles.js) */
+  s.notifyServiceOverflow = `
+    .notify-service-tag {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: inline-block;
     }
   `;
 
@@ -383,10 +409,32 @@
     }
   `;
 
+  /** Brand alpha tokens */
+  s.brandAlpha = `
+    :host {
+      --ticker-500-alpha-4: rgba(6,182,212,0.04);
+      --ticker-500-alpha-5: rgba(6,182,212,0.05);
+      --ticker-500-alpha-8: rgba(6,182,212,0.08);
+      --ticker-500-alpha-10: rgba(6,182,212,0.1);
+      --ticker-500-alpha-20: rgba(6,182,212,0.2);
+      --ticker-error-bg: #fef2f2;
+      --ticker-error-border: #fecaca;
+      --ticker-success-bg: #f0fdf4;
+      --ticker-success-border: #bbf7d0;
+      --ticker-success-text: #16a34a;
+      --ticker-toggle-off: #ccc;
+      --ticker-toggle-knob: #fff;
+      --ticker-warning-border: #fcd34d;
+      --ticker-warning-text: #92400e;
+      --ticker-warning-text-alt: #a16207;
+    }
+  `;
+
   // Monkey-patch getCommonStyles to include extended blocks
   const _baseGetCommonStyles = s.getCommonStyles.bind(s);
   s.getCommonStyles = function () {
     return _baseGetCommonStyles() + '\n' + [
+      this.brandAlpha,
       this.sections,
       this.colorIndicator,
       this.accordion,
@@ -397,6 +445,7 @@
       this.adminQueueItems,
       this.migrate,
       this.spinner,
+      this.notifyServiceOverflow,
       this.history,
     ].join('\n');
   };

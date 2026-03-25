@@ -45,7 +45,7 @@ window.Ticker.userPanelStyles = `
   }
   .subscription-header.expanded {
     border-left: 3px solid var(--ticker-500);
-    background: rgba(6, 182, 212, 0.08);
+    background: var(--ticker-500-alpha-8);
   }
   .subscription-label {
     font-size: 14px;
@@ -69,7 +69,7 @@ window.Ticker.userPanelStyles = `
   .conditional-content {
     padding: 0 16px 16px 16px;
     border-left: 3px solid var(--ticker-500);
-    background: rgba(6, 182, 212, 0.04);
+    background: var(--ticker-500-alpha-4);
   }
   .conditions-section { margin-top: 8px; padding-top: 8px; }
 

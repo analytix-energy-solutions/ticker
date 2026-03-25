@@ -51,7 +51,7 @@ async def ws_get_categories(
         vol.Required("name"): str,
         vol.Optional("icon"): str,
         vol.Optional("color"): str,
-        vol.Optional("default_mode"): vol.In(["always", "conditional"]),
+        vol.Optional("default_mode"): vol.In(["always", "never", "conditional"]),
         vol.Optional("default_conditions"): dict,
     }
 )
@@ -121,7 +121,7 @@ async def ws_create_category(
         vol.Optional("name"): str,
         vol.Optional("icon"): str,
         vol.Optional("color"): vol.Any(str, None),
-        vol.Optional("default_mode"): vol.Any(vol.In(["always", "conditional"]), None),
+        vol.Optional("default_mode"): vol.Any(vol.In(["always", "never", "conditional"]), None),
         vol.Optional("default_conditions"): vol.Any(dict, None),
     }
 )

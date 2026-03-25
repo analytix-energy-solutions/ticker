@@ -215,14 +215,14 @@ window.Ticker.styles = {
       margin-bottom: 16px;
     }
     .error-message {
-      background: #fef2f2;
-      border: 1px solid #fecaca;
+      background: var(--ticker-error-bg, #fef2f2);
+      border: 1px solid var(--ticker-error-border, #fecaca);
       color: var(--ticker-danger-hover);
     }
     .success-message {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      color: #16a34a;
+      background: var(--ticker-success-bg, #f0fdf4);
+      border: 1px solid var(--ticker-success-border, #bbf7d0);
+      color: var(--ticker-success-text, #16a34a);
     }
   `,
 
@@ -274,7 +274,7 @@ window.Ticker.styles = {
     .toggle-slider {
       position: absolute;
       inset: 0;
-      background: #ccc;
+      background: var(--ticker-toggle-off, #ccc);
       border-radius: 24px;
       transition: 0.3s;
     }
@@ -285,7 +285,7 @@ window.Ticker.styles = {
       width: 18px;
       left: 3px;
       bottom: 3px;
-      background: #fff;
+      background: var(--ticker-toggle-knob, #fff);
       border-radius: 50%;
       transition: 0.3s;
     }
@@ -306,7 +306,7 @@ window.Ticker.styles = {
     }
     .notify-service-tag {
       padding: 2px 6px;
-      background: rgba(6, 182, 212, 0.1);
+      background: var(--ticker-500-alpha-10, rgba(6,182,212,0.1));
       border-radius: 3px;
       font-size: 11px;
       color: var(--ticker-700);
@@ -353,11 +353,11 @@ window.Ticker.styles = {
   warningBanner: `
     .warning-banner {
       background: var(--ticker-warning-bg);
-      border: 1px solid #fcd34d;
+      border: 1px solid var(--ticker-warning-border, #fcd34d);
       border-radius: 4px;
       padding: 10px 12px;
       margin-top: 8px;
-      color: #92400e;
+      color: var(--ticker-warning-text, #92400e);
       font-size: 12px;
       display: flex;
       align-items: center;
@@ -420,18 +420,17 @@ window.Ticker.styles = {
       padding: 12px 16px;
       cursor: pointer;
     }
-    .list-item-header:hover {
-      background: rgba(6, 182, 212, 0.05);
-    }
+    .list-item-header:hover { background: var(--ticker-500-alpha-5, rgba(6,182,212,0.05)); }
     .list-item-header.expanded {
       border-left: 3px solid var(--ticker-500);
-      background: rgba(6, 182, 212, 0.08);
+      background: var(--ticker-500-alpha-8, rgba(6,182,212,0.08));
     }
     .list-item-content {
       display: flex;
       flex-direction: column;
       gap: 2px;
       flex: 1;
+      min-width: 0;
     }
     .list-item-title {
       font-weight: 500;
@@ -439,11 +438,15 @@ window.Ticker.styles = {
       display: flex;
       align-items: center;
       gap: 8px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .list-item-actions {
       display: flex;
       align-items: center;
       gap: 8px;
+      flex-shrink: 0;
     }
     .list-item-accordion {
       padding: 0 16px 16px;
@@ -454,9 +457,7 @@ window.Ticker.styles = {
       transition: transform 0.2s ease;
       color: var(--text-secondary);
     }
-    .chevron.expanded {
-      transform: rotate(90deg);
-    }
+    .chevron.expanded { transform: rotate(90deg); }
     .expand-icon {
       width: 20px;
       height: 20px;
@@ -464,9 +465,7 @@ window.Ticker.styles = {
       transition: transform 0.2s;
       flex-shrink: 0;
     }
-    .expand-icon.open {
-      transform: rotate(180deg);
-    }
+    .expand-icon.open { transform: rotate(180deg); }
   `,
 
   /** Ticker logo SVG as HTML string */

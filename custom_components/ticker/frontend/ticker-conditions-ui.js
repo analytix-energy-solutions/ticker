@@ -23,6 +23,7 @@ class TickerConditionsUI extends HTMLElement {
     this._zones = [];
     this._entities = [];
     this._disabled = false;
+    this._hideZone = false;
     this._expandedRules = new Set();
     this._deliverWhenMet = false;
     this._queueUntilMet = false;
@@ -30,12 +31,15 @@ class TickerConditionsUI extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ['disabled'];
+    return ['disabled', 'hide-zone'];
   }
 
   attributeChangedCallback(name, oldValue, newValue) {
     if (name === 'disabled') {
       this._disabled = newValue !== null;
+      this._render();
+    } else if (name === 'hide-zone') {
+      this._hideZone = newValue !== null;
       this._render();
     }
   }
@@ -353,12 +357,14 @@ class TickerConditionsUI extends HTMLElement {
       content = `<div class="rules-container">${rulesHtml}</div>`;
     }
 
-    // Add rule buttons
-    const addButtons = `
-      <div class="add-rule-section">
+    // Add rule buttons (zone hidden when hide-zone attribute is set)
+    const zoneBtn = this._hideZone ? '' : `
         <button class="add-rule-btn" onclick="this.getRootNode().host._addRule('zone')" ${this._disabled ? 'disabled' : ''}>
           + Zone
-        </button>
+        </button>`;
+    const addButtons = `
+      <div class="add-rule-section">
+        ${zoneBtn}
         <button class="add-rule-btn" onclick="this.getRootNode().host._addRule('time')" ${this._disabled ? 'disabled' : ''}>
           + Time
         </button>
