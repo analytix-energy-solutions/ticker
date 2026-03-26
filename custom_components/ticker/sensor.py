@@ -7,7 +7,6 @@ per category for dashboard integration.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -153,6 +152,7 @@ class TickerCategorySensor(SensorEntity):
         """Return the count of notifications."""
         return len(self._notifications)
 
+    @callback
     def async_add_notification(
         self,
         header: str,

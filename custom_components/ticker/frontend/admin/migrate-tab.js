@@ -113,7 +113,7 @@ window.Ticker.AdminMigrateTab = {
         <h2 class="card-title">Migration Wizard</h2>
         ${progress}
         <div class="duplicate-warning">
-          <ha-icon icon="mdi:content-duplicate" style="--mdc-icon-size:20px;color:#d97706"></ha-icon>
+          <ha-icon icon="mdi:content-duplicate" style="--mdc-icon-size:20px;color:var(--ticker-warning-dark,#d97706)"></ha-icon>
           <div class="duplicate-warning-content">
             <div class="duplicate-warning-title">Duplicate Detected</div>
             <div class="duplicate-warning-text">This notification is identical to an adjacent one. You can delete this duplicate or keep both.</div>

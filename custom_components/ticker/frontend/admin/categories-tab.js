@@ -35,7 +35,7 @@ window.Ticker.AdminCategoriesTab = {
     const escId = escAttr(c.id);
     const escName = esc(c.name || c.id);
     const escIcon = escAttr(c.icon || 'mdi:bell');
-    const escColor = escAttr(c.color || '#06b6d4');
+    const escColor = escAttr(c.color || window.Ticker.styles.brandPrimary);
     const expanded = editingCategory === c.id;
 
     const subCount = users.filter(u => u.enabled && this._isSubscribed(subscriptions, u.person_id, c.id)).length;
@@ -48,7 +48,7 @@ window.Ticker.AdminCategoriesTab = {
       </svg>
     `;
 
-    const headerStyle = `border-left:3px solid ${expanded ? 'var(--ticker-500)' : 'transparent'};background:${expanded ? 'rgba(6,182,212,0.08)' : 'transparent'}`;
+    const headerStyle = `border-left:3px solid ${expanded ? 'var(--ticker-500)' : 'transparent'};background:${expanded ? 'var(--ticker-500-alpha-8)' : 'transparent'}`;
 
     const header = `
       <div class="list-item-header" onclick="window.Ticker.AdminCategoriesTab.handlers.startEdit(window.Ticker._adminPanel, '${escId}')" style="${headerStyle}">
@@ -117,6 +117,7 @@ window.Ticker.AdminCategoriesTab = {
 
   _renderGeneralTab(c, escId, escIcon, escColor) {
     const { escAttr } = window.Ticker.utils;
+    const criticalChecked = c.critical ? 'checked' : '';
     return `
       <div class="form-row" style="padding-top:8px">
         <div class="form-group">
@@ -132,11 +133,24 @@ window.Ticker.AdminCategoriesTab = {
           <input type="color" id="edit-color-${escId}" value="${escColor}">
         </div>
       </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+        <label class="toggle" style="margin:0">
+          <input type="checkbox" id="edit-critical-${escId}" ${criticalChecked}>
+          <span class="toggle-slider"></span>
+        </label>
+        <div>
+          <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Critical notifications</span>
+          <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+            Bypass Do Not Disturb and silent mode on recipients' devices
+          </div>
+        </div>
+      </div>
     `;
   },
 
   _renderModeTab(c, escId) {
-    const defaultMode = c.default_mode || 'always';
+    const panel = window.Ticker._adminPanel;
+    const defaultMode = panel._pendingDefaultMode || c.default_mode || 'always';
     const hasConditions = defaultMode === 'conditional';
 
     return `
@@ -146,6 +160,7 @@ window.Ticker.AdminCategoriesTab = {
           <select id="edit-default-mode-${escId}" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)"
             onchange="window.Ticker.AdminCategoriesTab.handlers.defaultModeChanged(window.Ticker._adminPanel, '${escId}', this.value)">
             <option value="always" ${defaultMode === 'always' ? 'selected' : ''}>Always</option>
+            <option value="never" ${defaultMode === 'never' ? 'selected' : ''}>Never</option>
             <option value="conditional" ${defaultMode === 'conditional' ? 'selected' : ''}>Conditional</option>
           </select>
           <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:4px">
@@ -177,7 +192,7 @@ window.Ticker.AdminCategoriesTab = {
         <polyline points="6,9 12,15 18,9"></polyline>
       </svg>
     `;
-    const headerStyle = `border-left:3px solid ${expanded ? 'var(--ticker-500)' : 'transparent'};background:${expanded ? 'rgba(6,182,212,0.08)' : 'transparent'}`;
+    const headerStyle = `border-left:3px solid ${expanded ? 'var(--ticker-500)' : 'transparent'};background:${expanded ? 'var(--ticker-500-alpha-8)' : 'transparent'}`;
 
     const header = `
       <div class="list-item-header" onclick="window.Ticker.AdminCategoriesTab.handlers.toggleAdd(window.Ticker._adminPanel)" style="${headerStyle}">
@@ -206,7 +221,15 @@ window.Ticker.AdminCategoriesTab = {
           </div>
           <div class="form-group">
             <label>Color</label>
-            <input type="color" id="new-category-color" value="#06b6d4">
+            <input type="color" id="new-category-color" value="${window.Ticker.styles.brandPrimary}">
+          </div>
+          <div class="form-group">
+            <label>Default Mode</label>
+            <select id="new-category-default-mode" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)">
+              <option value="always" selected>Always</option>
+              <option value="never">Never</option>
+              <option value="conditional">Conditional</option>
+            </select>
           </div>
         </div>
         <div class="button-row">
@@ -239,6 +262,8 @@ window.Ticker.AdminCategoriesTab = {
         panel._editingCategorySubTab = 'general';
       }
       panel._addingCategory = false;
+      panel._pendingDefaultMode = null;
+      panel._pendingDefaultConditions = null;
       panel._renderTabContentPreserveScroll();
     },
 
@@ -251,23 +276,25 @@ window.Ticker.AdminCategoriesTab = {
       panel._editingCategory = null;
       panel._addingCategory = false;
       panel._pendingDefaultConditions = null;
+      panel._pendingDefaultMode = null;
       panel._renderTabContentPreserveScroll();
     },
 
     defaultModeChanged(panel, categoryId, mode) {
-      const cat = panel._categories.find(c => c.id === categoryId);
-      if (cat) {
-        cat.default_mode = mode;
-        if (mode === 'conditional' && !cat.default_conditions) {
-          cat.default_conditions = {
+      // Store pending mode on the panel, NOT on the category object.
+      // This prevents stale in-memory mutation if the user cancels the edit.
+      panel._pendingDefaultMode = mode;
+      if (mode === 'conditional') {
+        const cat = panel._categories.find(c => c.id === categoryId);
+        if (cat && !cat.default_conditions && !panel._pendingDefaultConditions) {
+          panel._pendingDefaultConditions = {
             deliver_when_met: true,
             queue_until_met: true,
             rules: [{ type: 'zone', zone_id: 'zone.home' }],
           };
-          panel._pendingDefaultConditions = cat.default_conditions;
-        } else if (mode === 'always') {
-          panel._pendingDefaultConditions = null;
         }
+      } else {
+        panel._pendingDefaultConditions = null;
       }
       panel._renderTabContentPreserveScroll();
     },
@@ -277,13 +304,16 @@ window.Ticker.AdminCategoriesTab = {
       const name = panel.shadowRoot.getElementById('new-category-name')?.value?.trim();
       const icon = panel.shadowRoot.getElementById('new-category-icon')?.value?.trim() || 'mdi:bell';
       const color = panel.shadowRoot.getElementById('new-category-color')?.value || null;
+      const defaultMode = panel.shadowRoot.getElementById('new-category-default-mode')?.value || 'always';
 
       if (!name) { panel._showError('Enter a category name'); return; }
       const id = generateCategoryId(name);
       if (!id) { panel._showError('Invalid name'); return; }
 
       try {
-        await panel._hass.callWS({ type: 'ticker/category/create', category_id: id, name, icon, color });
+        const params = { type: 'ticker/category/create', category_id: id, name, icon, color };
+        if (defaultMode !== 'always') { params.default_mode = defaultMode; }
+        await panel._hass.callWS(params);
         panel._addingCategory = false;
         await panel._loadCategories();
         panel._renderTabContentPreserveScroll();
@@ -304,21 +334,26 @@ window.Ticker.AdminCategoriesTab = {
       const color = colorEl ? colorEl.value : (cat.color || null);
       const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
       const defaultMode = defaultModeEl?.value || (cat.default_mode || 'always');
+      const criticalEl = panel.shadowRoot.getElementById(`edit-critical-${categoryId}`);
 
       if (!name) { panel._showError('Name required'); return; }
 
       try {
         const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
+        if (criticalEl) { params.critical = criticalEl.checked; }
 
         if (defaultMode === 'conditional') {
           params.default_mode = 'conditional';
           params.default_conditions = panel._pendingDefaultConditions || null;
+        } else if (defaultMode === 'never') {
+          params.default_mode = 'never';
         } else {
           params.default_mode = null;
         }
 
         await panel._hass.callWS(params);
         panel._pendingDefaultConditions = null;
+        panel._pendingDefaultMode = null;
         await panel._loadCategories();
         panel._renderTabContentPreserveScroll();
         panel._showSuccess('Updated');

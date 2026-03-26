@@ -148,7 +148,7 @@ def evaluate_state_rule(
 def evaluate_rule(
     hass: HomeAssistant,
     rule: dict[str, Any],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
     """Evaluate a single rule.
@@ -156,7 +156,7 @@ def evaluate_rule(
     Args:
         hass: Home Assistant instance
         rule: Rule configuration dict
-        person_state: Person entity state
+        person_state: Person entity state, or None for recipients
         now: Current datetime (for time rules)
 
     Returns:
@@ -165,21 +165,25 @@ def evaluate_rule(
     rule_type = rule.get("type", "")
 
     if rule_type == RULE_TYPE_ZONE:
+        if person_state is None:
+            # Recipients have no location; skip zone rules (treat as met)
+            return True, "Zone rule skipped (no person state)"
         return evaluate_zone_rule(rule, person_state)
     elif rule_type == RULE_TYPE_TIME:
         return evaluate_time_rule(rule, now)
     elif rule_type == RULE_TYPE_STATE:
         return evaluate_state_rule(hass, rule)
     else:
+        _LOGGER.debug("Unknown rule type '%s', treating as unmet", rule_type)
         return False, f"Unknown rule type: {rule_type}"
 
 
 def evaluate_rules(
     hass: HomeAssistant,
     rules: list[dict[str, Any]],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
-) -> tuple[bool, list[str]]:
+) -> tuple[bool, list[tuple[bool, str]]]:
     """Evaluate all rules with AND logic.
 
     All rules must be met for the overall condition to be true.
@@ -187,32 +191,33 @@ def evaluate_rules(
     Args:
         hass: Home Assistant instance
         rules: List of rule dicts
-        person_state: Person entity state
+        person_state: Person entity state, or None for recipients
         now: Current datetime (for time rules)
 
     Returns:
-        Tuple of (all_met, list_of_reasons)
+        Tuple of (all_met, list_of_per_rule_results) where each result
+        is (is_met, reason_string).
     """
     if not rules:
-        return True, ["No rules configured"]
+        return True, [(True, "No rules configured")]
 
     all_met = True
-    reasons = []
+    results: list[tuple[bool, str]] = []
 
     for rule in rules:
         is_met, reason = evaluate_rule(hass, rule, person_state, now)
-        reasons.append(reason)
+        results.append((is_met, reason))
         if not is_met:
             all_met = False
-            # Continue checking to collect all reasons
+            # Continue checking to collect all results
 
-    return all_met, reasons
+    return all_met, results
 
 
 def should_deliver_now(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
     """Check if notification should be delivered now.
@@ -224,7 +229,7 @@ def should_deliver_now(
     Args:
         hass: Home Assistant instance
         conditions: Conditions dict with 'rules' and optional 'deliver_when_met'
-        person_state: Person entity state
+        person_state: Person entity state, or None for recipients
         now: Current datetime
 
     Returns:
@@ -242,23 +247,22 @@ def should_deliver_now(
         return False, "Delivery not enabled for these conditions"
 
     # Evaluate all rules
-    all_met, reasons = evaluate_rules(hass, rules, person_state, now)
+    all_met, rule_results = evaluate_rules(hass, rules, person_state, now)
 
     if all_met:
         return True, "All conditions met"
-    else:
-        # Find first unmet reason
-        for rule, reason in zip(rules, reasons):
-            is_met, _ = evaluate_rule(hass, rule, person_state, now)
-            if not is_met:
-                return False, reason
-        return False, "Conditions not met"
+
+    # Find first unmet reason from already-evaluated results
+    for is_met, reason in rule_results:
+        if not is_met:
+            return False, reason
+    return False, "Conditions not met"
 
 
 def should_queue(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
     """Check if notification should be queued for later.
@@ -270,7 +274,7 @@ def should_queue(
     Args:
         hass: Home Assistant instance
         conditions: Conditions dict with 'rules' and optional 'queue_until_met'
-        person_state: Person entity state
+        person_state: Person entity state, or None for recipients
         now: Current datetime
 
     Returns:
@@ -287,7 +291,7 @@ def should_queue(
         return False, "Queueing not enabled for these conditions"
 
     # Evaluate all rules
-    all_met, reasons = evaluate_rules(hass, rules, person_state, now)
+    all_met, _rule_results = evaluate_rules(hass, rules, person_state, now)
 
     if all_met:
         # Already met - deliver now, don't queue
