@@ -55,7 +55,7 @@ def read_yaml_file(path: Path) -> Any:
     SafeLineLoader.add_constructor('!env_var', include_handler)
 
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.load(f, Loader=SafeLineLoader)
+        return yaml.load(f, Loader=SafeLineLoader)  # nosec B506 - SafeLineLoader extends yaml.SafeLoader; custom constructors return only None/strings
 
 
 def write_yaml_file(path: Path, content: Any) -> None:

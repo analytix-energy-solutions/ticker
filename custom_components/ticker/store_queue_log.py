@@ -292,7 +292,7 @@ class QueueLogMixin:
 
     def get_logs(
         self,
-        limit: int = 100,
+        limit: int = MAX_LOG_ENTRIES,
         person_id: str | None = None,
         category_id: str | None = None,
         outcome: str | None = None,
@@ -301,13 +301,13 @@ class QueueLogMixin:
         filtered = self._logs
 
         if person_id:
-            filtered = [l for l in filtered if l.get("person_id") == person_id]
+            filtered = [entry for entry in filtered if entry.get("person_id") == person_id]
 
         if category_id:
-            filtered = [l for l in filtered if l.get("category_id") == category_id]
+            filtered = [entry for entry in filtered if entry.get("category_id") == category_id]
 
         if outcome:
-            filtered = [l for l in filtered if l.get("outcome") == outcome]
+            filtered = [entry for entry in filtered if entry.get("outcome") == outcome]
 
         # Return newest first, limited
         return list(reversed(filtered[-limit:]))

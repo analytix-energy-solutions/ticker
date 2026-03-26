@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.3.2"
+VERSION = "1.4.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -53,6 +53,7 @@ CATEGORY_DEFAULT_NAME = "General"
 
 # Service constants
 SERVICE_NOTIFY = "notify"
+NOTIFY_SERVICE_TIMEOUT = 30  # Timeout for notify/TTS service calls (seconds)
 ATTR_CATEGORY = "category"
 ATTR_TITLE = "title"
 ATTR_MESSAGE = "message"
@@ -88,6 +89,58 @@ MAX_ACTIONS_PER_SET = 3
 SNOOZE_DURATIONS_MINUTES = [15, 30, 60, 120, 240]
 STORAGE_KEY_SNOOZES = f"{DOMAIN}_snoozes"
 ATTR_ACTIONS = "actions"
+ATTR_CRITICAL = "critical"
+
+# F-18: Non-User Recipient Support
+STORAGE_KEY_RECIPIENTS = f"{DOMAIN}_recipients"
+MAX_RECIPIENT_ID_LENGTH = 64
+MAX_RECIPIENT_NAME_LENGTH = 100
+MAX_NOTIFY_SERVICES = 10
+
+# Device type constants (F-18 device type discriminator)
+DEVICE_TYPE_PUSH = "push"
+DEVICE_TYPE_TTS = "tts"
+DEVICE_TYPES = [DEVICE_TYPE_PUSH, DEVICE_TYPE_TTS]
+
+# TTS polling timeouts (seconds)
+TTS_PLAYBACK_START_TIMEOUT = 5.0
+TTS_PLAYBACK_MAX_TIMEOUT = 60.0
+TTS_POLL_INTERVAL = 0.5
+
+# TTS buffer delay (seconds) — pre-playback pause for Chromecast/Cast devices
+TTS_BUFFER_DELAY_MIN = 0.0
+TTS_BUFFER_DELAY_MAX = 10.0
+TTS_BUFFER_DELAY_DEFAULT = 0.0
+
+# MediaPlayerEntityFeature.MEDIA_ANNOUNCE (HA 2024.1+)
+MEDIA_ANNOUNCE_FEATURE = 524288
+
+# Delivery format constants
+DELIVERY_FORMAT_RICH = "rich"
+DELIVERY_FORMAT_PLAIN = "plain"
+DELIVERY_FORMAT_TTS = "tts"
+DELIVERY_FORMAT_PERSISTENT = "persistent"
+
+# Full set of delivery formats (used internally by formatting.py)
+DELIVERY_FORMATS = [
+    DELIVERY_FORMAT_RICH,
+    DELIVERY_FORMAT_PLAIN,
+    DELIVERY_FORMAT_TTS,
+    DELIVERY_FORMAT_PERSISTENT,
+]
+
+# Subset valid for push-type recipients (TTS is a device type, not a format)
+RECIPIENT_DELIVERY_FORMATS = [DELIVERY_FORMAT_RICH, DELIVERY_FORMAT_PLAIN]
+
+# Auto-detection patterns for delivery format (push devices only)
+# TTS entries removed — TTS is now a device type, not a format.
+# Each tuple: (match_type, pattern, delivery_format)
+# match_type: "startswith", "contains", "equals"
+DELIVERY_FORMAT_PATTERNS = [
+    ("equals", "notify.persistent_notification", DELIVERY_FORMAT_PERSISTENT),
+    ("contains", "nfandroidtv", DELIVERY_FORMAT_RICH),
+    ("contains", "mobile_app", DELIVERY_FORMAT_RICH),
+]
 
 # Panel configuration
 PANEL_ADMIN_URL = "/ticker-admin"

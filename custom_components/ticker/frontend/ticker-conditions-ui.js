@@ -23,6 +23,8 @@ class TickerConditionsUI extends HTMLElement {
     this._zones = [];
     this._entities = [];
     this._disabled = false;
+    this._hideZone = false;
+    this._hideQueue = false;
     this._expandedRules = new Set();
     this._deliverWhenMet = false;
     this._queueUntilMet = false;
@@ -30,14 +32,15 @@ class TickerConditionsUI extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ['disabled'];
+    return ['disabled', 'hide-zone', 'hide-queue'];
   }
 
-  attributeChangedCallback(name, oldValue, newValue) {
-    if (name === 'disabled') {
-      this._disabled = newValue !== null;
-      this._render();
-    }
+  attributeChangedCallback(name, _oldValue, newValue) {
+    const flag = newValue !== null;
+    if (name === 'disabled') this._disabled = flag;
+    else if (name === 'hide-zone') this._hideZone = flag;
+    else if (name === 'hide-queue') this._hideQueue = flag;
+    this._render();
   }
 
   set rules(value) {
@@ -59,15 +62,11 @@ class TickerConditionsUI extends HTMLElement {
     this._render();
   }
 
-  set deliverWhenMet(value) {
-    this._deliverWhenMet = !!value;
-    this._render();
-  }
+  set deliverWhenMet(value) { this._deliverWhenMet = !!value; this._render(); }
+  get deliverWhenMet() { return this._deliverWhenMet; }
 
-  set queueUntilMet(value) {
-    this._queueUntilMet = !!value;
-    this._render();
-  }
+  set queueUntilMet(value) { this._queueUntilMet = !!value; this._render(); }
+  get queueUntilMet() { return this._queueUntilMet; }
 
   connectedCallback() {
     this._render();
@@ -108,7 +107,7 @@ class TickerConditionsUI extends HTMLElement {
     // Set default ruleset-level flags if this is the first rule
     if (this._rules.length === 0) {
       this._deliverWhenMet = true;
-      this._queueUntilMet = true;
+      this._queueUntilMet = !this._hideQueue;
     }
 
     this._rules = [...this._rules, newRule];
@@ -313,280 +312,8 @@ class TickerConditionsUI extends HTMLElement {
   }
 
   _render() {
-    const styles = `
-      <style>
-        :host {
-          display: block;
-          --ticker-500: #06b6d4;
-          --ticker-400: #22d3ee;
-          --ticker-700: #0e7490;
-          --text-primary: var(--primary-text-color, #212121);
-          --text-secondary: var(--secondary-text-color, #727272);
-          --bg-card: var(--card-background-color, #fff);
-          --bg-primary: var(--primary-background-color, #fafafa);
-          --divider: var(--divider-color, #e0e0e0);
-        }
-
-        .rules-container {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-
-        .rule-item {
-          background: rgba(6, 182, 212, 0.08);
-          border-radius: 4px;
-          overflow: hidden;
-        }
-
-        .rule-item.expanded {
-          border-left: 3px solid var(--ticker-500);
-        }
-
-        .rule-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          padding: 10px 12px;
-          cursor: pointer;
-        }
-
-        .rule-header-left {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .chevron {
-          color: var(--text-secondary);
-          transition: transform 0.2s ease;
-          font-size: 12px;
-        }
-
-        .chevron.expanded {
-          transform: rotate(90deg);
-        }
-
-        .rule-type-badge {
-          display: inline-block;
-          padding: 2px 8px;
-          border-radius: 12px;
-          font-size: 11px;
-          font-weight: 500;
-          background: rgba(6, 182, 212, 0.2);
-          color: var(--ticker-700);
-        }
-
-        .rule-summary {
-          font-size: 13px;
-          color: var(--text-primary);
-        }
-
-        .rule-delete {
-          background: none;
-          border: none;
-          color: var(--text-secondary);
-          cursor: pointer;
-          padding: 4px 8px;
-          font-size: 16px;
-          line-height: 1;
-          border-radius: 4px;
-          transition: all 0.2s ease;
-        }
-
-        .rule-delete:hover {
-          color: #ef4444;
-          background: rgba(239, 68, 68, 0.1);
-        }
-
-        .rule-content {
-          padding: 0 12px 12px 12px;
-        }
-
-        .form-group {
-          margin-bottom: 12px;
-        }
-
-        .form-label {
-          display: block;
-          font-size: 12px;
-          font-weight: 500;
-          color: var(--text-secondary);
-          margin-bottom: 4px;
-        }
-
-        .form-select, .form-input {
-          width: 100%;
-          padding: 8px 10px;
-          border: 1px solid var(--divider);
-          border-radius: 4px;
-          font-size: 13px;
-          background: var(--bg-card);
-          color: var(--text-primary);
-          box-sizing: border-box;
-        }
-
-        .form-select:focus, .form-input:focus {
-          outline: none;
-          border-color: var(--ticker-500);
-        }
-
-        .form-row {
-          display: flex;
-          gap: 12px;
-          align-items: flex-end;
-        }
-
-        .form-row .form-group {
-          flex: 1;
-        }
-
-        .time-inputs {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .time-input {
-          width: 80px;
-          padding: 8px 10px;
-          border: 1px solid var(--divider);
-          border-radius: 4px;
-          font-size: 13px;
-          background: var(--bg-card);
-          color: var(--text-primary);
-        }
-
-        .time-separator {
-          color: var(--text-secondary);
-          font-size: 13px;
-        }
-
-        .days-selector {
-          display: flex;
-          gap: 4px;
-          flex-wrap: wrap;
-        }
-
-        .day-btn {
-          width: 36px;
-          height: 28px;
-          border: 1px solid var(--divider);
-          border-radius: 4px;
-          background: var(--bg-card);
-          color: var(--text-primary);
-          font-size: 11px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .day-btn.selected {
-          background: var(--ticker-500);
-          border-color: var(--ticker-500);
-          color: white;
-        }
-
-        .day-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .actions-section {
-          display: flex;
-          gap: 16px;
-          padding-top: 12px;
-          border-top: 1px solid var(--divider);
-        }
-
-        .ruleset-actions {
-          display: flex;
-          gap: 20px;
-          flex-wrap: wrap;
-          margin-top: 16px;
-          padding: 12px;
-          background: rgba(6, 182, 212, 0.08);
-          border-radius: 4px;
-          border: 1px solid rgba(6, 182, 212, 0.2);
-        }
-
-        .action-toggle {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 13px;
-          color: var(--text-primary);
-          cursor: pointer;
-        }
-
-        .action-toggle input[type="checkbox"] {
-          width: 16px;
-          height: 16px;
-          accent-color: var(--ticker-500);
-          cursor: pointer;
-        }
-
-        .add-rule-section {
-          display: flex;
-          gap: 8px;
-          margin-top: 8px;
-        }
-
-        .add-rule-btn {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          padding: 8px 12px;
-          border: 1px dashed var(--ticker-500);
-          border-radius: 4px;
-          background: transparent;
-          color: var(--ticker-500);
-          cursor: pointer;
-          font-size: 12px;
-          transition: background 0.2s ease;
-        }
-
-        .add-rule-btn:hover:not(:disabled) {
-          background: rgba(6, 182, 212, 0.08);
-        }
-
-        .add-rule-btn:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
-        .and-indicator {
-          display: flex;
-          justify-content: center;
-          padding: 4px 0;
-        }
-
-        .and-badge {
-          background: var(--bg-primary);
-          padding: 2px 12px;
-          border-radius: 12px;
-          border: 1px solid var(--divider);
-          font-size: 11px;
-          font-weight: 500;
-          color: var(--text-secondary);
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 20px;
-          color: var(--text-secondary);
-          font-size: 13px;
-        }
-
-        .info-text {
-          font-size: 12px;
-          color: var(--text-secondary);
-          margin-top: 8px;
-          padding: 8px;
-          background: var(--bg-primary);
-          border-radius: 4px;
-        }
-      </style>
-    `;
+    // Styles loaded from ticker-conditions-styles.js via window.Ticker.conditionsStyles
+    const styles = window.Ticker.conditionsStyles || '';
 
     let content = '';
 
@@ -625,12 +352,14 @@ class TickerConditionsUI extends HTMLElement {
       content = `<div class="rules-container">${rulesHtml}</div>`;
     }
 
-    // Add rule buttons
-    const addButtons = `
-      <div class="add-rule-section">
+    // Add rule buttons (zone hidden when hide-zone attribute is set)
+    const zoneBtn = this._hideZone ? '' : `
         <button class="add-rule-btn" onclick="this.getRootNode().host._addRule('zone')" ${this._disabled ? 'disabled' : ''}>
           + Zone
-        </button>
+        </button>`;
+    const addButtons = `
+      <div class="add-rule-section">
+        ${zoneBtn}
         <button class="add-rule-btn" onclick="this.getRootNode().host._addRule('time')" ${this._disabled ? 'disabled' : ''}>
           + Time
         </button>
@@ -642,16 +371,17 @@ class TickerConditionsUI extends HTMLElement {
     `;
 
     // Ruleset-level action toggles (shown when there are rules)
+    const queueToggle = this._hideQueue ? '' : `
+        <label class="action-toggle">
+          <input type="checkbox" ${this._queueUntilMet ? 'checked' : ''} onchange="this.getRootNode().host._toggleQueueUntilMet()" ${this._disabled ? 'disabled' : ''}>
+          Queue until all conditions met
+        </label>`;
     const actionsSection = this._rules.length > 0 ? `
       <div class="ruleset-actions">
         <label class="action-toggle">
           <input type="checkbox" ${this._deliverWhenMet ? 'checked' : ''} onchange="this.getRootNode().host._toggleDeliverWhenMet()" ${this._disabled ? 'disabled' : ''}>
           Deliver when all conditions met
-        </label>
-        <label class="action-toggle">
-          <input type="checkbox" ${this._queueUntilMet ? 'checked' : ''} onchange="this.getRootNode().host._toggleQueueUntilMet()" ${this._disabled ? 'disabled' : ''}>
-          Queue until all conditions met
-        </label>
+        </label>${queueToggle}
       </div>
     ` : '';
 
