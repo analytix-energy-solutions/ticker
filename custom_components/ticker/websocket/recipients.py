@@ -180,6 +180,7 @@ async def ws_get_recipients(
         vol.Optional("tts_buffer_delay", default=TTS_BUFFER_DELAY_DEFAULT): vol.All(
             vol.Coerce(float), vol.Range(min=TTS_BUFFER_DELAY_MIN, max=TTS_BUFFER_DELAY_MAX),
         ),
+        vol.Optional("conditions"): dict,
     }
 )
 @websocket_api.async_response
@@ -231,6 +232,17 @@ async def ws_create_recipient(
         connection.send_error(msg["id"], "invalid_icon", error)
         return
 
+    # Validate conditions structure if provided
+    conditions = msg.get("conditions")
+    if conditions is not None:
+        rules = conditions.get("rules")
+        if not isinstance(rules, list):
+            connection.send_error(
+                msg["id"], "invalid_conditions",
+                "Conditions must contain a 'rules' key with a list value",
+            )
+            return
+
     try:
         recipient = await store.async_create_recipient(
             recipient_id=recipient_id,
@@ -244,6 +256,7 @@ async def ws_create_recipient(
             enabled=msg["enabled"],
             resume_after_tts=msg["resume_after_tts"],
             tts_buffer_delay=msg["tts_buffer_delay"],
+            conditions=msg.get("conditions"),
         )
     except ValueError as err:
         connection.send_error(msg["id"], "create_failed", str(err))
@@ -269,6 +282,7 @@ async def ws_create_recipient(
         vol.Optional("tts_buffer_delay"): vol.All(
             vol.Coerce(float), vol.Range(min=TTS_BUFFER_DELAY_MIN, max=TTS_BUFFER_DELAY_MAX),
         ),
+        vol.Optional("conditions"): vol.Any(dict, None),
     }
 )
 @websocket_api.async_response
@@ -352,6 +366,19 @@ async def ws_update_recipient(
 
     if "tts_buffer_delay" in msg:
         kwargs["tts_buffer_delay"] = msg["tts_buffer_delay"]
+
+    # F-21: Device-level conditions (None clears via sparse storage)
+    if "conditions" in msg:
+        cond_val = msg["conditions"]
+        if cond_val is not None:
+            rules = cond_val.get("rules")
+            if not isinstance(rules, list):
+                connection.send_error(
+                    msg["id"], "invalid_conditions",
+                    "Conditions must contain a 'rules' key with a list value",
+                )
+                return
+        kwargs["conditions"] = cond_val
 
     if not kwargs:
         connection.send_error(msg["id"], "no_fields", "No fields to update")

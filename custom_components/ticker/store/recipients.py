@@ -79,6 +79,7 @@ class RecipientMixin:
         tts_service: str | None = None,
         resume_after_tts: bool = False,
         tts_buffer_delay: float = TTS_BUFFER_DELAY_DEFAULT,
+        conditions: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new recipient.
 
@@ -96,6 +97,8 @@ class RecipientMixin:
             tts_service: TTS service (e.g., 'tts.google_translate_say').
             resume_after_tts: Whether to resume media after TTS playback.
             tts_buffer_delay: Seconds to wait before TTS playback (Chromecast).
+            conditions: Device-level conditions dict (time/state rules).
+                Evaluated before subscription mode. None means no gate.
 
         Returns:
             The created recipient dict.
@@ -138,6 +141,10 @@ class RecipientMixin:
             "updated_at": now,
         }
 
+        # Sparse storage: only persist conditions when set
+        if conditions is not None:
+            recipient["conditions"] = conditions
+
         self._recipients[recipient_id] = recipient
         await self.async_save_recipients()
         _LOGGER.info("Created recipient: %s (%s, type=%s)", recipient_id, name, device_type)
@@ -165,7 +172,7 @@ class RecipientMixin:
         allowed_fields = {
             "name", "icon", "notify_services", "delivery_format", "enabled",
             "device_type", "media_player_entity_id", "tts_service",
-            "resume_after_tts", "tts_buffer_delay",
+            "resume_after_tts", "tts_buffer_delay", "conditions",
         }
         unknown = set(kwargs) - allowed_fields
         if unknown:
@@ -176,7 +183,11 @@ class RecipientMixin:
             )
         for key, value in kwargs.items():
             if key in allowed_fields:
-                self._recipients[recipient_id][key] = value
+                if key == "conditions" and value is None:
+                    # Sparse storage: remove conditions key when cleared
+                    self._recipients[recipient_id].pop("conditions", None)
+                else:
+                    self._recipients[recipient_id][key] = value
 
         self._recipients[recipient_id]["updated_at"] = (
             datetime.now(timezone.utc).isoformat()

@@ -24,6 +24,7 @@ class TickerConditionsUI extends HTMLElement {
     this._entities = [];
     this._disabled = false;
     this._hideZone = false;
+    this._hideQueue = false;
     this._expandedRules = new Set();
     this._deliverWhenMet = false;
     this._queueUntilMet = false;
@@ -31,17 +32,15 @@ class TickerConditionsUI extends HTMLElement {
   }
 
   static get observedAttributes() {
-    return ['disabled', 'hide-zone'];
+    return ['disabled', 'hide-zone', 'hide-queue'];
   }
 
-  attributeChangedCallback(name, oldValue, newValue) {
-    if (name === 'disabled') {
-      this._disabled = newValue !== null;
-      this._render();
-    } else if (name === 'hide-zone') {
-      this._hideZone = newValue !== null;
-      this._render();
-    }
+  attributeChangedCallback(name, _oldValue, newValue) {
+    const flag = newValue !== null;
+    if (name === 'disabled') this._disabled = flag;
+    else if (name === 'hide-zone') this._hideZone = flag;
+    else if (name === 'hide-queue') this._hideQueue = flag;
+    this._render();
   }
 
   set rules(value) {
@@ -63,15 +62,11 @@ class TickerConditionsUI extends HTMLElement {
     this._render();
   }
 
-  set deliverWhenMet(value) {
-    this._deliverWhenMet = !!value;
-    this._render();
-  }
+  set deliverWhenMet(value) { this._deliverWhenMet = !!value; this._render(); }
+  get deliverWhenMet() { return this._deliverWhenMet; }
 
-  set queueUntilMet(value) {
-    this._queueUntilMet = !!value;
-    this._render();
-  }
+  set queueUntilMet(value) { this._queueUntilMet = !!value; this._render(); }
+  get queueUntilMet() { return this._queueUntilMet; }
 
   connectedCallback() {
     this._render();
@@ -112,7 +107,7 @@ class TickerConditionsUI extends HTMLElement {
     // Set default ruleset-level flags if this is the first rule
     if (this._rules.length === 0) {
       this._deliverWhenMet = true;
-      this._queueUntilMet = true;
+      this._queueUntilMet = !this._hideQueue;
     }
 
     this._rules = [...this._rules, newRule];
@@ -376,16 +371,17 @@ class TickerConditionsUI extends HTMLElement {
     `;
 
     // Ruleset-level action toggles (shown when there are rules)
+    const queueToggle = this._hideQueue ? '' : `
+        <label class="action-toggle">
+          <input type="checkbox" ${this._queueUntilMet ? 'checked' : ''} onchange="this.getRootNode().host._toggleQueueUntilMet()" ${this._disabled ? 'disabled' : ''}>
+          Queue until all conditions met
+        </label>`;
     const actionsSection = this._rules.length > 0 ? `
       <div class="ruleset-actions">
         <label class="action-toggle">
           <input type="checkbox" ${this._deliverWhenMet ? 'checked' : ''} onchange="this.getRootNode().host._toggleDeliverWhenMet()" ${this._disabled ? 'disabled' : ''}>
           Deliver when all conditions met
-        </label>
-        <label class="action-toggle">
-          <input type="checkbox" ${this._queueUntilMet ? 'checked' : ''} onchange="this.getRootNode().host._toggleQueueUntilMet()" ${this._disabled ? 'disabled' : ''}>
-          Queue until all conditions met
-        </label>
+        </label>${queueToggle}
       </div>
     ` : '';
 

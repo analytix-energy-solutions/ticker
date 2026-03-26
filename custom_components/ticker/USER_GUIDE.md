@@ -88,6 +88,8 @@ Ticker translates this automatically per platform:
 
 You do not need to handle platform differences in your automation. The same call works for all devices.
 
+Admins can also enable critical notifications at the category level from the category editor's General sub-tab. When a category has critical enabled, every notification sent to that category is treated as critical automatically — you do not need to include `critical: true` in the service call at all. If you do include `critical: true` or `critical: false` explicitly, that per-call value takes precedence over the category setting. This lets you send a non-critical test notification to an otherwise-critical category by passing `critical: false`, or force critical behavior for a specific call in a category that does not have it enabled by default.
+
 ### Controlling action button injection *(v1.3.0)*
 
 If a category has action buttons configured, Ticker injects them automatically into every outgoing notification. You can control this per call with the optional `actions` parameter:
@@ -349,7 +351,7 @@ Only visible to users in the "Administrator" group. The admin panel has six tabs
 
 ### Categories tab
 
-Create, edit, and delete notification categories. Each category has a name (from which an ID is auto-generated), an icon, an optional color, and optional default subscription settings.
+Create, edit, and delete notification categories. Each category has a name (from which an ID is auto-generated), an icon, an optional color, and optional default subscription settings. The General sub-tab also includes a **Critical notifications** toggle — when enabled, all notifications sent to this category are treated as critical by default (individual service calls can still override this with an explicit `critical` value).
 
 Each category also has an **Action Buttons** section where admins configure up to 3 action buttons (Script, Snooze, or Dismiss) that are automatically included in notifications for that category.
 

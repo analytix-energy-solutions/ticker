@@ -111,6 +111,12 @@ async def ws_set_action_set(
     connection.send_result(msg["id"], {"category": category})
 
 
+# --- Snooze management/debug endpoints ---
+# These handlers expose snooze state for diagnostics and manual clearing.
+# They are not yet wired into the frontend; a snooze management UI is planned
+# as part of future user-panel work. Do not remove.
+
+
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/snooze/get",

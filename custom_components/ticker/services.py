@@ -25,6 +25,7 @@ from .const import (
     ATTR_EXPIRATION,
     ATTR_DATA,
     ATTR_ACTIONS,
+    ATTR_CRITICAL,
     DEFAULT_EXPIRATION_HOURS,
     MAX_EXPIRATION_HOURS,
     MODE_ALWAYS,
@@ -33,6 +34,7 @@ from .const import (
     LOG_OUTCOME_SKIPPED,
     CATEGORY_DEFAULT_NAME,
 )
+from .conditions import evaluate_rules
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
     async_send_to_recipient,
@@ -59,6 +61,7 @@ def _build_service_schema() -> vol.Schema:
             ),
             vol.Optional(ATTR_DATA, default={}): dict,
             vol.Optional(ATTR_ACTIONS): vol.In(["category_default", "none"]),
+            vol.Optional(ATTR_CRITICAL): bool,
         }
     )
 
@@ -134,6 +137,16 @@ def _build_service_description(store: "TickerStore | None") -> dict[str, Any]:
                     }
                 },
             },
+            ATTR_CRITICAL: {
+                "name": "Critical",
+                "description": (
+                    "Send as critical notification (bypasses Do Not "
+                    "Disturb and silent mode). If omitted, inherits "
+                    "from category setting."
+                ),
+                "required": False,
+                "selector": {"boolean": {}},
+            },
         },
     }
 
@@ -203,12 +216,24 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         title = call.data[ATTR_TITLE]
         message = call.data[ATTR_MESSAGE]
         expiration = call.data.get(ATTR_EXPIRATION, DEFAULT_EXPIRATION_HOURS)
-        data = call.data.get(ATTR_DATA, {})
+        data = dict(call.data.get(ATTR_DATA, {}))
         actions_param = call.data.get(ATTR_ACTIONS)
         suppress_actions = actions_param == "none"
 
         # Resolve category (raises ServiceValidationError if invalid)
         category_id = _resolve_category_id(category_input, store)
+
+        # Resolve critical flag: per-call wins if explicitly set,
+        # otherwise fall back to category default
+        category = store.get_category(category_id)
+        if ATTR_CRITICAL in call.data:
+            resolved_critical = call.data[ATTR_CRITICAL]
+        else:
+            resolved_critical = (category or {}).get("critical", False)
+        if resolved_critical:
+            data["critical"] = True
+        else:
+            data.pop("critical", None)
 
         # Generate a unique ID for this notification call to group log entries
         notification_id = str(uuid.uuid4())
@@ -299,6 +324,39 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 continue
 
             r_person_id = f"recipient:{r_id}"
+
+            # F-21: Device-level condition gate (before subscription mode)
+            device_conditions = r_data.get("conditions")
+            if device_conditions and device_conditions.get("rules"):
+                # person_state=None: recipients have no location
+                all_met, rule_results = evaluate_rules(
+                    hass, device_conditions.get("rules", []), None,
+                )
+                if not all_met:
+                    gate_reason = next(
+                        (r for ok, r in rule_results if not ok),
+                        "Conditions not met",
+                    )
+                    _LOGGER.debug(
+                        "Skipping recipient %s (device conditions not met: %s)",
+                        r_id,
+                        gate_reason,
+                    )
+                    await store.async_add_log(
+                        category_id=category_id,
+                        person_id=r_person_id,
+                        person_name=r_data.get("name", r_id),
+                        title=title,
+                        message=message,
+                        outcome=LOG_OUTCOME_SKIPPED,
+                        reason=f"Device conditions: {gate_reason}",
+                        notification_id=notification_id,
+                    )
+                    delivery_results["dropped"].append(
+                        f"{r_person_id}: device conditions not met"
+                    )
+                    continue
+
             r_mode = store.get_subscription_mode(r_person_id, category_id)
 
             _LOGGER.debug(

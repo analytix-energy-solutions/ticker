@@ -80,6 +80,11 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
         : '<span class="badge badge-warning">No services</span>';
     }
 
+    const hasDeviceConditions = !!(r.conditions && r.conditions.rules && r.conditions.rules.length > 0);
+    const conditionsBadge = hasDeviceConditions
+      ? `<span class="badge badge-outline" style="font-size:10px;margin-left:4px">Conditions</span>`
+      : '';
+
     const typeBadge = this._renderTypeBadge(r);
     const headerStyle = canExpand ? '' : 'cursor:default';
 
@@ -94,6 +99,7 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             ${serviceInfo}
             ${typeBadge}
+            ${conditionsBadge}
           </div>
         </div>
         <div class="list-item-actions">

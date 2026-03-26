@@ -168,6 +168,15 @@ window.Ticker.AdminRecipientsTab.handlers = {
     container.id = 'ticker-dialog-container';
     container.innerHTML = overlay;
     panel.shadowRoot.appendChild(container);
+
+    // Initialize conditions UI with empty state
+    const conditionsEl = container.querySelector('#dlg-device-conditions');
+    if (conditionsEl) {
+      conditionsEl.zones = [];
+      conditionsEl.entities = panel._hass
+        ? Object.keys(panel._hass.states).map(id => ({ entity_id: id }))
+        : [];
+    }
   },
 
   async openEditDialog(panel, recipientId) {
@@ -182,6 +191,20 @@ window.Ticker.AdminRecipientsTab.handlers = {
     container.id = 'ticker-dialog-container';
     container.innerHTML = overlay;
     panel.shadowRoot.appendChild(container);
+
+    // Initialize conditions UI with existing device conditions
+    const conditionsEl = container.querySelector('#dlg-device-conditions');
+    if (conditionsEl) {
+      if (r.conditions) {
+        conditionsEl.deliverWhenMet = r.conditions.deliver_when_met ?? true;
+        conditionsEl.queueUntilMet = false;
+        conditionsEl.rules = r.conditions.rules || [];
+      }
+      conditionsEl.zones = [];
+      conditionsEl.entities = panel._hass
+        ? Object.keys(panel._hass.states).map(id => ({ entity_id: id }))
+        : [];
+    }
   },
 
   closeDialog(panel) {
@@ -272,6 +295,30 @@ window.Ticker.AdminRecipientsTab.handlers = {
       wsMsg.tts_service = container.querySelector('#dlg-tts-service')?.value?.trim() || 'tts.google_translate_say';
       wsMsg.resume_after_tts = !!container.querySelector('#dlg-resume-tts')?.checked;
       wsMsg.tts_buffer_delay = parseFloat(container.querySelector('#dlg-tts-buffer-delay')?.value) || 0;
+    }
+
+    // Read device-level conditions from the conditions UI component
+    const conditionsEl = container.querySelector('#dlg-device-conditions');
+    if (conditionsEl) {
+      const rules = conditionsEl.rules || [];
+      const deliverWhenMet = conditionsEl.deliverWhenMet ?? true;
+      if (rules.length > 0) {
+        const validRules = rules.filter(r => {
+          if (r.type === 'state') return r.entity_id && r.state;
+          if (r.type === 'time') return r.after && r.before;
+          return false;
+        });
+        if (validRules.length > 0) {
+          wsMsg.conditions = {
+            deliver_when_met: deliverWhenMet,
+            rules: validRules,
+          };
+        } else {
+          wsMsg.conditions = null;
+        }
+      } else {
+        wsMsg.conditions = null;
+      }
     }
 
     try {

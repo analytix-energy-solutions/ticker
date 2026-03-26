@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.4.1"
+VERSION = "1.4.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -89,6 +89,7 @@ MAX_ACTIONS_PER_SET = 3
 SNOOZE_DURATIONS_MINUTES = [15, 30, 60, 120, 240]
 STORAGE_KEY_SNOOZES = f"{DOMAIN}_snoozes"
 ATTR_ACTIONS = "actions"
+ATTR_CRITICAL = "critical"
 
 # F-18: Non-User Recipient Support
 STORAGE_KEY_RECIPIENTS = f"{DOMAIN}_recipients"

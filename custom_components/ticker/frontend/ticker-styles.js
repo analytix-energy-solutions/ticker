@@ -1,11 +1,12 @@
 /**
- * Ticker Shared Styles
- * Brand: See branding/README.md
- * Colors: --ticker-500: #06b6d4, --ticker-400: #22d3ee, --ticker-700: #0e7490
+ * Ticker Shared Styles — brand colors and CSS variables (see branding/README.md)
  */
 window.Ticker = window.Ticker || {};
 
 window.Ticker.styles = {
+  /** Brand primary color for use in JS (non-CSS) contexts */
+  brandPrimary: '#06b6d4',
+
   /** CSS custom properties - include in every panel's :host */
   variables: `
     :host {
@@ -470,9 +471,9 @@ window.Ticker.styles = {
 
   /** Ticker logo SVG as HTML string */
   logoSvg: `<svg class="header-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="50" cy="50" r="12" fill="#06b6d4"/>
-    <circle cx="50" cy="50" r="25" stroke="#06b6d4" stroke-width="4" fill="none"/>
-    <circle cx="50" cy="50" r="40" stroke="#06b6d4" stroke-width="3" fill="none" opacity="0.6"/>
+    <circle cx="50" cy="50" r="12" style="fill:var(--ticker-500)"/>
+    <circle cx="50" cy="50" r="25" style="stroke:var(--ticker-500)" stroke-width="4" fill="none"/>
+    <circle cx="50" cy="50" r="40" style="stroke:var(--ticker-500)" stroke-width="3" fill="none" opacity="0.6"/>
   </svg>`,
 
   /** Get all common styles concatenated. */

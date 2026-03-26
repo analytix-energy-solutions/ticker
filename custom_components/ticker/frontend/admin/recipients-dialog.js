@@ -38,16 +38,33 @@ window.Ticker.AdminRecipientsDialog = {
     return `
       <div id="recipient-dialog-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)window.Ticker.AdminRecipientsTab.handlers.closeDialog(window.Ticker._adminPanel)">
         <div style="background:var(--bg-card);border-radius:8px;padding:24px;width:90%;max-width:480px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2)">
-          <h3 style="margin:0 0 16px;font-size:16px;color:var(--text-primary)">${title}</h3>
-          <div id="dlg-error" style="display:none;padding:8px 12px;margin-bottom:12px;background:var(--ticker-error-bg, #fef2f2);border:1px solid var(--ticker-error-border, #fecaca);color:var(--ticker-danger-hover, #dc2626);border-radius:4px;font-size:13px"></div>
-          ${nameSection}
-          ${iconSection}
-          ${deviceTypeSection}
-          <div id="dlg-push-fields" style="display:${deviceType === 'push' ? 'block' : 'none'}">
-            ${pushFields}
+          <h3 style="margin:0 0 0;font-size:16px;color:var(--text-primary)">${title}</h3>
+          <style>
+            .dlg-tab{background:none;border:none;padding:8px 16px;font-size:13px;color:var(--text-secondary);cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+            .dlg-tab.active{color:var(--ticker-500);border-bottom-color:var(--ticker-500);font-weight:600}
+          </style>
+          <div id="dlg-tabs" style="display:flex;gap:0;border-bottom:1px solid var(--divider);margin-bottom:16px">
+            <button id="dlg-tab-settings" class="dlg-tab active" onclick="window.Ticker.AdminRecipientsDialog.switchTab('settings')">Settings</button>
+            <button id="dlg-tab-conditions" class="dlg-tab" onclick="window.Ticker.AdminRecipientsDialog.switchTab('conditions')">Conditions</button>
           </div>
-          <div id="dlg-tts-fields" style="display:${deviceType === 'tts' ? 'block' : 'none'}">
-            ${ttsFields}
+          <div id="dlg-error" style="display:none;padding:8px 12px;margin-bottom:12px;background:var(--ticker-error-bg, #fef2f2);border:1px solid var(--ticker-error-border, #fecaca);color:var(--ticker-danger-hover, #dc2626);border-radius:4px;font-size:13px"></div>
+          <div id="dlg-panel-settings">
+            ${nameSection}
+            ${iconSection}
+            ${deviceTypeSection}
+            <div id="dlg-push-fields" style="display:${deviceType === 'push' ? 'block' : 'none'}">
+              ${pushFields}
+            </div>
+            <div id="dlg-tts-fields" style="display:${deviceType === 'tts' ? 'block' : 'none'}">
+              ${ttsFields}
+            </div>
+          </div>
+          <div id="dlg-panel-conditions" style="display:none">
+            <p style="margin:0 0 12px;font-size:13px;color:var(--text-secondary)">
+              When conditions are configured, this device only receives notifications
+              while all conditions are met. If not met, the notification is logged as skipped.
+            </p>
+            <ticker-conditions-ui id="dlg-device-conditions" hide-zone hide-queue></ticker-conditions-ui>
           </div>
           <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
             <button class="btn btn-secondary" onclick="window.Ticker.AdminRecipientsTab.handlers.closeDialog(window.Ticker._adminPanel)">Cancel</button>
@@ -367,6 +384,23 @@ window.Ticker.AdminRecipientsDialog = {
     if (!container) return;
     const el = container.querySelector('#dlg-error');
     if (el) { el.style.display = 'none'; el.textContent = ''; }
+  },
+
+  /**
+   * Switch between Settings and Conditions tabs in the dialog.
+   * @param {string} name - Tab name: 'settings' or 'conditions'
+   */
+  switchTab(name) {
+    const root = window.Ticker._adminPanel.shadowRoot;
+    const container = root.getElementById('ticker-dialog-container');
+    if (!container) return;
+    ['settings', 'conditions'].forEach(t => {
+      const tab = container.querySelector(`#dlg-tab-${t}`);
+      const panel = container.querySelector(`#dlg-panel-${t}`);
+      const active = t === name;
+      if (tab) tab.classList.toggle('active', active);
+      if (panel) panel.style.display = active ? 'block' : 'none';
+    });
   },
 
   /** Update slug preview from name input (BUG-051). */

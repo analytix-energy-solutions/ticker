@@ -35,7 +35,7 @@ window.Ticker.AdminCategoriesTab = {
     const escId = escAttr(c.id);
     const escName = esc(c.name || c.id);
     const escIcon = escAttr(c.icon || 'mdi:bell');
-    const escColor = escAttr(c.color || '#06b6d4');
+    const escColor = escAttr(c.color || window.Ticker.styles.brandPrimary);
     const expanded = editingCategory === c.id;
 
     const subCount = users.filter(u => u.enabled && this._isSubscribed(subscriptions, u.person_id, c.id)).length;
@@ -117,6 +117,7 @@ window.Ticker.AdminCategoriesTab = {
 
   _renderGeneralTab(c, escId, escIcon, escColor) {
     const { escAttr } = window.Ticker.utils;
+    const criticalChecked = c.critical ? 'checked' : '';
     return `
       <div class="form-row" style="padding-top:8px">
         <div class="form-group">
@@ -130,6 +131,18 @@ window.Ticker.AdminCategoriesTab = {
         <div class="form-group">
           <label>Color</label>
           <input type="color" id="edit-color-${escId}" value="${escColor}">
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+        <label class="toggle" style="margin:0">
+          <input type="checkbox" id="edit-critical-${escId}" ${criticalChecked}>
+          <span class="toggle-slider"></span>
+        </label>
+        <div>
+          <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Critical notifications</span>
+          <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+            Bypass Do Not Disturb and silent mode on recipients' devices
+          </div>
         </div>
       </div>
     `;
@@ -208,7 +221,7 @@ window.Ticker.AdminCategoriesTab = {
           </div>
           <div class="form-group">
             <label>Color</label>
-            <input type="color" id="new-category-color" value="#06b6d4">
+            <input type="color" id="new-category-color" value="${window.Ticker.styles.brandPrimary}">
           </div>
           <div class="form-group">
             <label>Default Mode</label>
@@ -321,11 +334,13 @@ window.Ticker.AdminCategoriesTab = {
       const color = colorEl ? colorEl.value : (cat.color || null);
       const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
       const defaultMode = defaultModeEl?.value || (cat.default_mode || 'always');
+      const criticalEl = panel.shadowRoot.getElementById(`edit-critical-${categoryId}`);
 
       if (!name) { panel._showError('Name required'); return; }
 
       try {
         const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
+        if (criticalEl) { params.critical = criticalEl.checked; }
 
         if (defaultMode === 'conditional') {
           params.default_mode = 'conditional';

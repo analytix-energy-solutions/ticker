@@ -77,8 +77,25 @@ class CategoryMixin:
         color: str | None = None,
         default_mode: str | None = None,
         default_conditions: dict[str, Any] | None = None,
+        critical: bool = False,
     ) -> dict[str, Any]:
-        """Create a new category."""
+        """Create a new category.
+
+        Args:
+            category_id: Unique slug identifier for the category (e.g., "security").
+            name: Human-readable display name shown in the admin panel and notifications.
+            icon: MDI icon string (e.g., "mdi:shield"). Defaults to "mdi:bell".
+            color: Optional hex color string for visual distinction in the admin UI.
+            default_mode: Default subscription mode ("always", "never", or "conditional")
+                applied to new subscribers. Omitted from the category dict when None,
+                which causes the global default ("always") to be used instead.
+            default_conditions: Default conditions dict applied alongside default_mode
+                when mode is "conditional". Omitted from the category dict when None.
+            critical: When True, every notification sent to this category is treated as
+                critical by default. The category dict omits the "critical" key when
+                False (sparse storage). Per-call overrides on ticker.notify always take
+                precedence over this category-level default.
+        """
         category: dict[str, Any] = {
             "id": category_id,
             "name": name,
@@ -90,6 +107,8 @@ class CategoryMixin:
             category["default_mode"] = default_mode
         if default_conditions:
             category["default_conditions"] = default_conditions
+        if critical:
+            category["critical"] = True
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -104,11 +123,13 @@ class CategoryMixin:
         default_mode: str | None = None,
         default_conditions: dict[str, Any] | None = None,
         clear_defaults: bool = False,
+        critical: bool | None = None,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
         Args:
             clear_defaults: If True, remove default_mode and default_conditions.
+            critical: If provided, set the critical flag on the category.
         """
         if category_id not in self._categories:
             return None
@@ -121,6 +142,11 @@ class CategoryMixin:
             category["icon"] = icon
         if color is not None:
             category["color"] = color
+        if critical is not None:
+            if critical:
+                category["critical"] = True
+            else:
+                category.pop("critical", None)
 
         if clear_defaults:
             category.pop("default_mode", None)
