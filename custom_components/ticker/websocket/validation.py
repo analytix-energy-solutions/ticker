@@ -7,7 +7,13 @@ from typing import TYPE_CHECKING
 
 from homeassistant.core import HomeAssistant
 
-from ..const import DOMAIN
+from ..const import (
+    CONDITION_MAX_DEPTH,
+    CONDITION_NODE_GROUP,
+    CONDITION_OPERATORS,
+    DOMAIN,
+    RULE_TYPES,
+)
 
 if TYPE_CHECKING:
     from ..store import TickerStore
@@ -151,6 +157,56 @@ def validate_entity_id(entity_id: str, domain: str) -> tuple[bool, str | None]:
         return False, f"Invalid {domain} entity ID format"
 
     return True, None
+
+
+def validate_condition_tree(
+    tree: dict,
+    depth: int = 0,
+) -> str | None:
+    """Validate a condition_tree structure recursively.
+
+    Checks node types, operator values, and depth limits.
+
+    Args:
+        tree: A condition tree node (group or leaf).
+        depth: Current nesting depth (0 = root).
+
+    Returns:
+        Error message string if invalid, None if valid.
+    """
+    if not isinstance(tree, dict):
+        return "Condition tree node must be a dict"
+
+    node_type = tree.get("type")
+    if not node_type:
+        return "Condition tree node missing 'type'"
+
+    if node_type == CONDITION_NODE_GROUP:
+        operator = tree.get("operator", "").upper()
+        if operator not in CONDITION_OPERATORS:
+            return f"Invalid group operator '{operator}', must be AND or OR"
+
+        children = tree.get("children")
+        if not isinstance(children, list):
+            return "Group node 'children' must be a list"
+
+        if depth >= CONDITION_MAX_DEPTH:
+            return (
+                f"Condition tree exceeds max depth of {CONDITION_MAX_DEPTH}"
+            )
+
+        for idx, child in enumerate(children):
+            error = validate_condition_tree(child, depth + 1)
+            if error:
+                return f"children[{idx}]: {error}"
+
+        return None
+
+    # Leaf node — must be a known rule type
+    if node_type not in RULE_TYPES:
+        return f"Unknown node type '{node_type}'"
+
+    return None
 
 
 def get_store(hass: HomeAssistant) -> "TickerStore":

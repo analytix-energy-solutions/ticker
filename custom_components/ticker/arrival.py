@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_registry import (
 )
 
 from .const import MODE_CONDITIONAL
-from .conditions import evaluate_rules
+from .conditions import evaluate_condition_tree
 from .bundled_notify import async_send_bundled_notification
 from .recipient_notify import async_send_to_recipient
 
@@ -122,8 +122,9 @@ async def async_setup_arrival_listener(
 
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
+            tree = conditions.get("condition_tree")
 
-            if not rules:
+            if not rules and not tree:
                 # Check legacy zones format
                 zones = conditions.get("zones", {})
                 if zones:
@@ -141,17 +142,17 @@ async def async_setup_arrival_listener(
                     else:
                         entries_to_keep_queued.extend(cat_entries)
                 else:
-                    # No rules or zones - deliver on home arrival
+                    # No rules, tree, or zones - deliver on home arrival
                     if new_zone == "home":
                         entries_to_deliver.extend(cat_entries)
                     else:
                         entries_to_keep_queued.extend(cat_entries)
                 continue
 
-            # F-2: Evaluate all rules with AND logic
-            all_met, rule_results = evaluate_rules(
+            # F-2/F-2b: Evaluate conditions (tree or flat rules)
+            all_met, rule_results = evaluate_condition_tree(
                 hass,
-                rules,
+                conditions,
                 new_state,
                 dt_util.now(),
             )
