@@ -17,13 +17,14 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONDITION_NODE_GROUP,
     MODE_CONDITIONAL,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
     RULE_TYPE_ZONE,
 )
 from .conditions import (
-    evaluate_rules,
+    evaluate_condition_tree,
     get_queue_triggers,
 )
 
@@ -31,6 +32,47 @@ if TYPE_CHECKING:
     from .store import TickerStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _collect_leaves(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recursively collect all leaf nodes from a condition tree.
+
+    Args:
+        node: A condition tree node (group or leaf).
+
+    Returns:
+        Flat list of all leaf (non-group) nodes.
+    """
+    if node.get("type") == CONDITION_NODE_GROUP:
+        leaves: list[dict[str, Any]] = []
+        for child in node.get("children", []):
+            leaves.extend(_collect_leaves(child))
+        return leaves
+    return [node]
+
+
+def _leaf_matches_filter(
+    leaf: dict[str, Any],
+    filter_type: str,
+    filter_value: str | None,
+) -> bool:
+    """Check if a leaf node matches a filter type and value.
+
+    Args:
+        leaf: A leaf condition node.
+        filter_type: Rule type to match (e.g. RULE_TYPE_STATE).
+        filter_value: Value to match (entity_id or time string).
+
+    Returns:
+        True if the leaf matches the filter criteria.
+    """
+    if leaf.get("type") != filter_type:
+        return False
+    if filter_type == RULE_TYPE_STATE:
+        return leaf.get("entity_id") == filter_value
+    if filter_type == RULE_TYPE_TIME:
+        return leaf.get("after") == filter_value
+    return True
 
 
 class ConditionListenerManager:
@@ -94,25 +136,27 @@ class ConditionListenerManager:
 
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
+            tree = conditions.get("condition_tree")
 
-            if not rules:
+            if not rules and not tree:
                 continue
 
             # For recipient subscriptions, skip zone rules (recipients
             # have no location). Filter to time/state rules only.
             is_recipient = key.startswith("recipient:")
-            effective_rules = rules
-            if is_recipient:
+            if is_recipient and rules and not tree:
                 effective_rules = [
                     r for r in rules
                     if r.get("type") != RULE_TYPE_ZONE
                 ]
                 if not effective_rules:
                     continue
+                # Build trigger-extraction dict preserving queue_until_met flag
+                trigger_conditions = dict(conditions)
+                trigger_conditions["rules"] = effective_rules
+            else:
+                trigger_conditions = conditions
 
-            # Build trigger-extraction dict preserving queue_until_met flag
-            trigger_conditions = dict(conditions)
-            trigger_conditions["rules"] = effective_rules
             triggers = get_queue_triggers(trigger_conditions)
 
             # Collect entity triggers
@@ -302,38 +346,21 @@ class ConditionListenerManager:
 
             is_recipient = key.startswith("recipient:")
 
-            # Check if this subscription has relevant rules
+            # Check if this subscription has relevant conditions
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
+            tree = conditions.get("condition_tree")
 
-            if not rules:
+            if not rules and not tree:
                 continue
 
-            # For recipients, exclude zone rules (no location state)
-            effective_rules = rules
-            if is_recipient:
-                effective_rules = [
-                    r for r in rules
-                    if r.get("type") != RULE_TYPE_ZONE
-                ]
-                if not effective_rules:
-                    continue
-
-            # Filter by rule type if specified
+            # Filter by rule type if specified (walk tree or flat rules)
             if filter_type:
-                has_matching_rule = False
-                for rule in effective_rules:
-                    if rule.get("type") != filter_type:
-                        continue
-                    if filter_type == RULE_TYPE_STATE:
-                        if rule.get("entity_id") == filter_value:
-                            has_matching_rule = True
-                            break
-                    elif filter_type == RULE_TYPE_TIME:
-                        if rule.get("after") == filter_value:
-                            has_matching_rule = True
-                            break
-
+                leaves = _collect_leaves(tree) if tree else list(rules)
+                has_matching_rule = any(
+                    _leaf_matches_filter(leaf, filter_type, filter_value)
+                    for leaf in leaves
+                )
                 if not has_matching_rule:
                     continue
 
@@ -356,10 +383,10 @@ class ConditionListenerManager:
                 if not person_state:
                     continue
 
-            # Evaluate rules (recipients use effective_rules without zone)
-            all_met, rule_results = evaluate_rules(
+            # Evaluate conditions (tree or flat rules)
+            all_met, rule_results = evaluate_condition_tree(
                 self.hass,
-                effective_rules,
+                conditions,
                 person_state,
                 dt_util.now(),
             )

@@ -20,7 +20,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install pytest pytest-asyncio pytest-cov
+        run: pip install pytest pytest-asyncio pytest-cov voluptuous
 
       - name: Run tests with coverage
         run: >

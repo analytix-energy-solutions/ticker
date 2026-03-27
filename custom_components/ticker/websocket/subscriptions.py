@@ -21,6 +21,7 @@ from ..discovery import async_discover_notify_services
 from .validation import (
     get_store,
     validate_category_id,
+    validate_condition_tree,
     validate_entity_id,
 )
 
@@ -143,16 +144,29 @@ async def ws_set_subscription(
                 "Conditions are required for conditional mode",
             )
             return
-        # Check that either rules or zones are provided
+        # Check that either condition_tree, rules, or zones are provided
+        tree = conditions.get("condition_tree")
         rules = conditions.get("rules", [])
         zones = conditions.get("zones", {})
-        if not rules and not zones:
+        if not rules and not zones and not tree:
             connection.send_error(
                 msg["id"],
                 "conditions_required",
-                "Either 'rules' or 'zones' must be provided for conditional mode",
+                "Either 'condition_tree', 'rules', or 'zones' must be "
+                "provided for conditional mode",
             )
             return
+
+        # Validate condition_tree structure if present
+        if tree:
+            tree_error = validate_condition_tree(tree)
+            if tree_error:
+                connection.send_error(
+                    msg["id"],
+                    "invalid_condition_tree",
+                    f"Invalid condition tree: {tree_error}",
+                )
+                return
 
     # Determine set_by: check if caller is modifying their own subscription
     set_by = SET_BY_ADMIN  # Default to admin

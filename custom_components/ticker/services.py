@@ -34,7 +34,7 @@ from .const import (
     LOG_OUTCOME_SKIPPED,
     CATEGORY_DEFAULT_NAME,
 )
-from .conditions import evaluate_rules
+from .conditions import evaluate_condition_tree
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
     async_send_to_recipient,
@@ -327,10 +327,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
 
             # F-21: Device-level condition gate (before subscription mode)
             device_conditions = r_data.get("conditions")
-            if device_conditions and device_conditions.get("rules"):
+            if device_conditions and (
+                device_conditions.get("rules")
+                or device_conditions.get("condition_tree")
+            ):
                 # person_state=None: recipients have no location
-                all_met, rule_results = evaluate_rules(
-                    hass, device_conditions.get("rules", []), None,
+                all_met, rule_results = evaluate_condition_tree(
+                    hass, device_conditions, None,
                 )
                 if not all_met:
                     gate_reason = next(
