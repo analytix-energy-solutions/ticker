@@ -1,11 +1,7 @@
-"""Condition evaluation engine for Ticker F-2 Advanced Conditions.
+"""Condition evaluation engine for Ticker F-2/F-2b Advanced Conditions.
 
-Supports three rule types:
-- zone: Person must be in a specific zone
-- time: Current time must be within a time window
-- state: An entity must be in a specific state
-
-All rules are evaluated with AND logic - all must be met for delivery.
+Supports zone, time, and state rules with AND/OR grouping (condition_tree).
+Legacy flat rules[] format is supported as fallback.
 """
 
 from __future__ import annotations
@@ -17,7 +13,9 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .conditions_legacy import convert_legacy_zones_to_rules  # noqa: F401
 from .const import (
+    CONDITION_NODE_GROUP,
     RULE_TYPE_ZONE,
     RULE_TYPE_TIME,
     RULE_TYPE_STATE,
@@ -33,15 +31,7 @@ def evaluate_zone_rule(
     rule: dict[str, Any],
     person_state: "State",
 ) -> tuple[bool, str]:
-    """Evaluate a zone rule.
-
-    Args:
-        rule: Rule dict with zone_id
-        person_state: Person entity state
-
-    Returns:
-        Tuple of (is_met, reason_string)
-    """
+    """Evaluate a zone rule. Returns (is_met, reason)."""
     zone_id = rule.get("zone_id", "")
     if not zone_id:
         return False, "No zone_id specified"
@@ -60,17 +50,7 @@ def evaluate_time_rule(
     rule: dict[str, Any],
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Evaluate a time rule.
-
-    Supports overnight windows (e.g., 22:00 to 06:00).
-
-    Args:
-        rule: Rule dict with 'after', 'before', optionally 'days'
-        now: Current datetime (defaults to now)
-
-    Returns:
-        Tuple of (is_met, reason_string)
-    """
+    """Evaluate a time rule. Supports overnight windows. Returns (is_met, reason)."""
     if now is None:
         now = dt_util.now()
 
@@ -115,15 +95,7 @@ def evaluate_state_rule(
     hass: HomeAssistant,
     rule: dict[str, Any],
 ) -> tuple[bool, str]:
-    """Evaluate an entity state rule.
-
-    Args:
-        hass: Home Assistant instance
-        rule: Rule dict with 'entity_id' and 'state'
-
-    Returns:
-        Tuple of (is_met, reason_string)
-    """
+    """Evaluate an entity state rule. Returns (is_met, reason)."""
     entity_id = rule.get("entity_id", "")
     expected_state = rule.get("state", "")
 
@@ -148,91 +120,113 @@ def evaluate_state_rule(
 def evaluate_rule(
     hass: HomeAssistant,
     rule: dict[str, Any],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Evaluate a single rule.
-
-    Args:
-        hass: Home Assistant instance
-        rule: Rule configuration dict
-        person_state: Person entity state
-        now: Current datetime (for time rules)
-
-    Returns:
-        Tuple of (is_met, reason_string)
-    """
+    """Evaluate a single rule by type. Returns (is_met, reason)."""
     rule_type = rule.get("type", "")
 
     if rule_type == RULE_TYPE_ZONE:
+        if person_state is None:
+            # Recipients have no location; skip zone rules (treat as met)
+            return True, "Zone rule skipped (no person state)"
         return evaluate_zone_rule(rule, person_state)
     elif rule_type == RULE_TYPE_TIME:
         return evaluate_time_rule(rule, now)
     elif rule_type == RULE_TYPE_STATE:
         return evaluate_state_rule(hass, rule)
     else:
+        _LOGGER.debug("Unknown rule type '%s', treating as unmet", rule_type)
         return False, f"Unknown rule type: {rule_type}"
 
 
 def evaluate_rules(
     hass: HomeAssistant,
     rules: list[dict[str, Any]],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
-) -> tuple[bool, list[str]]:
-    """Evaluate all rules with AND logic.
-
-    All rules must be met for the overall condition to be true.
-
-    Args:
-        hass: Home Assistant instance
-        rules: List of rule dicts
-        person_state: Person entity state
-        now: Current datetime (for time rules)
-
-    Returns:
-        Tuple of (all_met, list_of_reasons)
-    """
+) -> tuple[bool, list[tuple[bool, str]]]:
+    """Evaluate all rules with AND logic. Returns (all_met, per_rule_results)."""
     if not rules:
-        return True, ["No rules configured"]
+        return True, [(True, "No rules configured")]
 
     all_met = True
-    reasons = []
+    results: list[tuple[bool, str]] = []
 
     for rule in rules:
         is_met, reason = evaluate_rule(hass, rule, person_state, now)
-        reasons.append(reason)
+        results.append((is_met, reason))
         if not is_met:
             all_met = False
-            # Continue checking to collect all reasons
+            # Continue checking to collect all results
 
-    return all_met, reasons
+    return all_met, results
+
+
+def evaluate_group(
+    hass: HomeAssistant,
+    group: dict[str, Any],
+    person_state: "State | None",
+    now: datetime | None = None,
+) -> tuple[bool, list[tuple[bool, str]]]:
+    """Evaluate a condition group node (AND or OR) recursively."""
+    operator = group.get("operator", "AND").upper()
+    children = group.get("children", [])
+
+    if not children:
+        return True, [(True, "Empty group")]
+
+    results: list[tuple[bool, str]] = []
+    for child in children:
+        if child.get("type") == CONDITION_NODE_GROUP:
+            child_met, _child_results = evaluate_group(
+                hass, child, person_state, now,
+            )
+            child_op = child.get("operator", "AND")
+            results.append((
+                child_met,
+                f"Group ({child_op}): {'met' if child_met else 'not met'}",
+            ))
+        else:
+            child_met, child_reason = evaluate_rule(
+                hass, child, person_state, now,
+            )
+            results.append((child_met, child_reason))
+
+    if operator == "OR":
+        all_met = any(r[0] for r in results)
+    else:  # AND
+        all_met = all(r[0] for r in results)
+
+    return all_met, results
+
+
+def evaluate_condition_tree(
+    hass: HomeAssistant,
+    conditions: dict[str, Any],
+    person_state: "State | None",
+    now: datetime | None = None,
+) -> tuple[bool, list[tuple[bool, str]]]:
+    """Evaluate conditions using condition_tree or rules[] (legacy fallback)."""
+    tree = conditions.get("condition_tree")
+    if tree:
+        return evaluate_group(hass, tree, person_state, now)
+
+    # Legacy flat rules[] — evaluate with AND
+    rules = conditions.get("rules", [])
+    return evaluate_rules(hass, rules, person_state, now)
 
 
 def should_deliver_now(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Check if notification should be delivered now.
-
-    Evaluates all rules with AND logic. Only delivers if:
-    1. All rules are met, AND
-    2. deliver_when_met is True (at conditions level or in any rule)
-
-    Args:
-        hass: Home Assistant instance
-        conditions: Conditions dict with 'rules' and optional 'deliver_when_met'
-        person_state: Person entity state
-        now: Current datetime
-
-    Returns:
-        Tuple of (should_deliver, reason_string)
-    """
+    """Check if notification should be delivered now based on conditions."""
     rules = conditions.get("rules", [])
-    if not rules:
-        # No rules = always deliver (fallback behavior)
+    tree = conditions.get("condition_tree")
+    if not rules and not tree:
         return True, "No conditions configured"
 
     # Check for deliver_when_met at conditions level
@@ -241,43 +235,31 @@ def should_deliver_now(
     if not has_deliver:
         return False, "Delivery not enabled for these conditions"
 
-    # Evaluate all rules
-    all_met, reasons = evaluate_rules(hass, rules, person_state, now)
+    # Evaluate all conditions (tree or flat rules)
+    all_met, rule_results = evaluate_condition_tree(
+        hass, conditions, person_state, now,
+    )
 
     if all_met:
         return True, "All conditions met"
-    else:
-        # Find first unmet reason
-        for rule, reason in zip(rules, reasons):
-            is_met, _ = evaluate_rule(hass, rule, person_state, now)
-            if not is_met:
-                return False, reason
-        return False, "Conditions not met"
+
+    # Find first unmet reason from already-evaluated results
+    for is_met, reason in rule_results:
+        if not is_met:
+            return False, reason
+    return False, "Conditions not met"
 
 
 def should_queue(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State",
+    person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Check if notification should be queued for later.
-
-    Queues if:
-    1. queue_until_met is True (at conditions level or in any rule), AND
-    2. Not all rules are currently met
-
-    Args:
-        hass: Home Assistant instance
-        conditions: Conditions dict with 'rules' and optional 'queue_until_met'
-        person_state: Person entity state
-        now: Current datetime
-
-    Returns:
-        Tuple of (should_queue, reason_string)
-    """
+    """Check if notification should be queued (conditions not yet met)."""
     rules = conditions.get("rules", [])
-    if not rules:
+    tree = conditions.get("condition_tree")
+    if not rules and not tree:
         return False, "No conditions configured"
 
     # Check for queue_until_met at conditions level
@@ -286,8 +268,10 @@ def should_queue(
     if not has_queue:
         return False, "Queueing not enabled for these conditions"
 
-    # Evaluate all rules
-    all_met, reasons = evaluate_rules(hass, rules, person_state, now)
+    # Evaluate all conditions (tree or flat rules)
+    all_met, _rule_results = evaluate_condition_tree(
+        hass, conditions, person_state, now,
+    )
 
     if all_met:
         # Already met - deliver now, don't queue
@@ -296,21 +280,36 @@ def should_queue(
     return True, "Waiting for conditions to be met"
 
 
+def _collect_triggers_from_node(
+    node: dict[str, Any],
+    triggers: dict[str, Any],
+) -> None:
+    """Recursively collect trigger data from a condition tree node."""
+    if node.get("type") == CONDITION_NODE_GROUP:
+        for child in node.get("children", []):
+            _collect_triggers_from_node(child, triggers)
+    elif node.get("type") == RULE_TYPE_ZONE:
+        zone_id = node.get("zone_id", "")
+        if zone_id:
+            triggers["zones"].add(zone_id)
+    elif node.get("type") == RULE_TYPE_STATE:
+        entity_id = node.get("entity_id", "")
+        if entity_id:
+            triggers["entities"].add(entity_id)
+    elif node.get("type") == RULE_TYPE_TIME:
+        after = node.get("after", "")
+        if after:
+            triggers["time_windows"].append({
+                "after": after,
+                "before": node.get("before", ""),
+                "days": node.get("days", []),
+            })
+
+
 def get_queue_triggers(
     conditions: dict[str, Any],
 ) -> dict[str, Any]:
-    """Extract triggers needed for queue release monitoring.
-
-    Only returns triggers if queue_until_met is enabled at conditions level.
-    All rules contribute triggers since AND logic means any rule becoming
-    met could complete the set.
-
-    Args:
-        conditions: Conditions dict with 'rules' and 'queue_until_met'
-
-    Returns:
-        Dict with 'zones', 'entities', 'time_windows' keys
-    """
+    """Extract triggers for queue release. Supports condition_tree and rules[]."""
     triggers: dict[str, Any] = {
         "zones": set(),
         "entities": set(),
@@ -323,30 +322,14 @@ def get_queue_triggers(
         triggers["entities"] = []
         return triggers
 
-    rules = conditions.get("rules", [])
-    for rule in rules:
-        rule_type = rule.get("type", "")
-
-        if rule_type == RULE_TYPE_ZONE:
-            zone_id = rule.get("zone_id", "")
-            if zone_id:
-                triggers["zones"].add(zone_id)
-
-        elif rule_type == RULE_TYPE_STATE:
-            entity_id = rule.get("entity_id", "")
-            if entity_id:
-                triggers["entities"].add(entity_id)
-
-        elif rule_type == RULE_TYPE_TIME:
-            after = rule.get("after", "")
-            before = rule.get("before", "")
-            days = rule.get("days", [])
-            if after:
-                triggers["time_windows"].append({
-                    "after": after,
-                    "before": before,
-                    "days": days,
-                })
+    # Try condition_tree first, then fall back to flat rules[]
+    tree = conditions.get("condition_tree")
+    if tree:
+        _collect_triggers_from_node(tree, triggers)
+    else:
+        rules = conditions.get("rules", [])
+        for rule in rules:
+            _collect_triggers_from_node(rule, triggers)
 
     # Convert sets to lists for JSON serialization
     triggers["zones"] = list(triggers["zones"])
@@ -355,72 +338,28 @@ def get_queue_triggers(
     return triggers
 
 
-def convert_legacy_zones_to_rules(
-    zones_config: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    """Convert legacy zones format to new conditions format.
-
-    Legacy format:
-        {
-            "zone.home": {
-                "deliver_while_here": True,
-                "queue_until_arrival": True
-            }
-        }
-
-    New conditions format:
-        {
-            "deliver_when_met": True,
-            "queue_until_met": True,
-            "rules": [
-                {"type": "zone", "zone_id": "zone.home"}
-            ]
-        }
-
-    Since legacy format only had zone conditions, the per-zone flags
-    are promoted to conditions-level (1:1 conversion).
-
-    Args:
-        zones_config: Legacy zones dict
-
-    Returns:
-        Complete conditions dict with rules and top-level flags
-    """
-    rules = []
-    has_deliver = False
-    has_queue = False
-
-    for zone_id, zone_config in zones_config.items():
-        if zone_config.get("deliver_while_here", False):
-            has_deliver = True
-        if zone_config.get("queue_until_arrival", False):
-            has_queue = True
-
-        rule = {
-            "type": RULE_TYPE_ZONE,
-            "zone_id": zone_id,
-        }
-        rules.append(rule)
-
-    return {
-        "deliver_when_met": has_deliver,
-        "queue_until_met": has_queue,
-        "rules": rules,
-    }
-
-
 def has_valid_rules(conditions: dict[str, Any] | None) -> bool:
     """Check if conditions have at least one effective delivery path.
 
+    Supports condition_tree (F-2b), flat rules[], and legacy zones format.
+
     Args:
-        conditions: Conditions dict with 'rules' key
+        conditions: Conditions dict with 'condition_tree', 'rules', or 'zones'
 
     Returns:
-        True if rules exist and deliver_when_met or queue_until_met is
+        True if rules/tree exist and deliver_when_met or queue_until_met is
         enabled at conditions level.
     """
     if not conditions:
         return False
+
+    # Check condition_tree (F-2b format)
+    tree = conditions.get("condition_tree")
+    if tree and tree.get("children"):
+        return bool(
+            conditions.get("deliver_when_met")
+            or conditions.get("queue_until_met")
+        )
 
     rules = conditions.get("rules", [])
     if not rules:

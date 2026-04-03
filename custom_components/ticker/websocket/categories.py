@@ -10,10 +10,10 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..const import DOMAIN
+from ..const import DOMAIN, MAX_NAVIGATE_TO_LENGTH, SMART_TAG_MODES
 from .validation import (
     get_store,
-    sanitize_string,
+    sanitize_for_storage,
     validate_category_id,
     validate_color,
     validate_icon,
@@ -51,8 +51,22 @@ async def ws_get_categories(
         vol.Required("name"): str,
         vol.Optional("icon"): str,
         vol.Optional("color"): str,
-        vol.Optional("default_mode"): vol.In(["always", "conditional"]),
+        vol.Optional("default_mode"): vol.In(["always", "never", "conditional"]),
         vol.Optional("default_conditions"): dict,
+        vol.Optional("critical"): bool,
+        vol.Optional("smart_notification"): vol.Any(
+            None,
+            vol.Schema({
+                vol.Optional("group"): bool,
+                vol.Optional("tag_mode"): vol.In(SMART_TAG_MODES),
+                vol.Optional("sticky"): bool,
+                vol.Optional("persistent"): bool,
+            }),
+        ),
+        vol.Optional("action_set_id"): vol.Any(None, str),
+        vol.Optional("navigate_to"): vol.Any(
+            None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
+        ),
     }
 )
 @websocket_api.async_response
@@ -72,7 +86,7 @@ async def ws_create_category(
         return
 
     # Sanitize name
-    name = sanitize_string(msg["name"], MAX_CATEGORY_NAME_LENGTH)
+    name = sanitize_for_storage(msg["name"], MAX_CATEGORY_NAME_LENGTH)
     if not name:
         connection.send_error(msg["id"], "invalid_name", "Category name is required")
         return
@@ -101,6 +115,11 @@ async def ws_create_category(
 
     default_mode = msg.get("default_mode")
     default_conditions = msg.get("default_conditions")
+    critical = msg.get("critical", False)
+
+    smart_notification = msg.get("smart_notification")
+    action_set_id = msg.get("action_set_id")
+    navigate_to = sanitize_for_storage(msg.get("navigate_to"), MAX_NAVIGATE_TO_LENGTH)
 
     category = await store.async_create_category(
         category_id=category_id,
@@ -109,6 +128,10 @@ async def ws_create_category(
         color=color,
         default_mode=default_mode,
         default_conditions=default_conditions,
+        critical=critical,
+        smart_notification=smart_notification,
+        action_set_id=action_set_id,
+        navigate_to=navigate_to,
     )
 
     connection.send_result(msg["id"], {"category": category})
@@ -121,8 +144,22 @@ async def ws_create_category(
         vol.Optional("name"): str,
         vol.Optional("icon"): str,
         vol.Optional("color"): vol.Any(str, None),
-        vol.Optional("default_mode"): vol.Any(vol.In(["always", "conditional"]), None),
+        vol.Optional("default_mode"): vol.Any(vol.In(["always", "never", "conditional"]), None),
         vol.Optional("default_conditions"): vol.Any(dict, None),
+        vol.Optional("critical"): bool,
+        vol.Optional("smart_notification"): vol.Any(
+            None,
+            vol.Schema({
+                vol.Optional("group"): bool,
+                vol.Optional("tag_mode"): vol.In(SMART_TAG_MODES),
+                vol.Optional("sticky"): bool,
+                vol.Optional("persistent"): bool,
+            }),
+        ),
+        vol.Optional("action_set_id"): vol.Any(None, str),
+        vol.Optional("navigate_to"): vol.Any(
+            None, vol.All(str, vol.Length(max=MAX_NAVIGATE_TO_LENGTH))
+        ),
     }
 )
 @websocket_api.async_response
@@ -152,7 +189,7 @@ async def ws_update_category(
     # Sanitize name if provided
     name = None
     if "name" in msg and msg["name"] is not None:
-        name = sanitize_string(msg["name"], MAX_CATEGORY_NAME_LENGTH)
+        name = sanitize_for_storage(msg["name"], MAX_CATEGORY_NAME_LENGTH)
         if not name:
             connection.send_error(
                 msg["id"], "invalid_name", "Category name cannot be empty"
@@ -179,6 +216,16 @@ async def ws_update_category(
     default_conditions = msg.get("default_conditions")
     # clear_defaults when default_mode is explicitly set to None
     clear_defaults = "default_mode" in msg and msg["default_mode"] is None
+    critical = msg.get("critical") if "critical" in msg else None
+
+    smart_notification = msg.get("smart_notification") if "smart_notification" in msg else None
+    clear_smart_notification = (
+        "smart_notification" in msg and msg["smart_notification"] is None
+    )
+    action_set_id = msg.get("action_set_id") if "action_set_id" in msg else None
+    navigate_to = msg.get("navigate_to") if "navigate_to" in msg else None
+    if navigate_to:
+        navigate_to = sanitize_for_storage(navigate_to, MAX_NAVIGATE_TO_LENGTH)
 
     category = await store.async_update_category(
         category_id=category_id,
@@ -188,6 +235,11 @@ async def ws_update_category(
         default_mode=default_mode,
         default_conditions=default_conditions,
         clear_defaults=clear_defaults,
+        critical=critical,
+        smart_notification=smart_notification,
+        clear_smart_notification=clear_smart_notification,
+        action_set_id=action_set_id,
+        navigate_to=navigate_to,
     )
 
     # Update service schema if name changed

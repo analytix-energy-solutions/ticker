@@ -35,6 +35,10 @@ class SubscriptionMixin:
     _subscriptions: dict[str, dict[str, Any]]
     _subscriptions_store: "Store[dict[str, dict[str, Any]]]"
 
+    def get_all_subscriptions(self) -> dict[str, dict[str, Any]]:
+        """Return all subscriptions (read-only reference)."""
+        return self._subscriptions
+
     async def async_save_subscriptions(self) -> None:
         """Save subscriptions to storage."""
         await self._subscriptions_store.async_save(self._subscriptions)
@@ -207,3 +211,63 @@ class SubscriptionMixin:
         del self._subscriptions[key]
         await self.async_save_subscriptions()
         return True
+
+    def get_subscriptions_for_recipient(
+        self, recipient_id: str
+    ) -> dict[str, dict[str, Any]]:
+        """Get all subscriptions for a recipient.
+
+        Args:
+            recipient_id: The recipient ID (without prefix).
+
+        Returns:
+            Dict mapping category_id to subscription data.
+        """
+        prefix = f"recipient:{recipient_id}:"
+        return {
+            key.split(":", 2)[2]: sub
+            for key, sub in self._subscriptions.items()
+            if key.startswith(prefix)
+        }
+
+    def get_recipient_subscriptions_for_category(
+        self, category_id: str
+    ) -> list[dict[str, Any]]:
+        """Get all recipient subscriptions for a category.
+
+        Filters to only subscription keys starting with 'recipient:',
+        excluding person-based subscriptions.
+
+        Args:
+            category_id: The category to query.
+
+        Returns:
+            List of subscription dicts for recipients subscribed to
+            this category.
+        """
+        suffix = f":{category_id}"
+        return [
+            sub for key, sub in self._subscriptions.items()
+            if key.endswith(suffix) and key.startswith("recipient:")
+        ]
+
+    def get_user_subscriptions_for_category(
+        self, category_id: str
+    ) -> list[dict[str, Any]]:
+        """Get all user (person-based) subscriptions for a category.
+
+        Filters OUT subscription keys starting with 'recipient:',
+        returning only person-based subscriptions.
+
+        Args:
+            category_id: The category to query.
+
+        Returns:
+            List of subscription dicts for users subscribed to
+            this category.
+        """
+        suffix = f":{category_id}"
+        return [
+            sub for key, sub in self._subscriptions.items()
+            if key.endswith(suffix) and not key.startswith("recipient:")
+        ]

@@ -292,7 +292,7 @@ class QueueLogMixin:
 
     def get_logs(
         self,
-        limit: int = 100,
+        limit: int = MAX_LOG_ENTRIES,
         person_id: str | None = None,
         category_id: str | None = None,
         outcome: str | None = None,
@@ -301,13 +301,13 @@ class QueueLogMixin:
         filtered = self._logs
 
         if person_id:
-            filtered = [l for l in filtered if l.get("person_id") == person_id]
+            filtered = [entry for entry in filtered if entry.get("person_id") == person_id]
 
         if category_id:
-            filtered = [l for l in filtered if l.get("category_id") == category_id]
+            filtered = [entry for entry in filtered if entry.get("category_id") == category_id]
 
         if outcome:
-            filtered = [l for l in filtered if l.get("outcome") == outcome]
+            filtered = [entry for entry in filtered if entry.get("outcome") == outcome]
 
         # Return newest first, limited
         return list(reversed(filtered[-limit:]))
@@ -348,6 +348,7 @@ class QueueLogMixin:
         notify_service: str | None = None,
         reason: str | None = None,
         notification_id: str | None = None,
+        image_url: str | None = None,
     ) -> dict[str, Any]:
         """Add a log entry (with debounced save)."""
         log_id = str(uuid.uuid4())
@@ -373,6 +374,9 @@ class QueueLogMixin:
         if notification_id:
             entry["notification_id"] = notification_id
 
+        if image_url:
+            entry["image_url"] = image_url
+
         self._logs.append(entry)
 
         # Enforce max entries
@@ -382,6 +386,40 @@ class QueueLogMixin:
         # Schedule debounced save
         await self.async_save_logs()
         return entry
+
+    async def async_update_log_action_taken(
+        self,
+        notification_id_short: str,
+        person_id: str,
+        action_taken: dict[str, Any],
+    ) -> bool:
+        """Update log entries with action_taken for matching notification and person.
+
+        Matches by notification_id prefix (first 8 chars) and person_id.
+        Only updates entries with outcome 'sent'.
+
+        Returns True if any entries were updated.
+        """
+        updated = False
+        for log in self._logs:
+            nid = log.get("notification_id", "")
+            if (
+                nid
+                and nid[:8] == notification_id_short
+                and log.get("person_id") == person_id
+                and log.get("outcome") == "sent"
+            ):
+                log["action_taken"] = action_taken
+                updated = True
+
+        if updated:
+            await self.async_save_logs()
+            _LOGGER.debug(
+                "Updated action_taken for notification %s / %s",
+                notification_id_short, person_id,
+            )
+
+        return updated
 
     async def async_clear_logs(self) -> int:
         """Clear all logs. Returns count removed."""

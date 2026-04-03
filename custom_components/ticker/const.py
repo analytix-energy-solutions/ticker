@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.2.0"
+VERSION = "1.4.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -38,6 +38,13 @@ RULE_TYPE_TIME = "time"
 RULE_TYPE_STATE = "state"
 RULE_TYPES = [RULE_TYPE_ZONE, RULE_TYPE_TIME, RULE_TYPE_STATE]
 
+# Condition tree (F-2b AND/OR grouping)
+CONDITION_NODE_GROUP = "group"
+CONDITION_OPERATOR_AND = "AND"
+CONDITION_OPERATOR_OR = "OR"
+CONDITION_OPERATORS = [CONDITION_OPERATOR_AND, CONDITION_OPERATOR_OR]
+CONDITION_MAX_DEPTH = 2
+
 # Days of week (1=Monday, 7=Sunday per ISO 8601)
 WEEKDAYS = list(range(1, 8))
 
@@ -53,6 +60,7 @@ CATEGORY_DEFAULT_NAME = "General"
 
 # Service constants
 SERVICE_NOTIFY = "notify"
+NOTIFY_SERVICE_TIMEOUT = 30  # Timeout for notify/TTS service calls (seconds)
 ATTR_CATEGORY = "category"
 ATTR_TITLE = "title"
 ATTR_MESSAGE = "message"
@@ -76,6 +84,73 @@ LOG_OUTCOME_SENT = "sent"
 LOG_OUTCOME_QUEUED = "queued"
 LOG_OUTCOME_SKIPPED = "skipped"
 LOG_OUTCOME_FAILED = "failed"
+LOG_OUTCOME_SNOOZED = "snoozed"
+
+# F-5: Notification Actions
+ACTION_TYPE_SCRIPT = "script"
+ACTION_TYPE_SNOOZE = "snooze"
+ACTION_TYPE_DISMISS = "dismiss"
+ACTION_TYPES = [ACTION_TYPE_SCRIPT, ACTION_TYPE_SNOOZE, ACTION_TYPE_DISMISS]
+ACTION_ID_PREFIX = "TICKER_"
+MAX_ACTIONS_PER_SET = 3
+SNOOZE_DURATIONS_MINUTES = [15, 30, 60, 120, 240]
+STORAGE_KEY_SNOOZES = f"{DOMAIN}_snoozes"
+ATTR_ACTIONS = "actions"
+ATTR_CRITICAL = "critical"
+ATTR_NAVIGATE_TO = "navigate_to"
+MAX_NAVIGATE_TO_LENGTH = 500
+DEFAULT_NAVIGATE_TO = "/ticker#history"
+
+# F-18: Non-User Recipient Support
+STORAGE_KEY_RECIPIENTS = f"{DOMAIN}_recipients"
+MAX_RECIPIENT_ID_LENGTH = 64
+MAX_RECIPIENT_NAME_LENGTH = 100
+MAX_NOTIFY_SERVICES = 10
+
+# Device type constants (F-18 device type discriminator)
+DEVICE_TYPE_PUSH = "push"
+DEVICE_TYPE_TTS = "tts"
+DEVICE_TYPES = [DEVICE_TYPE_PUSH, DEVICE_TYPE_TTS]
+
+# TTS polling timeouts (seconds)
+TTS_PLAYBACK_START_TIMEOUT = 5.0
+TTS_PLAYBACK_MAX_TIMEOUT = 60.0
+TTS_POLL_INTERVAL = 0.5
+
+# TTS buffer delay (seconds) — pre-playback pause for Chromecast/Cast devices
+TTS_BUFFER_DELAY_MIN = 0.0
+TTS_BUFFER_DELAY_MAX = 10.0
+TTS_BUFFER_DELAY_DEFAULT = 0.0
+
+# MediaPlayerEntityFeature.MEDIA_ANNOUNCE (HA 2024.1+)
+MEDIA_ANNOUNCE_FEATURE = 524288
+
+# Delivery format constants
+DELIVERY_FORMAT_RICH = "rich"
+DELIVERY_FORMAT_PLAIN = "plain"
+DELIVERY_FORMAT_TTS = "tts"
+DELIVERY_FORMAT_PERSISTENT = "persistent"
+
+# Full set of delivery formats (used internally by formatting.py)
+DELIVERY_FORMATS = [
+    DELIVERY_FORMAT_RICH,
+    DELIVERY_FORMAT_PLAIN,
+    DELIVERY_FORMAT_TTS,
+    DELIVERY_FORMAT_PERSISTENT,
+]
+
+# Subset valid for push-type recipients (TTS is a device type, not a format)
+RECIPIENT_DELIVERY_FORMATS = [DELIVERY_FORMAT_RICH, DELIVERY_FORMAT_PLAIN]
+
+# Auto-detection patterns for delivery format (push devices only)
+# TTS entries removed — TTS is now a device type, not a format.
+# Each tuple: (match_type, pattern, delivery_format)
+# match_type: "startswith", "contains", "equals"
+DELIVERY_FORMAT_PATTERNS = [
+    ("equals", "notify.persistent_notification", DELIVERY_FORMAT_PERSISTENT),
+    ("contains", "nfandroidtv", DELIVERY_FORMAT_RICH),
+    ("contains", "mobile_app", DELIVERY_FORMAT_RICH),
+]
 
 # Panel configuration
 PANEL_ADMIN_URL = "/ticker-admin"
@@ -97,3 +172,21 @@ COLOR_SUBTLE = "#0e7490"   # Ticker 700
 MIGRATE_SOURCE_AUTOMATION = "automation"
 MIGRATE_SOURCE_SCRIPT = "script"
 MIGRATE_SERVICES = ["notify", "persistent_notification"]
+MAX_MIGRATION_TITLE_LENGTH = 200
+MAX_MIGRATION_MESSAGE_LENGTH = 1000
+MAX_IMAGE_URL_LENGTH = 500
+
+# F-6: Smart Notification Management
+SERVICE_CLEAR_NOTIFICATION = "clear_notification"
+
+SMART_TAG_MODE_NONE = "none"
+SMART_TAG_MODE_CATEGORY = "category"
+SMART_TAG_MODE_TITLE = "title"
+SMART_TAG_MODES = [SMART_TAG_MODE_NONE, SMART_TAG_MODE_CATEGORY, SMART_TAG_MODE_TITLE]
+
+# F-5b: Action Sets Library
+STORAGE_KEY_ACTION_SETS = f"{DOMAIN}_action_sets"
+ATTR_ACTION_SET_ID = "action_set_id"
+MAX_ACTION_SET_ID_LENGTH = 64
+MAX_ACTION_SET_NAME_LENGTH = 100
+MAX_ACTION_SET_DESCRIPTION_LENGTH = 200

@@ -16,6 +16,10 @@
 !custom_components/ticker/
 !custom_components/ticker/**
 
+# Allow tests
+!tests/
+!tests/**
+
 # Python artifacts (within allowed paths)
 __pycache__/
 *.py[cod]

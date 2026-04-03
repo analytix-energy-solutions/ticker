@@ -7,7 +7,6 @@ queued notifications and release them when conditions are met.
 from __future__ import annotations
 
 import logging
-from datetime import time
 from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.core import HomeAssistant, callback, Event
@@ -18,20 +17,62 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONDITION_NODE_GROUP,
     MODE_CONDITIONAL,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
+    RULE_TYPE_ZONE,
 )
 from .conditions import (
-    evaluate_rules,
+    evaluate_condition_tree,
     get_queue_triggers,
 )
 
 if TYPE_CHECKING:
-    from . import TickerConfigEntry
     from .store import TickerStore
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _collect_leaves(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """Recursively collect all leaf nodes from a condition tree.
+
+    Args:
+        node: A condition tree node (group or leaf).
+
+    Returns:
+        Flat list of all leaf (non-group) nodes.
+    """
+    if node.get("type") == CONDITION_NODE_GROUP:
+        leaves: list[dict[str, Any]] = []
+        for child in node.get("children", []):
+            leaves.extend(_collect_leaves(child))
+        return leaves
+    return [node]
+
+
+def _leaf_matches_filter(
+    leaf: dict[str, Any],
+    filter_type: str,
+    filter_value: str | None,
+) -> bool:
+    """Check if a leaf node matches a filter type and value.
+
+    Args:
+        leaf: A leaf condition node.
+        filter_type: Rule type to match (e.g. RULE_TYPE_STATE).
+        filter_value: Value to match (entity_id or time string).
+
+    Returns:
+        True if the leaf matches the filter criteria.
+    """
+    if leaf.get("type") != filter_type:
+        return False
+    if filter_type == RULE_TYPE_STATE:
+        return leaf.get("entity_id") == filter_value
+    if filter_type == RULE_TYPE_TIME:
+        return leaf.get("after") == filter_value
+    return True
 
 
 class ConditionListenerManager:
@@ -86,18 +127,37 @@ class ConditionListenerManager:
         all_times: set[str] = set()
 
         # Scan all subscriptions for conditional rules
-        subscriptions = self.store._subscriptions
+        # This includes both person-based and recipient-based subscriptions.
+        # Recipient subscriptions use keys prefixed with "recipient:".
+        subscriptions = self.store.get_all_subscriptions()
         for key, sub in subscriptions.items():
             if sub.get("mode") != MODE_CONDITIONAL:
                 continue
 
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
+            tree = conditions.get("condition_tree")
 
-            if not rules:
+            if not rules and not tree:
                 continue
 
-            triggers = get_queue_triggers(conditions)
+            # For recipient subscriptions, skip zone rules (recipients
+            # have no location). Filter to time/state rules only.
+            is_recipient = key.startswith("recipient:")
+            if is_recipient and rules and not tree:
+                effective_rules = [
+                    r for r in rules
+                    if r.get("type") != RULE_TYPE_ZONE
+                ]
+                if not effective_rules:
+                    continue
+                # Build trigger-extraction dict preserving queue_until_met flag
+                trigger_conditions = dict(conditions)
+                trigger_conditions["rules"] = effective_rules
+            else:
+                trigger_conditions = conditions
+
+            triggers = get_queue_triggers(trigger_conditions)
 
             # Collect entity triggers
             for entity_id in triggers.get("entities", []):
@@ -264,11 +324,15 @@ class ConditionListenerManager:
     ) -> None:
         """Re-evaluate conditional subscriptions and release queued notifications.
 
+        Handles both person-based and recipient-based subscriptions.
+        Recipient subscriptions (key prefix "recipient:") skip zone rules
+        and pass None for person_state since recipients have no location.
+
         Args:
             filter_type: Only check subscriptions with this rule type
             filter_value: Only check subscriptions with this value (entity_id or time)
         """
-        subscriptions = self.store._subscriptions
+        subscriptions = self.store.get_all_subscriptions()
 
         for key, sub in subscriptions.items():
             if sub.get("mode") != MODE_CONDITIONAL:
@@ -280,50 +344,49 @@ class ConditionListenerManager:
             if not person_id or not category_id:
                 continue
 
-            # Check if this subscription has relevant rules
+            is_recipient = key.startswith("recipient:")
+
+            # Check if this subscription has relevant conditions
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
+            tree = conditions.get("condition_tree")
 
-            if not rules:
+            if not rules and not tree:
                 continue
 
-            # Filter by rule type if specified
+            # Filter by rule type if specified (walk tree or flat rules)
             if filter_type:
-                has_matching_rule = False
-                for rule in rules:
-                    if rule.get("type") != filter_type:
-                        continue
-                    if filter_type == RULE_TYPE_STATE:
-                        if rule.get("entity_id") == filter_value:
-                            has_matching_rule = True
-                            break
-                    elif filter_type == RULE_TYPE_TIME:
-                        if rule.get("after") == filter_value:
-                            has_matching_rule = True
-                            break
-
+                leaves = _collect_leaves(tree) if tree else list(rules)
+                has_matching_rule = any(
+                    _leaf_matches_filter(leaf, filter_type, filter_value)
+                    for leaf in leaves
+                )
                 if not has_matching_rule:
                     continue
 
-            # Check if user has queued notifications
+            # Check if person/recipient has queued notifications
             queued = self.store.get_queue_for_person(person_id)
             if not queued:
                 continue
 
             # Filter to this category's queued notifications
-            category_queued = [q for q in queued if q.get("category_id") == category_id]
+            category_queued = [
+                q for q in queued if q.get("category_id") == category_id
+            ]
             if not category_queued:
                 continue
 
-            # Get person state
-            person_state = self.hass.states.get(person_id)
-            if not person_state:
-                continue
+            # Get person state (None for recipients — they have no location)
+            person_state = None
+            if not is_recipient:
+                person_state = self.hass.states.get(person_id)
+                if not person_state:
+                    continue
 
-            # Evaluate all rules
-            all_met, reasons = evaluate_rules(
+            # Evaluate conditions (tree or flat rules)
+            all_met, rule_results = evaluate_condition_tree(
                 self.hass,
-                rules,
+                conditions,
                 person_state,
                 dt_util.now(),
             )
@@ -343,7 +406,7 @@ class ConditionListenerManager:
                     "Conditions not yet met for %s/%s: %s",
                     person_id,
                     category_id,
-                    reasons,
+                    [reason for met, reason in rule_results if not met],
                 )
 
     async def async_unload(self) -> None:

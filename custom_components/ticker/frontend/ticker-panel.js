@@ -7,6 +7,9 @@
  * - user/queue-tab.js
  * - user/history-tab.js
  *
+ * Styles: user/user-panel-styles.js
+ * Recovery: user/recovery-handlers.js
+ *
  * Brand: See branding/README.md
  * Colors: --ticker-500: #06b6d4, --ticker-400: #22d3ee, --ticker-700: #0e7490
  */
@@ -47,23 +50,20 @@ class TickerPanel extends HTMLElement {
   }
 
   connectedCallback() {
-    // Initialize if hass was set before we were connected
     if (!this._initialized && this._hass) {
       this._initialized = true;
       this._initialize();
     }
-
     // FIX-029F: If visibility/resume fired while disconnected, recover now.
     if (this._needsRecovery) {
       this._needsRecovery = false;
       console.log('[Ticker] connectedCallback: executing deferred visibility recovery');
-      this._forceRepaint();
+      window.Ticker.UserRecoveryHandlers.forceRepaint(this);
       this._loadData();
     }
   }
 
   disconnectedCallback() {
-    // Clean up visibility/resume listeners
     if (this._visibilityHandler) {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
@@ -83,94 +83,27 @@ class TickerPanel extends HTMLElement {
     await this._loadDependencies();
     this._createStructure();
     this._wireHandlers();
-    this._setupRecoveryHandlers();
+    window.Ticker.UserRecoveryHandlers.setup(this);
     await this._loadData();
-  }
-
-  /**
-   * FIX-029F: Set up recovery handlers for tab focus loss / WS reconnect.
-   * Three independent mechanisms:
-   * 1. connection 'ready' — HA WebSocket reconnect → reload data
-   * 2. visibilitychange — browser tab becomes visible → force repaint + reload if stale
-   * 3. resume (Page Lifecycle API) — Chrome unfreeze → force repaint + reload
-   */
-  _setupRecoveryHandlers() {
-    // 1. HA WebSocket reconnection
-    if (this._connectionReadyHandler && this._hass?.connection) {
-      this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
-    }
-    this._connectionReadyHandler = () => {
-      if (!this.isConnected) return;
-      console.log('[Ticker] Connection ready — refreshing data');
-      this._loadData();
-    };
-    this._hass.connection.addEventListener('ready', this._connectionReadyHandler);
-
-    // 2. Browser visibility change
-    if (!this._visibilityHandler) {
-      this._lastHiddenAt = null;
-      this._visibilityHandler = () => {
-        if (document.hidden) {
-          this._lastHiddenAt = Date.now();
-          return;
-        }
-        if (!this.isConnected) {
-          this._needsRecovery = true;
-          return;
-        }
-        const hiddenMs = this._lastHiddenAt ? Date.now() - this._lastHiddenAt : 0;
-        this._lastHiddenAt = null;
-        if (hiddenMs > 30000) {
-          console.log(`[Ticker] Visible after ${Math.round(hiddenMs / 1000)}s — repaint + refresh`);
-          this._forceRepaint();
-          this._loadData();
-        } else {
-          this._forceRepaint();
-        }
-      };
-      document.addEventListener('visibilitychange', this._visibilityHandler);
-    }
-
-    // 3. Chrome Page Lifecycle resume
-    if (!this._resumeHandler) {
-      this._resumeHandler = () => {
-        if (!this.isConnected) {
-          this._needsRecovery = true;
-          return;
-        }
-        console.log('[Ticker] Resume from freeze — repaint + refresh');
-        this._forceRepaint();
-        this._loadData();
-      };
-      document.addEventListener('resume', this._resumeHandler);
-    }
-  }
-
-  /**
-   * FIX-029F: Force shadow host compositor layer re-creation.
-   * Toggle display on the HOST element to force Chromium to re-rasterize
-   * the shadow root paint layer after a tab freeze/discard cycle.
-   */
-  _forceRepaint() {
-    this.style.display = 'none';
-    void this.offsetHeight;
-    this.style.display = '';
-    void this.offsetHeight;
   }
 
   async _loadDependencies() {
     if (this._dependenciesLoaded) return;
-
     const base = '/ticker_frontend';
     const scripts = [
       `${base}/ticker-utils.js`,
       `${base}/ticker-styles.js`,
+      `${base}/ticker-styles-extended.js`,
+      `${base}/ticker-conditions-styles.js`,
+      `${base}/ticker-conditions-tree.js`,
       `${base}/ticker-conditions-ui.js`,
+      `${base}/user/user-panel-styles.js`,
+      `${base}/user/recovery-handlers.js`,
       `${base}/user/subscriptions-tab.js`,
+      `${base}/user/subscriptions-handlers.js`,
       `${base}/user/queue-tab.js`,
       `${base}/user/history-tab.js`,
     ];
-
     for (const src of scripts) {
       if (document.querySelector(`script[src="${src}"]`)) continue;
       await new Promise((resolve, reject) => {
@@ -181,12 +114,10 @@ class TickerPanel extends HTMLElement {
         document.head.appendChild(s);
       });
     }
-
     this._dependenciesLoaded = true;
   }
 
   _wireHandlers() {
-    // Expose panel reference for tab handler onclick strings
     window.Ticker = window.Ticker || {};
     window.Ticker._userPanel = this;
   }
@@ -195,193 +126,7 @@ class TickerPanel extends HTMLElement {
     const { variables, base, header, tabs, cards, buttons, badges, messages,
             states, toggles, notifyServices, queueItems, warningBanner,
             forms, listItems, sections, colorIndicator, logoSvg } = window.Ticker.styles;
-
-    // Panel-specific styles
-    const panelStyles = `
-      /* User profile */
-      .user-info {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        padding: 12px 16px;
-        background: var(--bg-primary);
-        border-radius: 4px;
-        margin-bottom: 16px;
-      }
-      .user-avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: var(--ticker-500);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-weight: 600;
-        font-size: 16px;
-      }
-      .user-details { flex: 1; }
-      .user-name { font-weight: 500; color: var(--text-primary); }
-
-      /* Subscriptions list */
-      .subscriptions-list { display: flex; flex-direction: column; gap: 8px; }
-      .subscription-item { background: var(--bg-primary); border-radius: 4px; overflow: hidden; }
-      .subscription-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 12px 16px;
-        cursor: pointer;
-      }
-      .subscription-header.expanded {
-        border-left: 3px solid var(--ticker-500);
-        background: rgba(6, 182, 212, 0.08);
-      }
-      .subscription-label {
-        font-size: 14px;
-        color: var(--text-primary);
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-      .subscription-controls { display: flex; align-items: center; gap: 8px; }
-      .subscription-select {
-        padding: 6px 10px;
-        border: 1px solid var(--divider);
-        border-radius: 4px;
-        font-size: 13px;
-        background: var(--bg-card);
-        color: var(--text-primary);
-        min-width: 120px;
-        cursor: pointer;
-      }
-      .subscription-select:focus { outline: none; border-color: var(--ticker-500); }
-      .conditional-content {
-        padding: 0 16px 16px 16px;
-        border-left: 3px solid var(--ticker-500);
-        background: rgba(6, 182, 212, 0.04);
-      }
-      .conditions-section { margin-top: 8px; padding-top: 8px; }
-
-      /* Device preferences */
-      .device-section {
-        margin-top: 16px;
-        padding-top: 16px;
-        border-top: 1px solid var(--divider);
-      }
-      .device-section-title {
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 12px;
-      }
-      .radio-group { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-      .radio-option {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 14px;
-        color: var(--text-primary);
-        cursor: pointer;
-      }
-      .radio-option input[type="radio"] {
-        width: 16px;
-        height: 16px;
-        accent-color: var(--ticker-500);
-        cursor: pointer;
-      }
-      .device-list {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding-left: 24px;
-        margin-bottom: 12px;
-      }
-      .device-checkbox {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        color: var(--text-primary);
-        cursor: pointer;
-      }
-      .device-checkbox input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        accent-color: var(--ticker-500);
-        cursor: pointer;
-      }
-      .device-checkbox.disabled { color: var(--text-secondary); cursor: not-allowed; }
-      .device-actions { display: flex; gap: 8px; margin-top: 8px; }
-      .device-override-section {
-        margin-top: 12px;
-        padding-top: 12px;
-        border-top: 1px solid var(--divider);
-      }
-      .device-override-toggle {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 13px;
-        color: var(--text-primary);
-        cursor: pointer;
-        margin-bottom: 8px;
-      }
-      .device-override-toggle input[type="checkbox"] {
-        width: 16px;
-        height: 16px;
-        accent-color: var(--ticker-500);
-        cursor: pointer;
-      }
-      .device-override-list { display: flex; flex-direction: column; gap: 6px; padding-left: 24px; }
-      .device-override-help {
-        font-size: 12px;
-        color: var(--text-secondary);
-        margin-bottom: 8px;
-        padding-left: 24px;
-      }
-
-      /* History styles */
-      .history-list { display: flex; flex-direction: column; gap: 16px; }
-      .history-date-group { display: flex; flex-direction: column; gap: 8px; }
-      .history-date-label {
-        font-size: 12px;
-        font-weight: 600;
-        color: var(--text-secondary);
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        padding-bottom: 4px;
-        border-bottom: 1px solid var(--divider);
-      }
-      .history-item { padding: 12px 16px; background: var(--bg-primary); border-radius: 4px; }
-      .history-item-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: flex-start;
-        margin-bottom: 4px;
-      }
-      .history-item-title { font-weight: 500; color: var(--text-primary); }
-      .history-item-time {
-        font-size: 12px;
-        color: var(--text-secondary);
-        white-space: nowrap;
-        margin-left: 12px;
-      }
-      .history-item-message {
-        font-size: 14px;
-        color: var(--text-primary);
-        line-height: 1.5;
-        margin-bottom: 8px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-      .history-item-meta { display: flex; gap: 8px; flex-wrap: wrap; }
-
-      /* No person state */
-      .no-person-state { text-align: center; padding: 40px; }
-      .no-person-state h3 { color: var(--text-primary); margin: 0 0 8px 0; }
-      .no-person-state p { color: var(--text-secondary); margin: 0; }
-    `;
+    const panelStyles = window.Ticker.userPanelStyles;
 
     const allStyles = [variables, base, header, tabs, cards, buttons, badges, messages,
       states, toggles, notifyServices, queueItems, warningBanner, forms, listItems,
@@ -410,7 +155,6 @@ class TickerPanel extends HTMLElement {
     this._loading = true;
     this._error = null;
     this._renderTabContent();
-
     try {
       await Promise.all([
         this._loadCurrentPerson(),
@@ -419,7 +163,6 @@ class TickerPanel extends HTMLElement {
         this._loadDevices(),
         this._loadEntities(),
       ]);
-
       if (this._currentPerson) {
         await Promise.all([
           this._loadSubscriptions(),
@@ -432,7 +175,6 @@ class TickerPanel extends HTMLElement {
       console.error('Failed to load data:', err);
       this._error = err.message || 'Failed to load data';
     }
-
     this._loading = false;
     this._renderTabContent();
   }
@@ -492,7 +234,6 @@ class TickerPanel extends HTMLElement {
 
   async _loadSubscriptions() {
     if (!this._currentPerson) return;
-
     try {
       const result = await this._hass.callWS({
         type: 'ticker/subscriptions',
@@ -510,7 +251,6 @@ class TickerPanel extends HTMLElement {
 
   async _loadQueue() {
     if (!this._currentPerson) return;
-
     try {
       const result = await this._hass.callWS({
         type: 'ticker/queue',
@@ -525,7 +265,6 @@ class TickerPanel extends HTMLElement {
 
   async _loadHistory() {
     if (!this._currentPerson) return;
-
     try {
       const result = await this._hass.callWS({
         type: 'ticker/logs',
@@ -567,7 +306,6 @@ class TickerPanel extends HTMLElement {
 
   _renderTabContent() {
     if (!this._els) return;
-
     if (this._loading) {
       this._els.loadingArea.innerHTML = `
         <div class="card">
@@ -581,9 +319,7 @@ class TickerPanel extends HTMLElement {
       this._els.tabContent.innerHTML = '';
       return;
     }
-
     this._els.loadingArea.innerHTML = '';
-
     if (this._error) {
       this._els.tabContent.innerHTML = `
         <div class="card">
@@ -594,7 +330,6 @@ class TickerPanel extends HTMLElement {
       `;
       return;
     }
-
     if (!this._currentPerson) {
       this._els.tabContent.innerHTML = `
         <div class="card">
@@ -607,11 +342,9 @@ class TickerPanel extends HTMLElement {
       `;
       return;
     }
-
     // Render tabs bar
     const queueCount = this._queue.length;
     const historyCount = window.Ticker.UserHistoryTab.getGroupedCount(this._history);
-
     this._els.tabsBar.innerHTML = `
       <div class="tabs">
         <button class="tab ${this._activeTab === 'subscriptions' ? 'active' : ''}"
@@ -622,7 +355,6 @@ class TickerPanel extends HTMLElement {
           onclick="window.Ticker._userPanel._switchTab('history')">History${historyCount > 0 ? `<span class="badge-count">${historyCount}</span>` : ''}</button>
       </div>
     `;
-
     // Render active tab content
     const state = this._getState();
     if (this._activeTab === 'subscriptions') {
@@ -632,8 +364,6 @@ class TickerPanel extends HTMLElement {
     } else {
       this._els.tabContent.innerHTML = window.Ticker.UserHistoryTab.render(state);
     }
-
-    // Post-render setup
     this._afterRender();
   }
 
@@ -643,43 +373,8 @@ class TickerPanel extends HTMLElement {
       this._els.tabContent.scrollTop = this._pendingScrollRestore;
       this._pendingScrollRestore = null;
     }
-    // Set up conditions UI components
-    this._setupConditionsUI();
-  }
-
-  _setupConditionsUI() {
-    for (const cat of this._categories) {
-      const sub = this._subscriptions[cat.id]
-        || window.Ticker.UserSubscriptionsTab._getCategoryDefault(cat);
-      const isConditional = sub.mode === 'conditional';
-      const isExpanded = this._expandedCategories.has(cat.id);
-
-      if (isConditional && isExpanded) {
-        const conditionsUI = this.shadowRoot.getElementById(`conditions-ui-${cat.id}`);
-        if (conditionsUI) {
-          const conditions = sub.conditions || {};
-          const rules = window.Ticker.UserSubscriptionsTab._getSubscriptionRules(conditions);
-
-          // Set data properties
-          conditionsUI.rules = rules;
-          conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
-          conditionsUI.queueUntilMet = conditions.queue_until_met || false;
-          conditionsUI.zones = this._zones;
-          conditionsUI.entities = this._entities;
-
-          // Listen for rules-changed event
-          conditionsUI.removeEventListener('rules-changed', conditionsUI._rulesHandler);
-          conditionsUI._rulesHandler = (e) => {
-            window.Ticker.UserSubscriptionsTab.handlers.handleRulesChanged(
-              this,
-              cat.id,
-              e.detail
-            );
-          };
-          conditionsUI.addEventListener('rules-changed', conditionsUI._rulesHandler);
-        }
-      }
-    }
+    // Set up conditions UI components (delegated to subscriptions tab)
+    window.Ticker.UserSubscriptionsTab.setupConditionsUI(this);
   }
 
   _switchTab(tab) {
@@ -688,7 +383,6 @@ class TickerPanel extends HTMLElement {
       this._scrollPositions[this._activeTab] = this._els.tabContent.scrollTop;
     }
     this._activeTab = tab;
-    // Schedule scroll restoration after render
     this._pendingScrollRestore = this._scrollPositions[tab] || 0;
     this._renderTabContent();
   }

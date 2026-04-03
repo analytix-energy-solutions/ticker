@@ -40,6 +40,12 @@ window.Ticker.AdminLogsTab = {
           <div class="stat-value">${byOutcome.failed || 0}</div>
           <div class="stat-label">Failed</div>
         </div>
+        ${byOutcome.snoozed ? `
+        <div class="stat-card stat-skipped">
+          <div class="stat-value">${byOutcome.snoozed}</div>
+          <div class="stat-label">Snoozed</div>
+        </div>
+        ` : ''}
       </div>
     `;
 
@@ -70,6 +76,7 @@ window.Ticker.AdminLogsTab = {
             <div class="log-item-header">
               ${badge}
               <span class="log-item-title">${escTitle}</span>
+              <span class="log-item-time">${formatTime(log.timestamp)}</span>
             </div>
             <div class="log-item-message">${escMessage}</div>
             <div class="log-item-meta">
@@ -78,9 +85,9 @@ window.Ticker.AdminLogsTab = {
               <span>Cat: ${escCname}</span>
               ${escService ? `<span>·</span><span>Via: ${escService}</span>` : ''}
               ${escReason ? `<span>·</span><span class="log-reason">${escReason}</span>` : ''}
+              ${log.action_taken ? `<span>·</span><span style="background:var(--ticker-500-alpha-10);color:var(--ticker-700,#0e7490);padding:2px 8px;border-radius:10px;font-size:11px">${esc(this._getPersonName(users, log.person_id))} · ${esc(log.action_taken.title || '')}</span>` : ''}
             </div>
           </div>
-          <div class="log-item-time">${formatTime(log.timestamp)}</div>
         </div>
       `;
     }).join('');
@@ -91,7 +98,7 @@ window.Ticker.AdminLogsTab = {
           <h2 class="card-title">Logs</h2>
           <button class="btn btn-danger btn-small" onclick="window.Ticker.AdminLogsTab.handlers.clearLogs(window.Ticker._adminPanel)">Clear</button>
         </div>
-        <p class="card-description">7 days, max 500.</p>
+        <p class="card-description">Notification log — last 7 days, up to 500 entries.</p>
         ${statsGrid}
         ${rows}
       </div>
@@ -124,6 +131,8 @@ window.Ticker.AdminLogsTab = {
         return '<span class="badge">Queued</span>';
       case 'skipped':
         return '<span class="badge badge-warning">Skipped</span>';
+      case 'snoozed':
+        return '<span class="badge badge-warning">Snoozed</span>';
       case 'failed':
         return '<span class="badge badge-danger">Failed</span>';
       default:

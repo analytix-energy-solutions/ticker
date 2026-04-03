@@ -9,6 +9,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import slugify
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,6 +38,22 @@ def invalidate_discovery_cache() -> None:
     _discovery_cache = {}
     _cache_timestamp = 0.0
     _LOGGER.debug("Discovery cache invalidated")
+
+
+def _should_cache_result(result: dict[str, dict[str, Any]]) -> bool:
+    """Check whether a discovery result is worth caching.
+
+    Returns False if the result is empty or every person has an empty
+    notify_services list — this typically means HA registries were still
+    loading when discovery ran, and caching would lock in bad data for
+    the full TTL window.
+    """
+    if not result:
+        return False
+    return any(
+        person.get("notify_services")
+        for person in result.values()
+    )
 
 
 async def async_discover_notify_services(
@@ -103,30 +120,45 @@ async def async_discover_notify_services(
             if not any(s["service"] == service_name for s in device_notify_services[entity.device_id]):
                 device_notify_services[entity.device_id].append(service_entry)
     
-    # Also check for mobile_app notify services in hass.services
-    if "notify" in hass.services.async_services():
-        for service_name in hass.services.async_services()["notify"]:
-            if service_name.startswith("mobile_app_"):
-                # Try to find the device for this service
-                for entity in entity_reg.entities.values():
-                    if (
-                        entity.platform == "mobile_app"
-                        and entity.device_id
-                        and entity.domain == "device_tracker"
-                        and service_name.removeprefix("mobile_app_")
-                        in entity.entity_id
-                    ):
-                        if entity.device_id not in device_notify_services:
-                            device_notify_services[entity.device_id] = []
-                        full_service = f"notify.{service_name}"
-                        device_name = _get_device_name(entity.device_id) or full_service
-                        # Avoid duplicates
-                        if not any(s["service"] == full_service for s in device_notify_services[entity.device_id]):
-                            device_notify_services[entity.device_id].append({
-                                "service": full_service,
-                                "name": device_name,
-                                "device_id": entity.device_id,
-                            })
+    # Path 2: Legacy mobile_app services via device registry + config entries
+    notify_services_map = hass.services.async_services().get("notify", {})
+    for entity in entity_reg.entities.values():
+        if (
+            entity.platform == "mobile_app"
+            and entity.domain == "device_tracker"
+            and entity.device_id
+        ):
+            device = device_reg.async_get(entity.device_id)
+            if not device:
+                continue
+            for entry_id in device.config_entries:
+                entry = hass.config_entries.async_get_entry(entry_id)
+                if not entry or entry.domain != "mobile_app":
+                    continue
+                device_name = entry.data.get("device_name")
+                if not device_name:
+                    _LOGGER.warning(
+                        "mobile_app config entry %s has no device_name, skipping",
+                        entry_id,
+                    )
+                    continue
+                slug = slugify(device_name)
+                full_service = f"notify.mobile_app_{slug}"
+                # Verify service actually exists
+                if f"mobile_app_{slug}" not in notify_services_map:
+                    continue
+                if entity.device_id not in device_notify_services:
+                    device_notify_services[entity.device_id] = []
+                friendly = _get_device_name(entity.device_id) or full_service
+                if not any(
+                    s["service"] == full_service
+                    for s in device_notify_services[entity.device_id]
+                ):
+                    device_notify_services[entity.device_id].append({
+                        "service": full_service,
+                        "name": friendly,
+                        "device_id": entity.device_id,
+                    })
 
     # Build device_id → device_tracker mapping
     device_trackers: dict[str, list[str]] = {}
@@ -192,10 +224,15 @@ async def async_discover_notify_services(
             len(person_trackers),
         )
     
-    # Update cache
-    _discovery_cache = result
-    _cache_timestamp = time.monotonic()
-    _LOGGER.debug("Discovery cache updated with %d persons", len(result))
+    # Update cache only if result contains useful data (BUG-060)
+    if _should_cache_result(result):
+        _discovery_cache = result
+        _cache_timestamp = time.monotonic()
+        _LOGGER.debug("Discovery cache updated with %d persons", len(result))
+    else:
+        _LOGGER.warning(
+            "Discovery returned no notify services — result not cached, will retry on next call"
+        )
     
     return result
 

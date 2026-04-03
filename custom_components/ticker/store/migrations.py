@@ -223,3 +223,46 @@ class MigrationMixin:
             await self.async_save_subscriptions()
 
         return migrated_count
+
+    async def _async_migrate_flat_rules_to_tree(self) -> int:
+        """Migrate flat rules[] to condition_tree format (F-2b).
+
+        Wraps existing flat rules arrays in a root AND group node.
+        Non-destructive: only applies when condition_tree is absent.
+
+        Returns count of migrated subscriptions.
+        """
+        migrated_count = 0
+
+        for key, sub in self._subscriptions.items():
+            if sub.get("mode") != MODE_CONDITIONAL:
+                continue
+
+            conditions = sub.get("conditions", {})
+
+            # Skip if already has condition_tree
+            if "condition_tree" in conditions:
+                continue
+
+            rules = conditions.get("rules")
+            if not rules:
+                continue
+
+            # Wrap flat rules in root AND group
+            conditions["condition_tree"] = {
+                "type": "group",
+                "operator": "AND",
+                "children": list(rules),
+            }
+            del conditions["rules"]
+            migrated_count += 1
+
+            _LOGGER.debug(
+                "Migrated subscription %s from flat rules to condition_tree",
+                key,
+            )
+
+        if migrated_count > 0:
+            await self.async_save_subscriptions()
+
+        return migrated_count

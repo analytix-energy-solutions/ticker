@@ -5,3 +5,7 @@
 notify:
   name: Send notification
   description: Send a notification through Ticker to subscribed users
+
+clear_notification:
+  name: Clear notification
+  description: Dismiss a previously sent tagged notification from all subscribed devices

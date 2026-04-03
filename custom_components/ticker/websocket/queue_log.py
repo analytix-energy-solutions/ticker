@@ -11,7 +11,7 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..const import DEVICE_MODE_ALL, DEVICE_MODE_SELECTED
+from ..const import DEVICE_MODE_ALL, DEVICE_MODE_SELECTED, MAX_LOG_ENTRIES
 from ..discovery import async_discover_notify_services
 from .validation import (
     get_store,
@@ -329,8 +329,8 @@ async def ws_remove_queue_entry(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/logs",
-        vol.Optional("limit", default=100): vol.All(
-            vol.Coerce(int), vol.Range(min=1, max=500)
+        vol.Optional("limit", default=MAX_LOG_ENTRIES): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=MAX_LOG_ENTRIES)
         ),
         vol.Optional("person_id"): str,
         vol.Optional("category_id"): str,
@@ -370,7 +370,7 @@ async def ws_get_logs(
         return
 
     logs = store.get_logs(
-        limit=msg.get("limit", 100),
+        limit=msg.get("limit", MAX_LOG_ENTRIES),
         person_id=person_id,
         category_id=category_id,
         outcome=outcome,

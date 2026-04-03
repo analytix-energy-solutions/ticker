@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import Callable
 
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.frontend import add_extra_js_url
@@ -14,32 +14,35 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.start import async_at_start
 from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     DOMAIN,
+    VERSION,
     STORAGE_VERSION,
     STORAGE_KEY_CATEGORIES,
     STORAGE_KEY_SUBSCRIPTIONS,
     STORAGE_KEY_USERS,
     STORAGE_KEY_QUEUE,
     STORAGE_KEY_LOGS,
+    STORAGE_KEY_SNOOZES,
+    STORAGE_KEY_RECIPIENTS,
+    STORAGE_KEY_ACTION_SETS,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
     PANEL_USER_TITLE,
 )
 from .store import TickerStore
+from .actions import async_setup_action_listener
 from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
 from .condition_listeners import ConditionListenerManager
-from .discovery import invalidate_discovery_cache
-
-CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-from .services import async_setup_services, async_unload_services, register_schema_updater
+from .discovery import async_discover_notify_services, invalidate_discovery_cache
+from .services import async_setup_services, register_schema_updater
 from .websocket import async_setup_websocket_api
 
-if TYPE_CHECKING:
-    from homeassistant.core import ServiceCall
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,7 +50,7 @@ _LOGGER = logging.getLogger(__name__)
 FRONTEND_URL_BASE = f"/{DOMAIN}_frontend"
 
 # Entity platforms for this integration
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NOTIFY]
 
 
 @dataclass
@@ -56,7 +59,9 @@ class TickerData:
 
     store: TickerStore
     category_listener: Callable[[], None] | None = None
+    action_set_listener: Callable[[], None] | None = None
     unsub_arrival: Callable[[], None] | None = None
+    unsub_actions: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
     condition_listener_manager: ConditionListenerManager | None = None
 
@@ -90,6 +95,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     store = TickerStore(hass)
     await store.async_load()
 
+    # Pre-warm discovery cache once HA signals startup is complete (BUG-060)
+    async def _prewarm_discovery(hass_ref: HomeAssistant) -> None:
+        """Pre-warm discovery cache after HA startup."""
+        await async_discover_notify_services(hass_ref, use_cache=False)
+
+    async_at_start(hass, _prewarm_discovery)
+
     # Create runtime data
     runtime_data = TickerData(store=store)
     entry.runtime_data = runtime_data
@@ -122,6 +134,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     store.register_category_listener(on_category_change)
     runtime_data.category_listener = on_category_change
 
+    # Refresh service schema when action sets change (F-5b)
+    store.register_action_set_listener(on_category_change)
+    runtime_data.action_set_listener = on_category_change
+
     # Set up person state listener for ON_ARRIVAL mode
     unsub_arrival = await async_setup_arrival_listener(hass, entry)
     runtime_data.unsub_arrival = unsub_arrival
@@ -134,6 +150,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     condition_manager = ConditionListenerManager(hass, store, on_conditions_met)
     await condition_manager.async_setup()
     runtime_data.condition_listener_manager = condition_manager
+
+    # Set up notification action listener (F-5)
+    unsub_actions = await async_setup_action_listener(hass, store)
+    runtime_data.unsub_actions = unsub_actions
 
     # Register cleanup via async_on_unload
     entry.async_on_unload(
@@ -152,19 +172,29 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     if runtime_data.category_listener:
         runtime_data.store.unregister_category_listener(runtime_data.category_listener)
 
+    # Unregister action set listener
+    if runtime_data.action_set_listener:
+        runtime_data.store.unregister_action_set_listener(runtime_data.action_set_listener)
+
     # Unregister arrival listener
     if runtime_data.unsub_arrival:
         runtime_data.unsub_arrival()
 
-    # Clean up condition listener manager (sync cleanup only)
-    # Note: async_unload() is called separately in async_unload_entry
-    if runtime_data.condition_listener_manager:
-        runtime_data.condition_listener_manager._cleanup_listeners()
+    # Unregister action listener
+    if runtime_data.unsub_actions:
+        runtime_data.unsub_actions()
+
+    # Note: condition_listener_manager cleanup is handled by
+    # async_unload() in async_unload_entry — no sync cleanup here.
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bool:
     """Unload a Ticker config entry."""
     _LOGGER.info("Unloading Ticker integration")
+
+    # Tear down condition listeners before unloading platforms (BUG-068)
+    if entry.runtime_data.condition_listener_manager:
+        await entry.runtime_data.condition_listener_manager.async_unload()
 
     # Unload entity platforms
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -197,6 +227,9 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         STORAGE_KEY_USERS,
         STORAGE_KEY_QUEUE,
         STORAGE_KEY_LOGS,
+        STORAGE_KEY_SNOOZES,
+        STORAGE_KEY_RECIPIENTS,
+        STORAGE_KEY_ACTION_SETS,
     ]
 
     for key in storage_keys:
@@ -246,7 +279,7 @@ async def _async_register_panels(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_ADMIN_NAME,
         sidebar_title=PANEL_ADMIN_TITLE,
         sidebar_icon="ticker:logo",
-        module_url=f"{FRONTEND_URL_BASE}/ticker-admin-panel.js",
+        module_url=f"{FRONTEND_URL_BASE}/ticker-admin-panel.js?v={VERSION}",
         require_admin=True,
         config={"name": PANEL_ADMIN_TITLE},
     )
@@ -259,7 +292,7 @@ async def _async_register_panels(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_USER_NAME,
         sidebar_title=PANEL_USER_TITLE,
         sidebar_icon="ticker:logo",
-        module_url=f"{FRONTEND_URL_BASE}/ticker-panel.js",
+        module_url=f"{FRONTEND_URL_BASE}/ticker-panel.js?v={VERSION}",
         require_admin=False,
         config={"name": PANEL_USER_TITLE},
     )

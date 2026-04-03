@@ -185,7 +185,6 @@ window.Ticker.UserSubscriptionsTab = {
       let conditionsContent = '';
       if (isConditional) {
         const conditions = sub.conditions || {};
-        const rules = this._getSubscriptionRules(conditions);
         const deliverWhenMet = conditions.deliver_when_met || false;
         const queueUntilMet = conditions.queue_until_met || false;
         const hasNoEffectiveDelivery = !deliverWhenMet && !queueUntilMet;
@@ -310,304 +309,62 @@ window.Ticker.UserSubscriptionsTab = {
   },
 
   /**
-   * Get rules from conditions (with legacy zones conversion).
-   * Note: deliver_when_met/queue_until_met live at conditions level,
-   * not per-rule. Legacy zones are converted to rule objects only.
+   * Get condition_tree from conditions (with legacy conversion).
+   * Returns a tree node (group) for the conditions UI.
+   * Legacy zones/rules formats are auto-wrapped in a root AND group.
    */
-  _getSubscriptionRules(conditions) {
-    if (conditions.rules && conditions.rules.length > 0) {
-      return conditions.rules;
+  _getConditionTree(conditions) {
+    // New format: condition_tree already present
+    if (conditions.condition_tree) {
+      return conditions.condition_tree;
     }
 
-    // Convert legacy zones format (rules only, flags are at conditions level)
+    // Flat rules[] format: wrap in root AND group
+    if (conditions.rules && conditions.rules.length > 0) {
+      return { type: 'group', operator: 'AND', children: conditions.rules };
+    }
+
+    // Convert legacy zones format
     const zones = conditions.zones || {};
     if (Object.keys(zones).length > 0) {
-      return Object.entries(zones).map(([zoneId, config]) => ({
+      const children = Object.entries(zones).map(([zoneId]) => ({
         type: 'zone',
         zone_id: zoneId,
       }));
+      return { type: 'group', operator: 'AND', children };
     }
 
-    return [];
+    return { type: 'group', operator: 'AND', children: [] };
   },
 
   /**
-   * Handler methods - called via onclick with panel reference.
+   * Set up conditions UI components after render.
+   * Called from ticker-panel.js _afterRender() to wire up
+   * ticker-conditions-ui elements with data and event listeners.
+   * @param {TickerPanel} panel - The panel instance
    */
-  handlers: {
-    async handleModeChange(panel, categoryId, newMode) {
-      const sub = panel._subscriptions[categoryId] || {};
-      const existingOverride = sub.device_override || { enabled: false, devices: [] };
-
-      if (newMode === 'conditional') {
-        const conditions = {
-          deliver_when_met: true,
-          queue_until_met: true,
-          rules: [{
-            type: 'zone',
-            zone_id: 'zone.home',
-          }],
-        };
-        panel._expandedCategories.add(categoryId);
-        await this.setSubscription(panel, categoryId, newMode, conditions, existingOverride);
-      } else {
-        panel._expandedCategories.delete(categoryId);
-        const override = newMode === 'never' ? null : existingOverride;
-        await this.setSubscription(panel, categoryId, newMode, null, override);
-      }
-    },
-
-    async setSubscription(panel, categoryId, mode, conditions, deviceOverride) {
-      if (!panel._currentPerson) return;
-
-      try {
-        const params = {
-          type: 'ticker/subscription/set',
-          person_id: panel._currentPerson.person_id,
-          category_id: categoryId,
-          mode: mode,
-        };
-
-        if (mode === 'conditional' && conditions) {
-          params.conditions = conditions;
-        }
-
-        if (deviceOverride !== null) {
-          params.device_override = deviceOverride;
-        }
-
-        await panel._hass.callWS(params);
-        await panel._loadSubscriptions();
-        panel._renderTabContentPreserveScroll();
-        panel._showSuccess('Subscription updated');
-      } catch (err) {
-        panel._showError(err.message || 'Failed to update subscription');
-      }
-    },
-
-    async handleRulesChanged(panel, categoryId, detail) {
-      const { rules, deliver_when_met, queue_until_met } = detail;
-      const sub = panel._subscriptions[categoryId] || {};
-      const deviceOverride = sub.device_override || { enabled: false, devices: [] };
-
-      if (!rules || rules.length === 0) {
-        // Switching to non-conditional mode - need full re-render
-        await this.setSubscription(panel, categoryId, 'always', null, deviceOverride);
-        return;
-      }
-
-      const conditions = {
-        deliver_when_met: deliver_when_met,
-        queue_until_met: queue_until_met,
-        rules: rules,
+  setupConditionsUI(panel) {
+    for (const cat of panel._categories) {
+      const sub = panel._subscriptions[cat.id] || this._getCategoryDefault(cat);
+      const isConditional = sub.mode === 'conditional';
+      const isExpanded = panel._expandedCategories.has(cat.id);
+      if (!isConditional || !isExpanded) continue;
+      const conditionsUI = panel.shadowRoot.getElementById(`conditions-ui-${cat.id}`);
+      if (!conditionsUI) continue;
+      const conditions = sub.conditions || {};
+      const tree = this._getConditionTree(conditions);
+      conditionsUI.tree = tree;
+      conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
+      conditionsUI.queueUntilMet = conditions.queue_until_met || false;
+      conditionsUI.zones = panel._zones;
+      conditionsUI.entities = panel._entities;
+      conditionsUI.removeEventListener('rules-changed', conditionsUI._rulesHandler);
+      conditionsUI._rulesHandler = (e) => {
+        this.handlers.handleRulesChanged(panel, cat.id, e.detail);
       };
-
-      // Save without re-render to preserve conditions UI state
-      await this._saveRulesWithoutRerender(panel, categoryId, conditions, deviceOverride);
-    },
-
-    /**
-     * Save rules without triggering a full re-render.
-     * This preserves the conditions UI expanded state.
-     * Incomplete rules (e.g. state rules missing entity_id/state)
-     * are kept in local state but excluded from the backend call.
-     */
-    async _saveRulesWithoutRerender(panel, categoryId, conditions, deviceOverride) {
-      if (!panel._currentPerson) return;
-
-      // Filter out incomplete rules for backend validation
-      const validRules = (conditions.rules || []).filter(rule => {
-        if (rule.type === 'state') {
-          return rule.entity_id && rule.state;
-        }
-        if (rule.type === 'zone') {
-          return !!rule.zone_id;
-        }
-        if (rule.type === 'time') {
-          return rule.after && rule.before;
-        }
-        return true;
-      });
-
-      // Always update local state with full rules (including incomplete)
-      if (!panel._subscriptions[categoryId]) {
-        panel._subscriptions[categoryId] = {};
-      }
-      panel._subscriptions[categoryId].mode = 'conditional';
-      panel._subscriptions[categoryId].conditions = conditions;
-      if (deviceOverride !== null) {
-        panel._subscriptions[categoryId].device_override = deviceOverride;
-      }
-
-      // Skip backend save if no complete rules yet
-      if (validRules.length === 0) return;
-
-      try {
-        const saveConditions = {
-          deliver_when_met: conditions.deliver_when_met,
-          queue_until_met: conditions.queue_until_met,
-          rules: validRules,
-        };
-
-        const params = {
-          type: 'ticker/subscription/set',
-          person_id: panel._currentPerson.person_id,
-          category_id: categoryId,
-          mode: 'conditional',
-          conditions: saveConditions,
-        };
-
-        if (deviceOverride !== null) {
-          params.device_override = deviceOverride;
-        }
-
-        await panel._hass.callWS(params);
-        panel._showSuccess('Saved');
-      } catch (err) {
-        panel._showError(err.message || 'Failed to save');
-      }
-    },
-
-    toggleCategoryExpand(panel, categoryId) {
-      const shadowRoot = panel.shadowRoot;
-      const item = shadowRoot.querySelector(`[data-category-id="${categoryId}"]`)
-        || shadowRoot.querySelector(`.subscription-item:has([onclick*="${categoryId}"])`);
-
-      if (panel._expandedCategories.has(categoryId)) {
-        // Collapse: remove expandable content via targeted DOM update
-        panel._expandedCategories.delete(categoryId);
-        if (item) {
-          const content = item.querySelector('.conditional-content');
-          const header = item.querySelector('.subscription-header');
-          if (content) content.remove();
-          if (header) header.classList.remove('expanded');
-          const chevron = header?.querySelector('.chevron');
-          if (chevron) chevron.classList.remove('expanded');
-        } else {
-          panel._renderTabContentPreserveScroll();
-        }
-      } else {
-        // Expand: insert expandable content via targeted DOM update
-        panel._expandedCategories.add(categoryId);
-        // For expansion, we need to render the content - use scroll-preserving render
-        panel._renderTabContentPreserveScroll();
-      }
-    },
-
-    async toggleDeviceOverride(panel, categoryId) {
-      const sub = panel._subscriptions[categoryId] || {};
-      const currentOverride = sub.device_override || { enabled: false, devices: [] };
-      const mode = sub.mode || 'always';
-      const conditions = mode === 'conditional' ? sub.conditions : null;
-
-      const newOverride = {
-        enabled: !currentOverride.enabled,
-        devices: currentOverride.devices || [],
-      };
-
-      await this.setSubscription(panel, categoryId, mode, conditions, newOverride);
-    },
-
-    async toggleDeviceOverrideDevice(panel, categoryId, serviceId) {
-      const sub = panel._subscriptions[categoryId] || {};
-      const currentOverride = sub.device_override || { enabled: false, devices: [] };
-      const mode = sub.mode || 'always';
-      const conditions = mode === 'conditional' ? sub.conditions : null;
-
-      const devices = [...(currentOverride.devices || [])];
-      const idx = devices.indexOf(serviceId);
-      if (idx >= 0) {
-        devices.splice(idx, 1);
-      } else {
-        devices.push(serviceId);
-      }
-
-      const newOverride = {
-        enabled: currentOverride.enabled,
-        devices: devices,
-      };
-
-      await this.setSubscription(panel, categoryId, mode, conditions, newOverride);
-    },
-
-    handleDevicePrefModeChange(panel, mode) {
-      panel._devicePrefMode = mode;
-      if (mode === 'all') {
-        panel._devicePrefDevices = [];
-      }
-      panel._devicePrefDirty = true;
-
-      // BUG-040: Targeted DOM update for device list visibility
-      const shadowRoot = panel.shadowRoot;
-      const deviceList = shadowRoot.querySelector('.device-section .device-list');
-      const actionsContainer = shadowRoot.querySelector('.device-section .device-actions');
-
-      if (mode === 'all' && deviceList) {
-        deviceList.style.display = 'none';
-      } else if (mode === 'selected' && deviceList) {
-        deviceList.style.display = 'flex';
-      } else {
-        // Fallback to scroll-preserving re-render if elements not found
-        panel._renderTabContentPreserveScroll();
-        return;
-      }
-
-      // Update radio button states
-      const radios = shadowRoot.querySelectorAll('.device-section input[type="radio"]');
-      radios.forEach(radio => {
-        radio.checked = radio.value === mode;
-      });
-
-      // Show save/cancel buttons if not already visible
-      if (!actionsContainer && panel._devicePrefDirty) {
-        panel._renderTabContentPreserveScroll();
-      }
-    },
-
-    handleDevicePrefDeviceToggle(panel, serviceId) {
-      const idx = panel._devicePrefDevices.indexOf(serviceId);
-      if (idx >= 0) {
-        panel._devicePrefDevices.splice(idx, 1);
-      } else {
-        panel._devicePrefDevices.push(serviceId);
-      }
-      panel._devicePrefDirty = true;
-
-      // BUG-040: Checkbox state is already updated by browser, just show actions if needed
-      const shadowRoot = panel.shadowRoot;
-      const actionsContainer = shadowRoot.querySelector('.device-section .device-actions');
-      if (!actionsContainer) {
-        panel._renderTabContentPreserveScroll();
-      }
-    },
-
-    async saveDevicePreference(panel) {
-      if (!panel._currentPerson) return;
-
-      if (panel._devicePrefMode === 'selected' && panel._devicePrefDevices.length === 0) {
-        panel._showError('Please select at least one device');
-        return;
-      }
-
-      try {
-        await panel._hass.callWS({
-          type: 'ticker/device_preference/set',
-          mode: panel._devicePrefMode,
-          devices: panel._devicePrefMode === 'selected' ? panel._devicePrefDevices : [],
-        });
-
-        await panel._loadCurrentPerson();
-        panel._initDevicePrefState();
-        panel._renderTabContentPreserveScroll();
-        panel._showSuccess('Device preference saved');
-      } catch (err) {
-        panel._showError(err.message || 'Failed to save device preference');
-      }
-    },
-
-    cancelDevicePreference(panel) {
-      panel._initDevicePrefState();
-      panel._renderTabContentPreserveScroll();
-    },
+      conditionsUI.addEventListener('rules-changed', conditionsUI._rulesHandler);
+    }
   },
+
+  // handlers object is loaded from user/subscriptions-handlers.js
 };

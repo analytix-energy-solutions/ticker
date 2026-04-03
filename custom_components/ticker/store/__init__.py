@@ -16,11 +16,17 @@ from ..const import (
     STORAGE_KEY_USERS,
     STORAGE_KEY_QUEUE,
     STORAGE_KEY_LOGS,
+    STORAGE_KEY_SNOOZES,
+    STORAGE_KEY_RECIPIENTS,
+    STORAGE_KEY_ACTION_SETS,
 )
 from ..store_queue_log import QueueLogMixin
 from .categories import CategoryMixin
 from .users import UserMixin
 from .subscriptions import SubscriptionMixin
+from .snoozes import SnoozeMixin
+from .recipients import RecipientMixin
+from .action_sets import ActionSetMixin
 from .migrations import MigrationMixin
 
 _LOGGER = logging.getLogger(__name__)
@@ -34,6 +40,9 @@ class TickerStore(
     CategoryMixin,
     UserMixin,
     SubscriptionMixin,
+    SnoozeMixin,
+    RecipientMixin,
+    ActionSetMixin,
     MigrationMixin,
 ):
     """Manage Ticker data storage.
@@ -43,6 +52,8 @@ class TickerStore(
     - CategoryMixin: Category CRUD operations
     - UserMixin: User management and device preferences
     - SubscriptionMixin: Subscription management
+    - RecipientMixin: Non-user recipient management (F-18)
+    - ActionSetMixin: Reusable action sets library (F-5b)
     - MigrationMixin: Data migration utilities
     """
 
@@ -66,6 +77,15 @@ class TickerStore(
         self._logs_store: Store[list[dict[str, Any]]] = Store(
             hass, STORAGE_VERSION, STORAGE_KEY_LOGS
         )
+        self._snoozes_store: Store[dict[str, dict[str, Any]]] = Store(
+            hass, STORAGE_VERSION, STORAGE_KEY_SNOOZES
+        )
+        self._recipients_store: Store[dict[str, dict[str, Any]]] = Store(
+            hass, STORAGE_VERSION, STORAGE_KEY_RECIPIENTS
+        )
+        self._action_sets_store: Store[dict[str, dict[str, Any]]] = Store(
+            hass, STORAGE_VERSION, STORAGE_KEY_ACTION_SETS
+        )
 
         # In-memory data
         self._categories: dict[str, dict[str, Any]] = {}
@@ -73,7 +93,11 @@ class TickerStore(
         self._users: dict[str, dict[str, Any]] = {}
         self._queue: dict[str, dict[str, Any]] = {}
         self._logs: list[dict[str, Any]] = []
+        self._snoozes: dict[str, dict[str, Any]] = {}
+        self._recipients: dict[str, dict[str, Any]] = {}
+        self._action_sets: dict[str, dict[str, Any]] = {}
         self._category_listeners: list[Callable[[], None]] = []
+        self._action_set_listeners: list[Callable[[], None]] = []
 
         # Debounced log saving state (used by QueueLogMixin)
         self._logs_dirty: bool = False
@@ -109,6 +133,14 @@ class TickerStore(
                     migrated_flags,
                 )
 
+            # Migrate flat rules[] to condition_tree (F-2b)
+            migrated_tree = await self._async_migrate_flat_rules_to_tree()
+            if migrated_tree:
+                _LOGGER.info(
+                    "Migrated %d subscriptions to condition_tree format",
+                    migrated_tree,
+                )
+
         users_data = await self._users_store.async_load()
         self._users = users_data if users_data else {}
 
@@ -118,6 +150,20 @@ class TickerStore(
             if migrated_users:
                 _LOGGER.info(
                     "Migrated %d users to include device_preference", migrated_users
+                )
+
+        # Load recipients and migrate to device_type model if needed
+        recipients_data = await self._recipients_store.async_load()
+        self._recipients = recipients_data or {}
+        if self._recipients:
+            migrated_recipients = RecipientMixin.migrate_recipient_data(
+                self._recipients
+            )
+            if migrated_recipients:
+                await self.async_save_recipients()
+                _LOGGER.info(
+                    "Migrated %d recipients to device_type model",
+                    migrated_recipients,
                 )
 
         queue_data = await self._queue_store.async_load()
@@ -134,6 +180,18 @@ class TickerStore(
 
         # Clean up old log entries (from mixin)
         await self._async_cleanup_old_logs()
+
+        # Load action sets library
+        action_sets_data = await self._action_sets_store.async_load()
+        self._action_sets = action_sets_data or {}
+
+        # F-5b: Migrate inline action_set dicts to library
+        await self._async_migrate_inline_action_sets()
+
+        # Load snoozes and clean up expired
+        snoozes_data = await self._snoozes_store.async_load()
+        self._snoozes = snoozes_data if snoozes_data else {}
+        await self._async_cleanup_expired_snoozes()
 
         _LOGGER.debug(
             "Loaded %d categories, %d subscriptions, %d users, %d queued, %d logs",

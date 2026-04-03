@@ -27,10 +27,19 @@ class TickerAdminPanel extends HTMLElement {
     this._logStats = {};
     this._zones = [];
     this._entities = [];
+    this._scripts = [];
+    this._recipients = [];
+    this._availableNotifyServices = [];
+    this._ttsOptions = { media_players: [], tts_services: [] };
+    this._lovelaceDashboards = [];
+    this._hasPanels = [];
+    this._lovelaceViews = {};
 
     // UI state
     this._expandedUsers = new Set();
+    this._expandedRecipients = new Set();
     this._editingCategory = null;
+    this._editingCategorySubTab = 'general';
     this._addingCategory = false;
 
     // Migration state
@@ -39,6 +48,17 @@ class TickerAdminPanel extends HTMLElement {
     this._migrateScanning = false;
     this._migrateConverting = false;
     this._migrateDeleting = false;
+
+    // Automations manager state (F-3)
+    this._automationsFindings = [];
+    this._automationsScanning = false;
+    this._automationsFilter = { category: '', sourceType: '' };
+    this._automationsExpanded = null;
+    this._automationsScanned = false;
+
+    // Action sets library state (F-5b)
+    this._actionSets = [];
+    this._editingActionSetId = null;
 
     // DOM cache
     this._els = {};
@@ -100,73 +120,19 @@ class TickerAdminPanel extends HTMLElement {
   }
 
   /**
-   * FIX-029F: Set up recovery handlers for tab focus loss / WS reconnect.
+   * FIX-029F: Set up recovery handlers (delegated to ticker-recovery.js).
    */
   _setupRecoveryHandlers() {
-    // 1. HA WebSocket reconnection
-    if (this._connectionReadyHandler && this._hass?.connection) {
-      this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
-    }
-    this._connectionReadyHandler = () => {
-      if (!this.isConnected) return;
-      console.log('[Ticker Admin] Connection ready — refreshing data');
-      this._loadData().then(() => this._renderTabContent());
-    };
-    this._hass.connection.addEventListener('ready', this._connectionReadyHandler);
-
-    // 2. Browser visibility change
-    if (!this._visibilityHandler) {
-      this._lastHiddenAt = null;
-      this._visibilityHandler = () => {
-        if (document.hidden) {
-          this._lastHiddenAt = Date.now();
-          return;
-        }
-        if (!this.isConnected) {
-          this._needsRecovery = true;
-          return;
-        }
-        const hiddenMs = this._lastHiddenAt ? Date.now() - this._lastHiddenAt : 0;
-        this._lastHiddenAt = null;
-        if (hiddenMs > 30000) {
-          console.log(`[Ticker Admin] Visible after ${Math.round(hiddenMs / 1000)}s — repaint + refresh`);
-          this._forceRepaint();
-          this._loadData().then(() => this._renderTabContent());
-        } else {
-          this._forceRepaint();
-        }
-      };
-      document.addEventListener('visibilitychange', this._visibilityHandler);
-    }
-
-    // 3. Chrome Page Lifecycle resume
-    if (!this._resumeHandler) {
-      this._resumeHandler = () => {
-        if (!this.isConnected) {
-          this._needsRecovery = true;
-          return;
-        }
-        console.log('[Ticker Admin] Resume from freeze — repaint + refresh');
-        this._forceRepaint();
-        this._loadData().then(() => this._renderTabContent());
-      };
-      document.addEventListener('resume', this._resumeHandler);
-    }
+    window.Ticker.Recovery.setupRecoveryHandlers(this);
   }
 
   /**
-   * FIX-029F: Force shadow host compositor layer re-creation.
+   * FIX-029F: Force repaint (delegated to ticker-recovery.js).
    */
   _forceRepaint() {
-    this.style.display = 'none';
-    void this.offsetHeight;
-    this.style.display = '';
-    void this.offsetHeight;
+    window.Ticker.Recovery.forceRepaint(this);
   }
 
-  /**
-   * Dynamically load tab modules and shared utilities.
-   */
   async _loadDependencies() {
     if (this._dependenciesLoaded) return;
 
@@ -174,12 +140,23 @@ class TickerAdminPanel extends HTMLElement {
     const scripts = [
       `${base}/ticker-utils.js`,
       `${base}/ticker-styles.js`,
+      `${base}/ticker-styles-extended.js`,
+      `${base}/ticker-recovery.js`,
+      `${base}/ticker-conditions-styles.js`,
+      `${base}/ticker-conditions-tree.js`,
       `${base}/ticker-conditions-ui.js`,
+      `${base}/admin/admin-data-loader.js`,
+      `${base}/admin/navigation-picker.js`,
       `${base}/admin/categories-tab.js`,
       `${base}/admin/users-tab.js`,
+      `${base}/admin/recipients-tab.js`,
+      `${base}/admin/recipients-handlers.js`,
+      `${base}/admin/recipients-dialog.js`,
       `${base}/admin/queue-tab.js`,
       `${base}/admin/logs-tab.js`,
       `${base}/admin/migrate-tab.js`,
+      `${base}/admin/automations-tab.js`,
+      `${base}/admin/action-sets-tab.js`,
     ];
 
     for (const src of scripts) {
@@ -197,17 +174,11 @@ class TickerAdminPanel extends HTMLElement {
     this._dependenciesLoaded = true;
   }
 
-  /**
-   * Expose panel reference for onclick handlers in tab modules.
-   */
   _wireHandlers() {
     window.Ticker = window.Ticker || {};
     window.Ticker._adminPanel = this;
   }
 
-  /**
-   * Create the persistent DOM structure.
-   */
   _createStructure() {
     const styles = window.Ticker.styles;
     const css = `<style>${styles.getCommonStyles()}</style>`;
@@ -236,9 +207,6 @@ class TickerAdminPanel extends HTMLElement {
     this._renderTabs();
   }
 
-  /**
-   * Render tab buttons.
-   */
   _renderTabs() {
     const queueCount = this._queue.length;
     const logCount = this._logs.length;
@@ -246,6 +214,9 @@ class TickerAdminPanel extends HTMLElement {
     const tabs = [
       { id: 'categories', label: 'Categories' },
       { id: 'users', label: 'Users' },
+      { id: 'devices', label: 'Devices' },
+      { id: 'action-sets', label: 'Action Sets' },
+      { id: 'automations', label: 'Automations' },
       { id: 'queue', label: 'Queue', count: queueCount },
       { id: 'logs', label: 'Logs', count: logCount },
       { id: 'migrate', label: 'Migrate' },
@@ -267,10 +238,6 @@ class TickerAdminPanel extends HTMLElement {
     });
   }
 
-  /**
-   * Switch to a different tab.
-   * @param {string} tabId - Tab identifier
-   */
   _switchTab(tabId) {
     // BUG-040: Save scroll position of current tab before switching
     if (this._els && this._els.content) {
@@ -283,19 +250,12 @@ class TickerAdminPanel extends HTMLElement {
     this._renderTabContent();
   }
 
-  /**
-   * BUG-040: Re-render tab content while preserving scroll position.
-   * Use this for same-tab updates like user expansion.
-   */
   _renderTabContentPreserveScroll() {
     const scrollTop = this._els?.content?.scrollTop || 0;
     this._pendingScrollRestore = scrollTop;
     this._renderTabContent();
   }
 
-  /**
-   * Render the active tab content.
-   */
   _renderTabContent() {
     const state = this._getState();
     let html = '';
@@ -307,6 +267,9 @@ class TickerAdminPanel extends HTMLElement {
       case 'users':
         html = window.Ticker.AdminUsersTab.render(state);
         break;
+      case 'devices':
+        html = window.Ticker.AdminRecipientsTab.render(state);
+        break;
       case 'queue':
         html = window.Ticker.AdminQueueTab.render(state);
         break;
@@ -315,6 +278,12 @@ class TickerAdminPanel extends HTMLElement {
         break;
       case 'migrate':
         html = window.Ticker.AdminMigrateTab.render(state);
+        break;
+      case 'action-sets':
+        html = window.Ticker.AdminActionSetsTab.render(state);
+        break;
+      case 'automations':
+        html = window.Ticker.AdminAutomationsTab.render(state);
         break;
     }
 
@@ -326,15 +295,14 @@ class TickerAdminPanel extends HTMLElement {
       this._pendingScrollRestore = null;
     }
 
-    // Post-render: set up conditions UI components in categories tab
+    // Post-render: set up conditions UI components
     if (this._activeTab === 'categories') {
       this._setupCategoryConditionsUI();
+    } else if (this._activeTab === 'devices') {
+      window.Ticker.AdminRecipientsTab.setupRecipientConditionsUI(this);
     }
   }
 
-  /**
-   * Wire up conditions UI components for category default conditions.
-   */
   _setupCategoryConditionsUI() {
     const editId = this._editingCategory;
     if (!editId) return;
@@ -346,9 +314,12 @@ class TickerAdminPanel extends HTMLElement {
     if (!conditionsUI) return;
 
     const conditions = cat.default_conditions || {};
-    const rules = conditions.rules || [];
 
-    conditionsUI.rules = rules;
+    if (conditions.condition_tree) {
+      conditionsUI.tree = conditions.condition_tree;
+    } else {
+      conditionsUI.rules = conditions.rules || [];
+    }
     conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
     conditionsUI.queueUntilMet = conditions.queue_until_met || false;
     conditionsUI.zones = this._zones;
@@ -361,16 +332,12 @@ class TickerAdminPanel extends HTMLElement {
       this._pendingDefaultConditions = {
         deliver_when_met: e.detail.deliver_when_met,
         queue_until_met: e.detail.queue_until_met,
-        rules: e.detail.rules,
+        condition_tree: e.detail.condition_tree,
       };
     };
     conditionsUI.addEventListener('rules-changed', conditionsUI._rulesHandler);
   }
 
-  /**
-   * Get current state for tab modules.
-   * @returns {Object} - State object
-   */
   _getState() {
     return {
       categories: this._categories,
@@ -382,136 +349,60 @@ class TickerAdminPanel extends HTMLElement {
       zones: this._zones,
       entities: this._entities,
       expandedUsers: this._expandedUsers,
+      expandedRecipients: this._expandedRecipients,
+      recipients: this._recipients,
+      availableNotifyServices: this._availableNotifyServices,
       editingCategory: this._editingCategory,
+      editingCategorySubTab: this._editingCategorySubTab,
       addingCategory: this._addingCategory,
       migrateFindings: this._migrateFindings,
       migrateCurrentIndex: this._migrateCurrentIndex,
       migrateScanning: this._migrateScanning,
       migrateConverting: this._migrateConverting,
       migrateDeleting: this._migrateDeleting,
+      scripts: this._scripts,
+      actionSets: this._actionSets,
+      editingActionSetId: this._editingActionSetId,
+      automationsFindings: this._automationsFindings,
+      automationsScanning: this._automationsScanning,
+      automationsFilter: this._automationsFilter,
+      automationsExpanded: this._automationsExpanded,
+      _automationsScanned: this._automationsScanned,
+      lovelaceDashboards: this._lovelaceDashboards,
+      hasPanels: this._hasPanels || [],
+      lovelaceViews: this._lovelaceViews || {},
     };
   }
 
-  // ─── Data Loading ────────────────────────────────────────────────────────
+  // ─── Data Loading (delegated to AdminDataLoader) ─────────────────────────
 
-  async _loadData() {
-    await Promise.all([
-      this._loadCategories(),
-      this._loadUsers(),
-      this._loadSubscriptions(),
-      this._loadQueue(),
-      this._loadLogs(),
-      this._loadLogStats(),
-      this._loadZones(),
-      this._loadEntities(),
-    ]);
-    this._renderTabs();
-  }
-
-  async _loadCategories() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/categories' });
-      this._categories = result.categories || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load categories:', err);
-    }
-  }
-
-  async _loadUsers() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/users' });
-      this._users = result.users || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load users:', err);
-    }
-  }
-
-  async _loadSubscriptions() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/subscriptions' });
-      this._subscriptions = {};
-      for (const sub of result.subscriptions || []) {
-        if (!this._subscriptions[sub.person_id]) {
-          this._subscriptions[sub.person_id] = {};
-        }
-        this._subscriptions[sub.person_id][sub.category_id] = sub;
-      }
-    } catch (err) {
-      console.error('[Ticker] Failed to load subscriptions:', err);
-    }
-  }
-
-  async _loadQueue() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/queue' });
-      this._queue = result.queue || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load queue:', err);
-    }
-  }
-
-  async _loadLogs() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/logs', limit: 100 });
-      this._logs = result.logs || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load logs:', err);
-    }
-  }
-
-  async _loadLogStats() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/logs/stats' });
-      this._logStats = result.stats || {};
-    } catch (err) {
-      console.error('[Ticker] Failed to load log stats:', err);
-    }
-  }
-
-  async _loadZones() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/zones' });
-      this._zones = result.zones || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load zones:', err);
-      this._zones = [];
-    }
-  }
-
-  _loadEntities() {
-    try {
-      const states = this._hass.states;
-      this._entities = Object.keys(states).map(entityId => ({
-        entity_id: entityId,
-        name: states[entityId].attributes.friendly_name || entityId,
-      })).sort((a, b) => a.name.localeCompare(b.name));
-    } catch (err) {
-      console.error('[Ticker] Failed to load entities:', err);
-      this._entities = [];
-    }
-  }
+  async _loadData() { return window.Ticker.AdminDataLoader.loadAll(this); }
+  async _loadCategories() { return window.Ticker.AdminDataLoader.loadCategories(this); }
+  async _loadUsers() { return window.Ticker.AdminDataLoader.loadUsers(this); }
+  async _loadRecipients() { return window.Ticker.AdminDataLoader.loadRecipients(this); }
+  async _loadAvailableNotifyServices(id) { return window.Ticker.AdminDataLoader.loadAvailableNotifyServices(this, id); }
+  async _loadTtsOptions() { return window.Ticker.AdminDataLoader.loadTtsOptions(this); }
+  async _loadSubscriptions() { return window.Ticker.AdminDataLoader.loadSubscriptions(this); }
+  async _loadQueue() { return window.Ticker.AdminDataLoader.loadQueue(this); }
+  async _loadLogs() { return window.Ticker.AdminDataLoader.loadLogs(this); }
+  async _loadLogStats() { return window.Ticker.AdminDataLoader.loadLogStats(this); }
+  async _loadZones() { return window.Ticker.AdminDataLoader.loadZones(this); }
+  _loadEntities() { return window.Ticker.AdminDataLoader.loadEntities(this); }
+  async _loadActionSets() { return window.Ticker.AdminDataLoader.loadActionSets(this); }
+  async _loadDashboards() { return window.Ticker.AdminDataLoader.loadDashboards(this); }
 
   // ─── Messages ────────────────────────────────────────────────────────────
 
-  _showError(message) {
+  _showMessage(message, isError) {
     const el = this._els.message;
-    if (el) {
-      el.textContent = message;
-      el.className = 'message error-message';
-      el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 10000);
-    }
+    if (!el) return;
+    el.textContent = message;
+    el.className = `message ${isError ? 'error' : 'success'}-message`;
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, isError ? 10000 : 3000);
   }
-
-  _showSuccess(message) {
-    const el = this._els.message;
-    if (el) {
-      el.textContent = message;
-      el.className = 'message success-message';
-      el.style.display = 'block';
-      setTimeout(() => { el.style.display = 'none'; }, 3000);
-    }
-  }
+  _showError(message) { this._showMessage(message, true); }
+  _showSuccess(message) { this._showMessage(message, false); }
 }
 
 customElements.define('ticker-admin-panel', TickerAdminPanel);
