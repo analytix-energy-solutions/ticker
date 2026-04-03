@@ -20,17 +20,27 @@ from .duplicates import _mark_adjacent_duplicates
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_scan_for_notifications(hass: HomeAssistant) -> list[dict[str, Any]]:
-    """Scan automations and scripts for notify service calls."""
+async def async_scan_for_notifications(
+    hass: HomeAssistant,
+    services: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Scan automations and scripts for notify service calls.
+
+    Args:
+        hass: The Home Assistant instance.
+        services: Optional list of service domains to match (e.g. ["notify"]).
+            Defaults to MIGRATE_SERVICES when None.
+    """
+    match_services = services if services is not None else list(MIGRATE_SERVICES)
     findings = []
 
     # Scan automations
-    auto_findings = await _scan_automations(hass)
+    auto_findings = await _scan_automations(hass, match_services)
     findings.extend(auto_findings)
     _LOGGER.info("Found %d notification calls in automations", len(auto_findings))
 
     # Scan scripts
-    script_findings = await _scan_scripts(hass)
+    script_findings = await _scan_scripts(hass, match_services)
     findings.extend(script_findings)
     _LOGGER.info("Found %d notification calls in scripts", len(script_findings))
 
@@ -41,7 +51,7 @@ async def async_scan_for_notifications(hass: HomeAssistant) -> list[dict[str, An
     return findings
 
 
-async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
+async def _scan_automations(hass: HomeAssistant, match_services: list[str]) -> list[dict[str, Any]]:
     """Scan all automations for notify calls."""
     findings = []
     scanned_ids = set()
@@ -56,7 +66,7 @@ async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
         if data and "items" in data:
             _LOGGER.debug("Found %d UI automations in storage", len(data["items"]))
             for auto in data["items"]:
-                entity_id, f = _process_automation(auto, source_file=".storage/automation.config")
+                entity_id, f = _process_automation(auto, match_services, source_file=".storage/automation.config")
                 findings.extend(f)
                 scanned_ids.add(entity_id)
     except Exception as e:
@@ -72,7 +82,7 @@ async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
                 for auto in content:
                     if not isinstance(auto, dict):
                         continue
-                    entity_id, f = _process_automation(auto, source_file="config/automations.yaml")
+                    entity_id, f = _process_automation(auto, match_services, source_file="config/automations.yaml")
                     if entity_id not in scanned_ids:
                         findings.extend(f)
                         scanned_ids.add(entity_id)
@@ -92,7 +102,7 @@ async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
                 for auto in autos:
                     if not isinstance(auto, dict):
                         continue
-                    entity_id, f = _process_automation(auto, source_file=rel_path)
+                    entity_id, f = _process_automation(auto, match_services, source_file=rel_path)
                     if entity_id not in scanned_ids:
                         findings.extend(f)
                         scanned_ids.add(entity_id)
@@ -113,7 +123,7 @@ async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
                     for auto in autos:
                         if not isinstance(auto, dict):
                             continue
-                        entity_id, f = _process_automation(auto, source_file=rel_path)
+                        entity_id, f = _process_automation(auto, match_services, source_file=rel_path)
                         if entity_id not in scanned_ids:
                             findings.extend(f)
                             scanned_ids.add(entity_id)
@@ -132,7 +142,7 @@ async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
                     for auto in autos:
                         if not isinstance(auto, dict):
                             continue
-                        entity_id, f = _process_automation(auto, source_file="config/configuration.yaml")
+                        entity_id, f = _process_automation(auto, match_services, source_file="config/configuration.yaml")
                         if entity_id not in scanned_ids:
                             findings.extend(f)
                             scanned_ids.add(entity_id)
@@ -142,7 +152,7 @@ async def _scan_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
     return findings
 
 
-async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
+async def _scan_scripts(hass: HomeAssistant, match_services: list[str]) -> list[dict[str, Any]]:
     """Scan all scripts for notify calls."""
     findings = []
     scanned_ids = set()
@@ -159,7 +169,7 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
             for item in data["items"]:
                 script_id = item.get("id", "")
                 entity_id = f"script.{script_id}"
-                f = _process_script(script_id, item, source_file=".storage/script.config")
+                f = _process_script(script_id, item, match_services, source_file=".storage/script.config")
                 findings.extend(f)
                 scanned_ids.add(entity_id)
     except Exception as e:
@@ -177,7 +187,7 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
                         continue
                     entity_id = f"script.{script_id}"
                     if entity_id not in scanned_ids:
-                        f = _process_script(script_id, script_config, source_file="config/scripts.yaml")
+                        f = _process_script(script_id, script_config, match_services, source_file="config/scripts.yaml")
                         findings.extend(f)
                         scanned_ids.add(entity_id)
         except Exception as e:
@@ -200,7 +210,7 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
                         script_id = yaml_file.stem
                         entity_id = f"script.{script_id}"
                         if entity_id not in scanned_ids:
-                            f = _process_script(script_id, content, source_file=rel_path)
+                            f = _process_script(script_id, content, match_services, source_file=rel_path)
                             findings.extend(f)
                             scanned_ids.add(entity_id)
                     else:
@@ -209,7 +219,7 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
                             if isinstance(script_config, dict):
                                 entity_id = f"script.{script_id}"
                                 if entity_id not in scanned_ids:
-                                    f = _process_script(script_id, script_config, source_file=rel_path)
+                                    f = _process_script(script_id, script_config, match_services, source_file=rel_path)
                                     findings.extend(f)
                                     scanned_ids.add(entity_id)
         except Exception as e:
@@ -231,7 +241,7 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
                             if isinstance(script_config, dict):
                                 entity_id = f"script.{script_id}"
                                 if entity_id not in scanned_ids:
-                                    f = _process_script(script_id, script_config, source_file=rel_path)
+                                    f = _process_script(script_id, script_config, match_services, source_file=rel_path)
                                     findings.extend(f)
                                     scanned_ids.add(entity_id)
         except Exception as e:
@@ -250,7 +260,7 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
                         if isinstance(script_config, dict):
                             entity_id = f"script.{script_id}"
                             if entity_id not in scanned_ids:
-                                f = _process_script(script_id, script_config, source_file="config/configuration.yaml")
+                                f = _process_script(script_id, script_config, match_services, source_file="config/configuration.yaml")
                                 findings.extend(f)
                                 scanned_ids.add(entity_id)
         except Exception as e:
@@ -259,7 +269,9 @@ async def _scan_scripts(hass: HomeAssistant) -> list[dict[str, Any]]:
     return findings
 
 
-def _process_automation(auto: dict[str, Any], source_file: str = "") -> tuple[str, list[dict[str, Any]]]:
+def _process_automation(
+    auto: dict[str, Any], match_services: list[str], source_file: str = "",
+) -> tuple[str, list[dict[str, Any]]]:
     """Process a single automation config and return (entity_id, findings)."""
     auto_id = auto.get("id", "")
     auto_alias = auto.get("alias", "Unnamed automation")
@@ -277,6 +289,7 @@ def _process_automation(auto: dict[str, Any], source_file: str = "") -> tuple[st
 
     findings = _scan_action_sequence(
         actions=actions,
+        match_services=match_services,
         source_type=MIGRATE_SOURCE_AUTOMATION,
         source_id=entity_id,
         source_name=auto_alias,
@@ -287,7 +300,9 @@ def _process_automation(auto: dict[str, Any], source_file: str = "") -> tuple[st
     return entity_id, findings
 
 
-def _process_script(script_id: str, config: dict[str, Any], source_file: str = "") -> list[dict[str, Any]]:
+def _process_script(
+    script_id: str, config: dict[str, Any], match_services: list[str], source_file: str = "",
+) -> list[dict[str, Any]]:
     """Process a single script config and return findings."""
     script_alias = config.get("alias", script_id)
     script_desc = config.get("description", "")
@@ -299,6 +314,7 @@ def _process_script(script_id: str, config: dict[str, Any], source_file: str = "
 
     return _scan_action_sequence(
         actions=sequence,
+        match_services=match_services,
         source_type=MIGRATE_SOURCE_SCRIPT,
         source_id=entity_id,
         source_name=script_alias,
@@ -308,7 +324,7 @@ def _process_script(script_id: str, config: dict[str, Any], source_file: str = "
 
 
 def _scan_action_sequence(
-    actions: list[dict[str, Any]],
+    actions: list[dict[str, Any]], match_services: list[str],
     source_type: str,
     source_id: str,
     source_name: str,
@@ -335,7 +351,7 @@ def _scan_action_sequence(
 
         if service and isinstance(service, str):
             service_domain = service.split(".")[0] if "." in service else service
-            if service_domain in MIGRATE_SERVICES:
+            if service_domain in match_services:
                 finding = {
                     "finding_id": str(uuid.uuid4()),
                     "source_type": source_type,
@@ -362,6 +378,7 @@ def _scan_action_sequence(
                     if isinstance(choice_actions, list):
                         nested = _scan_action_sequence(
                             actions=choice_actions,
+                            match_services=match_services,
                             source_type=source_type,
                             source_id=source_id,
                             source_name=source_name,
@@ -376,6 +393,7 @@ def _scan_action_sequence(
             if isinstance(default_actions, list) and default_actions:
                 nested = _scan_action_sequence(
                     actions=default_actions,
+                    match_services=match_services,
                     source_type=source_type,
                     source_id=source_id,
                     source_name=source_name,
@@ -393,6 +411,7 @@ def _scan_action_sequence(
                     then_actions = [then_actions]
                 nested = _scan_action_sequence(
                     actions=then_actions,
+                    match_services=match_services,
                     source_type=source_type,
                     source_id=source_id,
                     source_name=source_name,
@@ -408,6 +427,7 @@ def _scan_action_sequence(
                     else_actions = [else_actions]
                 nested = _scan_action_sequence(
                     actions=else_actions,
+                    match_services=match_services,
                     source_type=source_type,
                     source_id=source_id,
                     source_name=source_name,
@@ -423,6 +443,7 @@ def _scan_action_sequence(
             if isinstance(repeat_sequence, list) and repeat_sequence:
                 nested = _scan_action_sequence(
                     actions=repeat_sequence,
+                    match_services=match_services,
                     source_type=source_type,
                     source_id=source_id,
                     source_name=source_name,
@@ -439,6 +460,7 @@ def _scan_action_sequence(
                     if "sequence" in parallel_item:
                         nested = _scan_action_sequence(
                             actions=parallel_item["sequence"],
+                            match_services=match_services,
                             source_type=source_type,
                             source_id=source_id,
                             source_name=source_name,
@@ -449,6 +471,7 @@ def _scan_action_sequence(
                     else:
                         nested = _scan_action_sequence(
                             actions=[parallel_item],
+                            match_services=match_services,
                             source_type=source_type,
                             source_id=source_id,
                             source_name=source_name,
@@ -464,6 +487,7 @@ def _scan_action_sequence(
             if isinstance(seq, list):
                 nested = _scan_action_sequence(
                     actions=seq,
+                    match_services=match_services,
                     source_type=source_type,
                     source_id=source_id,
                     source_name=source_name,

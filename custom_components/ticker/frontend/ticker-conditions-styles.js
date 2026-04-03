@@ -14,6 +14,9 @@ window.Ticker.conditionsStyles = `
       --ticker-500: #06b6d4;
       --ticker-400: #22d3ee;
       --ticker-700: #0e7490;
+      --ticker-500-alpha-8: rgba(6,182,212,0.08);
+      --ticker-500-alpha-20: rgba(6,182,212,0.2);
+      --ticker-500-alpha-40: rgba(6,182,212,0.4);
       --text-primary: var(--primary-text-color, #212121);
       --text-secondary: var(--secondary-text-color, #727272);
       --bg-card: var(--card-background-color, #fff);
@@ -24,7 +27,7 @@ window.Ticker.conditionsStyles = `
     .rules-container {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 4px;
     }
 
     .rule-item {
@@ -185,13 +188,6 @@ window.Ticker.conditionsStyles = `
       cursor: not-allowed;
     }
 
-    .actions-section {
-      display: flex;
-      gap: 16px;
-      padding-top: 12px;
-      border-top: 1px solid var(--divider);
-    }
-
     .ruleset-actions {
       display: flex;
       gap: 20px;
@@ -248,20 +244,92 @@ window.Ticker.conditionsStyles = `
       cursor: not-allowed;
     }
 
-    .and-indicator {
+    /* Operator row between conditions (AND/OR pill + group button) */
+    .operator-row {
       display: flex;
       justify-content: center;
-      padding: 4px 0;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 0;
     }
 
-    .and-badge {
-      background: var(--bg-primary);
-      padding: 2px 12px;
+    .operator-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 2px 10px;
       border-radius: 12px;
       border: 1px solid var(--divider);
       font-size: 11px;
       font-weight: 500;
+      cursor: pointer;
+      background: var(--bg-primary);
       color: var(--text-secondary);
+      user-select: none;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+
+    .operator-pill.or {
+      background: var(--ticker-500-alpha-20);
+      color: var(--ticker-700);
+      border-color: var(--ticker-500-alpha-40);
+    }
+
+    .operator-pill:hover {
+      background: var(--ticker-500-alpha-8);
+      border-color: var(--ticker-500);
+    }
+
+    .group-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 10px;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    .group-btn:hover {
+      color: var(--ticker-500);
+      background: var(--ticker-500-alpha-8);
+    }
+
+    .group-btn[disabled] {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    /* Group card (sub-group container) */
+    .group-card {
+      border-left: 3px solid var(--ticker-500);
+      border-radius: 4px;
+      background: var(--bg-primary);
+      overflow: hidden;
+    }
+
+    .group-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--ticker-500-alpha-8);
+      cursor: default;
+    }
+
+    .group-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .group-body {
+      padding: 8px 8px 8px 12px;
     }
 
     .empty-state {

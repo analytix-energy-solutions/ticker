@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    DEFAULT_NAVIGATE_TO,
     DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_RICH,
     DEVICE_MODE_ALL,
@@ -20,11 +21,13 @@ from .const import (
     LOG_OUTCOME_SNOOZED,
     NOTIFY_SERVICE_TIMEOUT,
 )
-from .actions import build_action_payload
+from .actions import build_action_payload, resolve_action_set
 from .discovery import async_get_notify_services_for_person
 from .formatting import (
     detect_delivery_format,
     inject_critical_payload,
+    inject_navigate_to,
+    inject_smart_notification,
     resolve_ios_platform,
     transform_payload_for_format,
 )
@@ -48,6 +51,8 @@ async def async_handle_conditional_notification(
     expiration: int,
     notification_id: str | None = None,
     suppress_actions: bool = False,
+    action_set_id: str | None = None,
+    navigate_to: str | None = None,
 ) -> dict[str, list[str]]:
     """Handle notification delivery for conditional mode.
 
@@ -84,6 +89,7 @@ async def async_handle_conditional_notification(
         return await async_send_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
+            action_set_id=action_set_id, navigate_to=navigate_to,
         )
 
     # Convert legacy zones format to rules if needed
@@ -104,6 +110,7 @@ async def async_handle_conditional_notification(
             return await async_send_notification(
                 hass, store, person_id, person_name, category_id, title, message, data,
                 notification_id=notification_id, suppress_actions=suppress_actions,
+                action_set_id=action_set_id, navigate_to=navigate_to,
             )
 
     # Check if we should deliver now (all conditions met + deliver_when_met)
@@ -119,6 +126,7 @@ async def async_handle_conditional_notification(
         return await async_send_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
+            action_set_id=action_set_id, navigate_to=navigate_to,
         )
 
     # Check if we should queue (has queue_until_met flag and conditions not met)
@@ -185,6 +193,8 @@ async def async_send_notification(
     data: dict[str, Any],
     notification_id: str | None = None,
     suppress_actions: bool = False,
+    action_set_id: str | None = None,
+    navigate_to: str | None = None,
 ) -> dict[str, list[str]]:
     """Send notification to a person via their notify services.
 
@@ -319,19 +329,33 @@ async def async_send_notification(
         # Build enriched data dict before format transformation
         enriched_data: dict[str, Any] = dict(data) if data else {}
 
-        # F-5: Inject action buttons if category has action_set
-        if not suppress_actions and "actions" not in enriched_data:
-            category = store.get_category(category_id)
-            if category and category.get("action_set") and notification_id:
+        # Fetch category once for action injection and smart notification
+        category = store.get_category(category_id)
+
+        # F-5/F-5b: Inject action buttons via resolved action set
+        if not suppress_actions and "actions" not in enriched_data and notification_id:
+            action_set, resolved_id = resolve_action_set(
+                store, category, action_set_id,
+            )
+            if action_set and resolved_id:
                 enriched_data["actions"] = build_action_payload(
-                    category, notification_id
+                    action_set, resolved_id, notification_id
                 )
 
-        # Inject deep-link to Ticker history tab (don't override user-set values)
-        if "url" not in enriched_data:
-            enriched_data["url"] = "/ticker#history"
-        if "clickAction" not in enriched_data:
-            enriched_data["clickAction"] = "/ticker#history"
+        # F-6: Inject smart notification fields (group, tag, sticky, persistent)
+        smart_config = (category or {}).get("smart_notification")
+        if smart_config:
+            inject_smart_notification(
+                enriched_data, category_id, title, smart_config, delivery_format
+            )
+
+        # F-22: Inject tap-to-navigate deep-link (per-call > category > default)
+        resolved_navigate_to = (
+            navigate_to
+            or (category or {}).get("navigate_to")
+            or DEFAULT_NAVIGATE_TO
+        )
+        inject_navigate_to(enriched_data, resolved_navigate_to, delivery_format)
 
         # F-16: Transform payload for the target platform's delivery format
         service_data = transform_payload_for_format(

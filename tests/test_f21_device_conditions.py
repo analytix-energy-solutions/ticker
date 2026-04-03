@@ -184,7 +184,7 @@ class TestDeviceConditionGate:
     @pytest.mark.asyncio
     @patch("custom_components.ticker.services.get_category_sensor", return_value=None)
     @patch("custom_components.ticker.services.async_send_to_recipient", new_callable=AsyncMock)
-    @patch("custom_components.ticker.services.evaluate_rules")
+    @patch("custom_components.ticker.services.evaluate_condition_tree")
     async def test_conditions_met_proceeds_to_delivery(
         self, mock_eval, mock_send, mock_sensor,
     ):
@@ -209,7 +209,7 @@ class TestDeviceConditionGate:
 
         # We need to extract the handler. Register then call it.
         await async_setup_services(hass)
-        handler = hass.services.async_register.call_args[0][2]
+        handler = hass.services.async_register.call_args_list[0][0][2]
 
         call = MagicMock()
         call.data = {
@@ -234,7 +234,7 @@ class TestDeviceConditionGate:
     @pytest.mark.asyncio
     @patch("custom_components.ticker.services.get_category_sensor", return_value=None)
     @patch("custom_components.ticker.services.async_send_to_recipient", new_callable=AsyncMock)
-    @patch("custom_components.ticker.services.evaluate_rules")
+    @patch("custom_components.ticker.services.evaluate_condition_tree")
     async def test_conditions_not_met_skips_delivery(
         self, mock_eval, mock_send, mock_sensor,
     ):
@@ -266,7 +266,7 @@ class TestDeviceConditionGate:
     @pytest.mark.asyncio
     @patch("custom_components.ticker.services.get_category_sensor", return_value=None)
     @patch("custom_components.ticker.services.async_send_to_recipient", new_callable=AsyncMock)
-    @patch("custom_components.ticker.services.evaluate_rules")
+    @patch("custom_components.ticker.services.evaluate_condition_tree")
     async def test_no_conditions_no_gate(
         self, mock_eval, mock_send, mock_sensor,
     ):
@@ -291,7 +291,7 @@ class TestDeviceConditionGate:
     @pytest.mark.asyncio
     @patch("custom_components.ticker.services.get_category_sensor", return_value=None)
     @patch("custom_components.ticker.services.async_send_to_recipient", new_callable=AsyncMock)
-    @patch("custom_components.ticker.services.evaluate_rules")
+    @patch("custom_components.ticker.services.evaluate_condition_tree")
     async def test_empty_rules_no_gate(
         self, mock_eval, mock_send, mock_sensor,
     ):
@@ -316,7 +316,7 @@ class TestDeviceConditionGate:
     @pytest.mark.asyncio
     @patch("custom_components.ticker.services.get_category_sensor", return_value=None)
     @patch("custom_components.ticker.services.async_send_to_recipient", new_callable=AsyncMock)
-    @patch("custom_components.ticker.services.evaluate_rules")
+    @patch("custom_components.ticker.services.evaluate_condition_tree")
     async def test_dropped_added_when_conditions_not_met(
         self, mock_eval, mock_send, mock_sensor,
     ):
@@ -347,7 +347,7 @@ async def _run_notify_handler(hass, store):
     from custom_components.ticker.services import async_setup_services
 
     await async_setup_services(hass)
-    handler = hass.services.async_register.call_args[0][2]
+    handler = hass.services.async_register.call_args_list[0][0][2]
 
     call = MagicMock()
     call.data = {

@@ -3,20 +3,27 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
 
 from ..const import (
+    ACTION_TYPES,
+    ACTION_TYPE_SCRIPT,
+    ACTION_TYPE_SNOOZE,
     CONDITION_MAX_DEPTH,
     CONDITION_NODE_GROUP,
     CONDITION_OPERATORS,
     DOMAIN,
+    MAX_ACTIONS_PER_SET,
     RULE_TYPES,
+    SNOOZE_DURATIONS_MINUTES,
 )
 
 if TYPE_CHECKING:
     from ..store import TickerStore
+
+SCRIPT_ENTITY_PATTERN = re.compile(r"^script\.[a-z0-9_]+$")
 
 # Maximum lengths for user inputs
 MAX_CATEGORY_ID_LENGTH = 64
@@ -207,6 +214,54 @@ def validate_condition_tree(
         return f"Unknown node type '{node_type}'"
 
     return None
+
+
+def validate_action_set(action_set: dict[str, Any]) -> tuple[bool, str | None]:
+    """Validate an action_set structure.
+
+    Checks that actions is a list within size limits, each action has a
+    title and valid type, and type-specific fields are correct.
+
+    Returns:
+        Tuple of (is_valid, error_message).
+    """
+    actions = action_set.get("actions", [])
+    if not isinstance(actions, list):
+        return False, "actions must be a list"
+
+    if len(actions) > MAX_ACTIONS_PER_SET:
+        return False, f"Maximum {MAX_ACTIONS_PER_SET} actions allowed"
+
+    for i, action in enumerate(actions):
+        if not isinstance(action, dict):
+            return False, f"Action {i} must be an object"
+
+        title = action.get("title", "").strip()
+        if not title:
+            return False, f"Action {i}: title is required"
+
+        action_type = action.get("type")
+        if action_type not in ACTION_TYPES:
+            return False, f"Action {i}: invalid type '{action_type}'"
+
+        if action_type == ACTION_TYPE_SCRIPT:
+            script_entity = action.get("script_entity", "")
+            if not SCRIPT_ENTITY_PATTERN.match(script_entity):
+                return False, f"Action {i}: invalid script entity '{script_entity}'"
+
+        if action_type == ACTION_TYPE_SNOOZE:
+            snooze_minutes = action.get("snooze_minutes")
+            if snooze_minutes not in SNOOZE_DURATIONS_MINUTES:
+                return (
+                    False,
+                    f"Action {i}: snooze_minutes must be one of {SNOOZE_DURATIONS_MINUTES}",
+                )
+
+        # Ensure index is set
+        if "index" not in action:
+            action["index"] = i
+
+    return True, None
 
 
 def get_store(hass: HomeAssistant) -> "TickerStore":

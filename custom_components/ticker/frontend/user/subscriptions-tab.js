@@ -185,7 +185,6 @@ window.Ticker.UserSubscriptionsTab = {
       let conditionsContent = '';
       if (isConditional) {
         const conditions = sub.conditions || {};
-        const rules = this._getSubscriptionRules(conditions);
         const deliverWhenMet = conditions.deliver_when_met || false;
         const queueUntilMet = conditions.queue_until_met || false;
         const hasNoEffectiveDelivery = !deliverWhenMet && !queueUntilMet;
@@ -310,25 +309,32 @@ window.Ticker.UserSubscriptionsTab = {
   },
 
   /**
-   * Get rules from conditions (with legacy zones conversion).
-   * Note: deliver_when_met/queue_until_met live at conditions level,
-   * not per-rule. Legacy zones are converted to rule objects only.
+   * Get condition_tree from conditions (with legacy conversion).
+   * Returns a tree node (group) for the conditions UI.
+   * Legacy zones/rules formats are auto-wrapped in a root AND group.
    */
-  _getSubscriptionRules(conditions) {
-    if (conditions.rules && conditions.rules.length > 0) {
-      return conditions.rules;
+  _getConditionTree(conditions) {
+    // New format: condition_tree already present
+    if (conditions.condition_tree) {
+      return conditions.condition_tree;
     }
 
-    // Convert legacy zones format (rules only, flags are at conditions level)
+    // Flat rules[] format: wrap in root AND group
+    if (conditions.rules && conditions.rules.length > 0) {
+      return { type: 'group', operator: 'AND', children: conditions.rules };
+    }
+
+    // Convert legacy zones format
     const zones = conditions.zones || {};
     if (Object.keys(zones).length > 0) {
-      return Object.entries(zones).map(([zoneId, config]) => ({
+      const children = Object.entries(zones).map(([zoneId]) => ({
         type: 'zone',
         zone_id: zoneId,
       }));
+      return { type: 'group', operator: 'AND', children };
     }
 
-    return [];
+    return { type: 'group', operator: 'AND', children: [] };
   },
 
   /**
@@ -346,8 +352,8 @@ window.Ticker.UserSubscriptionsTab = {
       const conditionsUI = panel.shadowRoot.getElementById(`conditions-ui-${cat.id}`);
       if (!conditionsUI) continue;
       const conditions = sub.conditions || {};
-      const rules = this._getSubscriptionRules(conditions);
-      conditionsUI.rules = rules;
+      const tree = this._getConditionTree(conditions);
+      conditionsUI.tree = tree;
       conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
       conditionsUI.queueUntilMet = conditions.queue_until_met || false;
       conditionsUI.zones = panel._zones;

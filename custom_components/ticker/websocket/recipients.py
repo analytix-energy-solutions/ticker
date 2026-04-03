@@ -36,6 +36,7 @@ from ..const import (
 from .validation import (
     get_store,
     validate_category_id,
+    validate_condition_tree,
     validate_icon,
     validate_recipient_id,
     sanitize_for_storage,
@@ -232,14 +233,20 @@ async def ws_create_recipient(
         connection.send_error(msg["id"], "invalid_icon", error)
         return
 
-    # Validate conditions structure if provided
+    # Validate conditions structure if provided (accepts condition_tree or rules)
     conditions = msg.get("conditions")
     if conditions is not None:
+        tree = conditions.get("condition_tree")
         rules = conditions.get("rules")
-        if not isinstance(rules, list):
+        if tree:
+            tree_error = validate_condition_tree(tree)
+            if tree_error:
+                connection.send_error(msg["id"], "invalid_conditions", tree_error)
+                return
+        elif not isinstance(rules, list):
             connection.send_error(
                 msg["id"], "invalid_conditions",
-                "Conditions must contain a 'rules' key with a list value",
+                "Conditions must contain 'condition_tree' or 'rules'",
             )
             return
 
@@ -371,11 +378,17 @@ async def ws_update_recipient(
     if "conditions" in msg:
         cond_val = msg["conditions"]
         if cond_val is not None:
+            tree = cond_val.get("condition_tree")
             rules = cond_val.get("rules")
-            if not isinstance(rules, list):
+            if tree:
+                tree_error = validate_condition_tree(tree)
+                if tree_error:
+                    connection.send_error(msg["id"], "invalid_conditions", tree_error)
+                    return
+            elif not isinstance(rules, list):
                 connection.send_error(
                     msg["id"], "invalid_conditions",
-                    "Conditions must contain a 'rules' key with a list value",
+                    "Conditions must contain 'condition_tree' or 'rules'",
                 )
                 return
         kwargs["conditions"] = cond_val

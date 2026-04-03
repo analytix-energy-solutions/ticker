@@ -209,11 +209,13 @@ class TestDeliverTtsPlain:
 # _deliver_tts_with_restore
 # ---------------------------------------------------------------------------
 
+@patch("custom_components.ticker.recipient_tts._wait_for_state_exit", new_callable=AsyncMock, return_value=True)
+@patch("custom_components.ticker.recipient_tts._wait_for_state", new_callable=AsyncMock, return_value=True)
 class TestDeliverTtsWithRestore:
     """Tests for _deliver_tts_with_restore()."""
 
     @pytest.mark.asyncio
-    async def test_returns_restore_label(self):
+    async def test_returns_restore_label(self, _mock_wait, _mock_wait_exit):
         hass = _make_hass(entity_id="media_player.kitchen")
         result = await _deliver_tts_with_restore(
             hass, "media_player.kitchen", "tts.speak", {"message": "hi"},
@@ -221,7 +223,7 @@ class TestDeliverTtsWithRestore:
         assert result == "restore"
 
     @pytest.mark.asyncio
-    async def test_restores_when_was_playing_with_content(self):
+    async def test_restores_when_was_playing_with_content(self, _mock_wait, _mock_wait_exit):
         """If media was playing with content, play_media is called to restore."""
         hass = _make_hass(
             entity_id="media_player.kitchen",
@@ -241,7 +243,7 @@ class TestDeliverTtsWithRestore:
         assert restore_call[0][2]["media_content_type"] == "music"
 
     @pytest.mark.asyncio
-    async def test_no_restore_when_idle(self):
+    async def test_no_restore_when_idle(self, _mock_wait, _mock_wait_exit):
         """If media was idle, no restore call."""
         hass = _make_hass(
             entity_id="media_player.kitchen",
@@ -254,7 +256,7 @@ class TestDeliverTtsWithRestore:
         assert hass.services.async_call.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_no_restore_when_no_content_id(self):
+    async def test_no_restore_when_no_content_id(self, _mock_wait, _mock_wait_exit):
         """If media was playing but no content_id, skip restore."""
         hass = _make_hass(
             entity_id="media_player.kitchen",
@@ -266,7 +268,7 @@ class TestDeliverTtsWithRestore:
         assert hass.services.async_call.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_defaults_content_type_to_music(self):
+    async def test_defaults_content_type_to_music(self, _mock_wait, _mock_wait_exit):
         """If no media_content_type was present, defaults to 'music'."""
         hass = _make_hass(
             entity_id="media_player.kitchen",
@@ -280,7 +282,7 @@ class TestDeliverTtsWithRestore:
         assert restore_call[0][2]["media_content_type"] == "music"
 
     @pytest.mark.asyncio
-    async def test_restore_timeout_logs_warning_not_failure(self):
+    async def test_restore_timeout_logs_warning_not_failure(self, _mock_wait, _mock_wait_exit):
         """Restore timeout should log warning but still return 'restore'."""
         hass = _make_hass(
             entity_id="media_player.kitchen",
@@ -297,7 +299,7 @@ class TestDeliverTtsWithRestore:
         assert result == "restore"
 
     @pytest.mark.asyncio
-    async def test_restore_exception_logs_warning_not_failure(self):
+    async def test_restore_exception_logs_warning_not_failure(self, _mock_wait, _mock_wait_exit):
         """Restore error should log warning but still return 'restore'."""
         hass = _make_hass(
             entity_id="media_player.kitchen",
@@ -313,7 +315,7 @@ class TestDeliverTtsWithRestore:
         assert result == "restore"
 
     @pytest.mark.asyncio
-    async def test_entity_gone_still_delivers(self):
+    async def test_entity_gone_still_delivers(self, _mock_wait, _mock_wait_exit):
         """If entity disappeared before delivery, snapshot is None-safe."""
         hass = _make_hass()  # No entity
         result = await _deliver_tts_with_restore(

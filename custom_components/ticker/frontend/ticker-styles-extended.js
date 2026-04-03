@@ -284,6 +284,7 @@
     }
     .migrate-input {
       width: 100%;
+      box-sizing: border-box;
       padding: 6px 10px;
       border: 1px solid var(--divider);
       border-radius: 4px;

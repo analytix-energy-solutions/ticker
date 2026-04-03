@@ -31,6 +31,9 @@ class TickerAdminPanel extends HTMLElement {
     this._recipients = [];
     this._availableNotifyServices = [];
     this._ttsOptions = { media_players: [], tts_services: [] };
+    this._lovelaceDashboards = [];
+    this._hasPanels = [];
+    this._lovelaceViews = {};
 
     // UI state
     this._expandedUsers = new Set();
@@ -45,6 +48,17 @@ class TickerAdminPanel extends HTMLElement {
     this._migrateScanning = false;
     this._migrateConverting = false;
     this._migrateDeleting = false;
+
+    // Automations manager state (F-3)
+    this._automationsFindings = [];
+    this._automationsScanning = false;
+    this._automationsFilter = { category: '', sourceType: '' };
+    this._automationsExpanded = null;
+    this._automationsScanned = false;
+
+    // Action sets library state (F-5b)
+    this._actionSets = [];
+    this._editingActionSetId = null;
 
     // DOM cache
     this._els = {};
@@ -129,9 +143,11 @@ class TickerAdminPanel extends HTMLElement {
       `${base}/ticker-styles-extended.js`,
       `${base}/ticker-recovery.js`,
       `${base}/ticker-conditions-styles.js`,
+      `${base}/ticker-conditions-tree.js`,
       `${base}/ticker-conditions-ui.js`,
+      `${base}/admin/admin-data-loader.js`,
+      `${base}/admin/navigation-picker.js`,
       `${base}/admin/categories-tab.js`,
-      `${base}/admin/action-set-editor.js`,
       `${base}/admin/users-tab.js`,
       `${base}/admin/recipients-tab.js`,
       `${base}/admin/recipients-handlers.js`,
@@ -139,6 +155,8 @@ class TickerAdminPanel extends HTMLElement {
       `${base}/admin/queue-tab.js`,
       `${base}/admin/logs-tab.js`,
       `${base}/admin/migrate-tab.js`,
+      `${base}/admin/automations-tab.js`,
+      `${base}/admin/action-sets-tab.js`,
     ];
 
     for (const src of scripts) {
@@ -197,6 +215,8 @@ class TickerAdminPanel extends HTMLElement {
       { id: 'categories', label: 'Categories' },
       { id: 'users', label: 'Users' },
       { id: 'devices', label: 'Devices' },
+      { id: 'action-sets', label: 'Action Sets' },
+      { id: 'automations', label: 'Automations' },
       { id: 'queue', label: 'Queue', count: queueCount },
       { id: 'logs', label: 'Logs', count: logCount },
       { id: 'migrate', label: 'Migrate' },
@@ -259,6 +279,12 @@ class TickerAdminPanel extends HTMLElement {
       case 'migrate':
         html = window.Ticker.AdminMigrateTab.render(state);
         break;
+      case 'action-sets':
+        html = window.Ticker.AdminActionSetsTab.render(state);
+        break;
+      case 'automations':
+        html = window.Ticker.AdminAutomationsTab.render(state);
+        break;
     }
 
     this._els.content.innerHTML = html;
@@ -288,9 +314,12 @@ class TickerAdminPanel extends HTMLElement {
     if (!conditionsUI) return;
 
     const conditions = cat.default_conditions || {};
-    const rules = conditions.rules || [];
 
-    conditionsUI.rules = rules;
+    if (conditions.condition_tree) {
+      conditionsUI.tree = conditions.condition_tree;
+    } else {
+      conditionsUI.rules = conditions.rules || [];
+    }
     conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
     conditionsUI.queueUntilMet = conditions.queue_until_met || false;
     conditionsUI.zones = this._zones;
@@ -303,7 +332,7 @@ class TickerAdminPanel extends HTMLElement {
       this._pendingDefaultConditions = {
         deliver_when_met: e.detail.deliver_when_met,
         queue_until_met: e.detail.queue_until_met,
-        rules: e.detail.rules,
+        condition_tree: e.detail.condition_tree,
       };
     };
     conditionsUI.addEventListener('rules-changed', conditionsUI._rulesHandler);
@@ -332,144 +361,35 @@ class TickerAdminPanel extends HTMLElement {
       migrateConverting: this._migrateConverting,
       migrateDeleting: this._migrateDeleting,
       scripts: this._scripts,
+      actionSets: this._actionSets,
+      editingActionSetId: this._editingActionSetId,
+      automationsFindings: this._automationsFindings,
+      automationsScanning: this._automationsScanning,
+      automationsFilter: this._automationsFilter,
+      automationsExpanded: this._automationsExpanded,
+      _automationsScanned: this._automationsScanned,
+      lovelaceDashboards: this._lovelaceDashboards,
+      hasPanels: this._hasPanels || [],
+      lovelaceViews: this._lovelaceViews || {},
     };
   }
 
-  // ─── Data Loading ────────────────────────────────────────────────────────
+  // ─── Data Loading (delegated to AdminDataLoader) ─────────────────────────
 
-  async _loadData() {
-    await Promise.all([
-      this._loadCategories(),
-      this._loadUsers(),
-      this._loadRecipients(),
-      this._loadSubscriptions(),
-      this._loadQueue(),
-      this._loadLogs(),
-      this._loadLogStats(),
-      this._loadZones(),
-      this._loadEntities(),
-    ]);
-    this._renderTabs();
-  }
-
-  async _loadCategories() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/categories' });
-      this._categories = result.categories || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load categories:', err);
-    }
-  }
-
-  async _loadUsers() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/users' });
-      this._users = result.users || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load users:', err);
-    }
-  }
-
-  async _loadRecipients() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/get_recipients' });
-      this._recipients = result.recipients || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load recipients:', err);
-    }
-  }
-
-  async _loadAvailableNotifyServices(recipientId) {
-    try {
-      const wsMsg = { type: 'ticker/get_available_notify_services' };
-      if (recipientId) wsMsg.recipient_id = recipientId;
-      const result = await this._hass.callWS(wsMsg);
-      this._availableNotifyServices = result.services || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load available notify services:', err);
-    }
-  }
-
-  async _loadTtsOptions() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/get_tts_options' });
-      this._ttsOptions = {
-        media_players: result.media_players || [],
-        tts_services: result.tts_services || [],
-      };
-    } catch (err) {
-      console.error('[Ticker] Failed to load TTS options:', err);
-      this._ttsOptions = { media_players: [], tts_services: [] };
-    }
-  }
-
-  async _loadSubscriptions() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/subscriptions' });
-      this._subscriptions = {};
-      for (const sub of result.subscriptions || []) {
-        if (!this._subscriptions[sub.person_id]) {
-          this._subscriptions[sub.person_id] = {};
-        }
-        this._subscriptions[sub.person_id][sub.category_id] = sub;
-      }
-    } catch (err) {
-      console.error('[Ticker] Failed to load subscriptions:', err);
-    }
-  }
-
-  async _loadQueue() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/queue' });
-      this._queue = result.queue || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load queue:', err);
-    }
-  }
-
-  async _loadLogs() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/logs', limit: 500 });
-      this._logs = result.logs || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load logs:', err);
-    }
-  }
-
-  async _loadLogStats() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/logs/stats' });
-      this._logStats = result.stats || {};
-    } catch (err) {
-      console.error('[Ticker] Failed to load log stats:', err);
-    }
-  }
-
-  async _loadZones() {
-    try {
-      const result = await this._hass.callWS({ type: 'ticker/zones' });
-      this._zones = result.zones || [];
-    } catch (err) {
-      console.error('[Ticker] Failed to load zones:', err);
-      this._zones = [];
-    }
-  }
-
-  _loadEntities() {
-    try {
-      const states = this._hass.states;
-      const all = Object.keys(states);
-      this._entities = all.map(id => ({
-        entity_id: id,
-        name: states[id].attributes.friendly_name || id,
-      })).sort((a, b) => a.name.localeCompare(b.name));
-      this._scripts = this._entities.filter(e => e.entity_id.startsWith('script.'));
-    } catch (err) {
-      console.error('[Ticker] Failed to load entities:', err);
-      this._entities = [];
-      this._scripts = [];
-    }
-  }
+  async _loadData() { return window.Ticker.AdminDataLoader.loadAll(this); }
+  async _loadCategories() { return window.Ticker.AdminDataLoader.loadCategories(this); }
+  async _loadUsers() { return window.Ticker.AdminDataLoader.loadUsers(this); }
+  async _loadRecipients() { return window.Ticker.AdminDataLoader.loadRecipients(this); }
+  async _loadAvailableNotifyServices(id) { return window.Ticker.AdminDataLoader.loadAvailableNotifyServices(this, id); }
+  async _loadTtsOptions() { return window.Ticker.AdminDataLoader.loadTtsOptions(this); }
+  async _loadSubscriptions() { return window.Ticker.AdminDataLoader.loadSubscriptions(this); }
+  async _loadQueue() { return window.Ticker.AdminDataLoader.loadQueue(this); }
+  async _loadLogs() { return window.Ticker.AdminDataLoader.loadLogs(this); }
+  async _loadLogStats() { return window.Ticker.AdminDataLoader.loadLogStats(this); }
+  async _loadZones() { return window.Ticker.AdminDataLoader.loadZones(this); }
+  _loadEntities() { return window.Ticker.AdminDataLoader.loadEntities(this); }
+  async _loadActionSets() { return window.Ticker.AdminDataLoader.loadActionSets(this); }
+  async _loadDashboards() { return window.Ticker.AdminDataLoader.loadDashboards(this); }
 
   // ─── Messages ────────────────────────────────────────────────────────────
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
 import voluptuous as vol
@@ -11,62 +10,9 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..const import (
-    ACTION_TYPES,
-    ACTION_TYPE_SCRIPT,
-    ACTION_TYPE_SNOOZE,
-    MAX_ACTIONS_PER_SET,
-    SNOOZE_DURATIONS_MINUTES,
-)
-from .validation import get_store
+from .validation import get_store, validate_action_set
 
 _LOGGER = logging.getLogger(__name__)
-
-SCRIPT_ENTITY_PATTERN = re.compile(r"^script\.[a-z0-9_]+$")
-
-
-def _validate_action_set(action_set: dict[str, Any]) -> tuple[bool, str | None]:
-    """Validate an action_set structure.
-
-    Returns (is_valid, error_message).
-    """
-    actions = action_set.get("actions", [])
-    if not isinstance(actions, list):
-        return False, "actions must be a list"
-
-    if len(actions) > MAX_ACTIONS_PER_SET:
-        return False, f"Maximum {MAX_ACTIONS_PER_SET} actions allowed"
-
-    for i, action in enumerate(actions):
-        if not isinstance(action, dict):
-            return False, f"Action {i} must be an object"
-
-        title = action.get("title", "").strip()
-        if not title:
-            return False, f"Action {i}: title is required"
-
-        action_type = action.get("type")
-        if action_type not in ACTION_TYPES:
-            return False, f"Action {i}: invalid type '{action_type}'"
-
-        if action_type == ACTION_TYPE_SCRIPT:
-            script_entity = action.get("script_entity", "")
-            if not SCRIPT_ENTITY_PATTERN.match(script_entity):
-                return False, f"Action {i}: invalid script entity '{script_entity}'"
-
-        if action_type == ACTION_TYPE_SNOOZE:
-            snooze_minutes = action.get("snooze_minutes")
-            if snooze_minutes not in SNOOZE_DURATIONS_MINUTES:
-                return (
-                    False,
-                    f"Action {i}: snooze_minutes must be one of {SNOOZE_DURATIONS_MINUTES}",
-                )
-
-        # Ensure index is set
-        if "index" not in action:
-            action["index"] = i
-
-    return True, None
 
 
 @websocket_api.websocket_command(
@@ -82,7 +28,7 @@ async def ws_set_action_set(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Set or clear action_set on a category."""
+    """Backward-compatible shim: stores action set in library and links category."""
     store = get_store(hass)
     category_id = msg["category_id"]
 
@@ -94,21 +40,43 @@ async def ws_set_action_set(
 
     action_set = msg.get("action_set")
 
+    # Validate if provided
     if action_set is not None:
-        is_valid, error = _validate_action_set(action_set)
+        is_valid, error = validate_action_set(action_set)
         if not is_valid:
             connection.send_error(msg["id"], "invalid_action_set", error)
             return
 
-    category = await store.async_update_category_action_set(category_id, action_set)
+    # Create or update library entry, then link category
+    library_id = f"{category_id}_actions"
+    if action_set is not None:
+        existing = store.get_action_set(library_id)
+        if existing:
+            await store.async_update_action_set(
+                library_id, actions=action_set.get("actions", [])
+            )
+        else:
+            cat = store.get_category(category_id)
+            await store.async_create_action_set(
+                library_id,
+                name=f"{(cat or {}).get('name', category_id)} Actions",
+                actions=action_set.get("actions", []),
+            )
+        # Link category to library entry
+        result = await store.async_update_category(
+            category_id, action_set_id=library_id
+        )
+    else:
+        # Clear: unlink category from library
+        result = await store.async_update_category(category_id, action_set_id="")
 
-    if category is None:
+    if result is None:
         connection.send_error(
             msg["id"], "not_found", f"Category '{category_id}' not found"
         )
         return
 
-    connection.send_result(msg["id"], {"category": category})
+    connection.send_result(msg["id"], {"category": result})
 
 
 # --- Snooze management/debug endpoints ---

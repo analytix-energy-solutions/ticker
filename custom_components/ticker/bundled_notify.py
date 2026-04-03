@@ -14,6 +14,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    DEFAULT_NAVIGATE_TO,
     DELIVERY_FORMAT_RICH,
     DELIVERY_FORMAT_PLAIN,
     DEVICE_MODE_ALL,
@@ -23,6 +24,8 @@ from .const import (
 from .discovery import async_get_notify_services_for_person
 from .formatting import (
     detect_delivery_format,
+    inject_navigate_to,
+    inject_smart_notification,
     resolve_ios_platform,
     transform_payload_for_format,
 )
@@ -129,6 +132,9 @@ async def async_send_bundled_notification(
         entry = entries[0]
         title = entry["title"]
         message = entry["message"]
+        # BUG-080: Carry original queued data into delivery so fields like
+        # image, url, and custom keys survive queue release.
+        enriched_data: dict[str, Any] = dict(entry.get("data") or {})
     else:
         # Multiple notifications - build summary
         # Group by category
@@ -152,6 +158,13 @@ async def async_send_bundled_notification(
                 summary_parts.append(f"{cat_name} ({len(cat_entries)})")
 
         message = "\n".join(summary_parts)
+        # Multi-entry bundle: generated summary, no per-entry data
+        enriched_data: dict[str, Any] = {}
+
+    # F-6: Fetch smart config once before the per-device loop
+    primary_cat_id = entries[0]["category_id"]
+    primary_cat = store.get_category(primary_cat_id)
+    smart_config = (primary_cat or {}).get("smart_notification")
 
     # Send to all target devices, track success
     any_success = False
@@ -175,17 +188,29 @@ async def async_send_bundled_notification(
         )
 
         # Build enriched data dict before format transformation
-        enriched_data: dict[str, Any] = {
-            "url": "/ticker#history",
-            "clickAction": "/ticker#history",
-        }
+        # BUG-080: enriched_data is now initialised per-branch (single vs multi)
+        # above the per-device loop. Clone it here so each device gets its own
+        # copy for in-place mutation by inject_navigate_to / inject_smart_notification.
+        device_data: dict[str, Any] = dict(enriched_data)
+
+        # F-22: Inject tap-to-navigate deep-link (category default or global)
+        resolved_navigate_to = (
+            (primary_cat or {}).get("navigate_to") or DEFAULT_NAVIGATE_TO
+        )
+        inject_navigate_to(device_data, resolved_navigate_to, delivery_format)
+
+        # F-6: Inject smart notification fields using primary category
+        if smart_config:
+            inject_smart_notification(
+                device_data, primary_cat_id, title, smart_config, delivery_format
+            )
 
         # F-16: Transform payload for the target platform's delivery format
         service_data = transform_payload_for_format(
             title=title,
             message=message,
             format_type=delivery_format,
-            data=enriched_data,
+            data=device_data,
         )
 
         try:

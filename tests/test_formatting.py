@@ -142,16 +142,18 @@ class TestTransformPayloadForFormat:
         result = transform_payload_for_format("T", "<b>Bold</b>", DELIVERY_FORMAT_PLAIN)
         assert result["message"] == "Bold"
 
-    def test_plain_strips_image_from_data(self):
+    def test_plain_preserves_image_in_data(self):
+        """BUG-079: Plain format no longer strips image keys."""
         data = {"image": "http://img.png", "priority": "high"}
         result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
-        assert "image" not in result.get("data", {})
+        assert result["data"]["image"] == "http://img.png"
         assert result["data"]["priority"] == "high"
 
-    def test_plain_empty_data_after_image_strip(self):
+    def test_plain_preserves_image_only_data(self):
+        """BUG-079: Plain format no longer strips image keys."""
         data = {"image": "http://img.png"}
         result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
-        assert "data" not in result
+        assert result["data"]["image"] == "http://img.png"
 
     def test_plain_no_data(self):
         result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN)
@@ -209,22 +211,49 @@ class TestTransformPayloadForFormat:
         )
         assert result["title"] == "Alert"
 
-    def test_plain_strips_image_url_from_data(self):
+    def test_plain_preserves_image_url_in_data(self):
+        """BUG-079: Plain format no longer strips image_url."""
         data = {"image_url": "http://img.png", "priority": "high"}
         result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
-        assert "image_url" not in result.get("data", {})
+        assert result["data"]["image_url"] == "http://img.png"
         assert result["data"]["priority"] == "high"
 
-    def test_plain_strips_attachment_from_data(self):
+    def test_plain_preserves_attachment_in_data(self):
+        """BUG-079: Plain format no longer strips attachment."""
         data = {"attachment": {"url": "http://img.png"}, "sound": "default"}
         result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
-        assert "attachment" not in result.get("data", {})
+        assert result["data"]["attachment"] == {"url": "http://img.png"}
         assert result["data"]["sound"] == "default"
 
-    def test_plain_strips_all_image_keys(self):
+    def test_plain_preserves_all_image_keys(self):
+        """BUG-079: Plain format preserves all image-related keys."""
         data = {"image": "a", "image_url": "b", "attachment": "c"}
         result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
-        assert "data" not in result
+        assert result["data"]["image"] == "a"
+        assert result["data"]["image_url"] == "b"
+        assert result["data"]["attachment"] == "c"
+
+    def test_plain_data_is_copied(self):
+        """BUG-079: Plain format copies data dict, does not mutate original."""
+        data = {"image": "http://img.png", "key": "val"}
+        result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
+        result["data"]["key"] = "changed"
+        assert data["key"] == "val", "Original dict must not be mutated"
+
+    def test_plain_with_rich_data_keys(self):
+        """BUG-079: Plain format passes through clickAction and other rich keys."""
+        data = {"clickAction": "/dashboard", "image": "http://img.png"}
+        result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_PLAIN, data=data)
+        assert result["data"]["clickAction"] == "/dashboard"
+        assert result["data"]["image"] == "http://img.png"
+
+    def test_rich_preserves_image_keys(self):
+        """Regression: rich format still passes image keys through."""
+        data = {"image": "a", "image_url": "b", "attachment": "c"}
+        result = transform_payload_for_format("T", "M", DELIVERY_FORMAT_RICH, data=data)
+        assert result["data"]["image"] == "a"
+        assert result["data"]["image_url"] == "b"
+        assert result["data"]["attachment"] == "c"
 
 
 # ---------------------------------------------------------------------------
