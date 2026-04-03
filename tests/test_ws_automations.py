@@ -53,7 +53,7 @@ class TestWsAutomationsScan:
     """Test scan WS handler."""
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.async_scan_for_notifications")
+    @patch("custom_components.ticker.websocket.automations.async_scan_for_notifications")
     async def test_returns_filtered_findings(self, mock_scan):
         """Only ticker.notify findings are returned."""
         mock_scan.return_value = [
@@ -77,7 +77,7 @@ class TestWsAutomationsScan:
         assert "notify.mobile_app" not in services
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.async_scan_for_notifications")
+    @patch("custom_components.ticker.websocket.automations.async_scan_for_notifications")
     async def test_empty_scan_results(self, mock_scan):
         """No findings -> empty list returned."""
         mock_scan.return_value = []
@@ -93,7 +93,7 @@ class TestWsAutomationsScan:
         assert result["findings"] == []
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.async_scan_for_notifications")
+    @patch("custom_components.ticker.websocket.automations.async_scan_for_notifications")
     async def test_scan_error_sends_error(self, mock_scan):
         """Exception during scan sends error to connection."""
         from homeassistant.exceptions import HomeAssistantError
@@ -110,7 +110,7 @@ class TestWsAutomationsScan:
         assert error_args[1] == "scan_failed"
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.async_scan_for_notifications")
+    @patch("custom_components.ticker.websocket.automations.async_scan_for_notifications")
     async def test_scan_unexpected_error(self, mock_scan):
         """Unexpected exception is caught and sent as error."""
         mock_scan.side_effect = RuntimeError("unexpected")
@@ -133,7 +133,7 @@ class TestWsAutomationsUpdate:
     """Test update WS handler."""
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.converter.apply_to_automation", new_callable=AsyncMock, create=True)
+    @patch("custom_components.ticker.websocket.automations.apply_to_automation", new_callable=AsyncMock, create=True)
     async def test_update_automation_success(self, mock_apply):
         """Valid update to an automation returns success."""
         hass = MagicMock()
@@ -242,7 +242,7 @@ class TestWsAutomationsUpdate:
         assert conn.send_error.call_args[0][1] == "invalid_category"
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.converter.apply_to_script", new_callable=AsyncMock, create=True)
+    @patch("custom_components.ticker.websocket.automations.apply_to_script", new_callable=AsyncMock, create=True)
     async def test_update_script_source(self, mock_apply):
         """Script source_type dispatches to apply_to_script."""
         hass = MagicMock()
@@ -269,7 +269,7 @@ class TestWsAutomationsUpdate:
         mock_apply.assert_awaited_once()
 
     @pytest.mark.asyncio
-    @patch("custom_components.ticker.migrate.converter.apply_to_automation", new_callable=AsyncMock, create=True)
+    @patch("custom_components.ticker.websocket.automations.apply_to_automation", new_callable=AsyncMock, create=True)
     async def test_update_apply_failure(self, mock_apply):
         """Exception during apply sends error."""
         mock_apply.side_effect = RuntimeError("write failed")
