@@ -131,6 +131,21 @@ data:
 
 Omitting the `actions` parameter (the default) uses the category's configured action set if one exists.
 
+### Per-call action set override *(v1.5.0)*
+
+Action sets are now managed as a shared library. You can override which action set is used for a specific call with the `action_set_id` parameter:
+
+```yaml
+service: ticker.notify
+data:
+  category: security
+  title: "Motion Detected"
+  message: "Front door camera"
+  action_set_id: confirm_alert
+```
+
+This overrides the category's default action set for this call only. The value must match an ID in the Action Sets library. Omitting it uses the category's configured action set, if any.
+
 ---
 
 ## Subscription modes
@@ -157,7 +172,7 @@ Admins control *who* receives notifications per category. Users control *when* t
 
 When a subscription is set to Conditional, you define one or more rules that determine when notifications are delivered or queued.
 
-All rules use **AND logic** — every rule must be satisfied for the overall condition to be met. The condition set has two toggles that apply to the rules as a whole:
+Rules support **AND and OR logic** — you control per group whether all rules must be satisfied (AND) or any one is sufficient (OR). The condition set has two toggles that apply to the top-level result:
 
 - **Deliver when all conditions met** — Send the notification immediately when every rule is satisfied.
 - **Queue until all conditions met** — Hold the notification and release it automatically when every rule becomes satisfied.
@@ -203,9 +218,64 @@ With only "deliver when met" enabled, notifications are delivered when condition
 
 With only "queue until met" enabled, notifications are never delivered immediately but are queued and released when conditions are met.
 
+### AND/OR condition grouping *(v1.5.0)*
+
+The conditions builder supports mixed AND/OR logic. Click the operator pill between any two conditions to toggle between AND and OR. You can also group adjacent conditions into a sub-group with its own operator — up to two nesting levels deep.
+
+For example:
+
+```
+Group (AND)
+  Zone = Home
+  Group (OR)
+    Time = 08:00–22:00
+    Entity state: binary_sensor.tv = off
+```
+
+This delivers when the person is home AND either the time is within the window OR the TV is off.
+
+Existing flat-rules conditions from earlier versions migrate automatically to the new format. No manual action is required.
+
 ### Active condition listeners
 
 Ticker doesn't just check conditions at send time — it actively monitors for changes. When a person enters a zone, a time window opens, or an entity changes state, Ticker re-evaluates all queued notifications and releases the ones whose conditions are now met. This means queued notifications are delivered as soon as possible, not just on the next `ticker.notify` call.
+
+---
+
+## Smart notification management
+
+*Added in v1.5.0*
+
+Admins can configure smart notification behaviour per category from the Smart sub-tab in the category editor. Settings are injected automatically at delivery time — no changes to automations required.
+
+### Auto-grouping
+
+When a group key is configured, Ticker injects it into the notification payload so the OS groups related notifications together on the device. Useful for categories that fire frequently (e.g., motion alerts).
+
+### Auto-tagging
+
+Tag mode controls whether Ticker injects a tag into each notification:
+
+- **None** — no tag injected (default).
+- **Category** — tag is set to the category ID. Repeated notifications for the same category replace the previous one on the device.
+- **Title** — tag is derived from the notification title. Notifications with the same title replace each other.
+
+### Sticky and persistent flags
+
+- **Sticky** — the notification stays in the device tray after the user taps it (Android only).
+- **Persistent** — the notification cannot be dismissed by the user (Android only).
+
+### Clearing notifications programmatically
+
+The `ticker.clear_notification` service dismisses active tagged notifications from all subscriber devices for a given category:
+
+```yaml
+service: ticker.clear_notification
+data:
+  category: security
+```
+
+This only has effect when the category has a tag mode other than None configured.
 
 ---
 
@@ -376,9 +446,11 @@ Only visible to users in the "Administrator" group. The admin panel has six tabs
 
 ### Categories tab
 
-Create, edit, and delete notification categories. Each category has a name (from which an ID is auto-generated), an icon, an optional color, and optional default subscription settings. The General sub-tab also includes a **Critical notifications** toggle — when enabled, all notifications sent to this category are treated as critical by default (individual service calls can still override this with an explicit `critical` value).
+Create, edit, and delete notification categories. Each category has a name (from which an ID is auto-generated), an icon, an optional color, and optional default subscription settings. The General sub-tab also includes a **Critical notifications** toggle — when enabled, all notifications sent to this category are treated as critical by default (individual service calls can still override this with an explicit `critical` value). The General sub-tab also includes a **Navigation Picker** for setting a category-level default navigation target (see Navigation target above).
 
-Each category also has an **Action Buttons** section where admins configure up to 3 action buttons (Script, Snooze, or Dismiss) that are automatically included in notifications for that category.
+The Smart sub-tab configures per-category smart notification delivery: auto-grouping, tag mode, sticky, and persistent flags (see Smart notification management above).
+
+Each category also has an **Action Buttons** section where admins configure the category's default action set reference from the Action Sets library.
 
 The "General" category is created automatically and cannot be deleted.
 
@@ -399,6 +471,16 @@ View the notification log with outcome badges (sent, queued, skipped, snoozed, f
 ### Devices tab *(v1.4.0)*
 
 Create, edit, and delete device recipients — shared notification targets not tied to any person entity. Each device has a name, icon, enabled toggle, device type (Push or TTS), and one or more assigned notify services or a media player entity. Subscriptions and conditions per category are configured in the same accordion layout as the Users tab.
+
+### Action Sets tab *(v1.5.0)*
+
+Create, edit, and delete reusable action button sets from a central library. Each action set has a name, a slug ID, and up to 3 action buttons (Script, Snooze, or Dismiss). The "Used by" column shows which categories reference each set. Action sets that are referenced by one or more categories cannot be deleted until all references are removed.
+
+Categories reference a library entry by ID. Editing a library entry immediately affects all categories that reference it.
+
+### Automations tab *(v1.5.0)*
+
+Scans all automations and scripts for `ticker.notify` calls and displays them in a filterable list. Filter by category or source type (automation vs. script). Click any result to expand an inline edit form for category, title, message, image, navigate_to, actions, critical flag, and expiration — no need to open the automation editor. YAML-backed sources are backed up before any change is written.
 
 ### Migrate tab
 
@@ -488,7 +570,20 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 
 ## Version history
 
-### v1.4.0 (current)
+### v1.5.0 (current)
+
+**Added:**
+- **AND/OR condition grouping** — the conditions builder now supports mixed AND/OR logic. Toggle the operator pill between conditions, or group conditions into a sub-group with its own operator. Up to two nesting levels. Existing conditions migrate automatically.
+- **Automations Manager** — a new Automations tab in the admin panel surfaces every automation and script that uses `ticker.notify`, with inline editing of all notification fields without opening the automation editor.
+- **Action Sets Library** — action sets are now a first-class resource managed from a dedicated library tab. Categories reference a shared action set by ID. A per-call `action_set_id` parameter allows automation-level overrides.
+- **Smart notification management** — per-category auto-grouping, auto-tagging (none / category / title), sticky and persistent flags, and `ticker.clear_notification` service.
+- **Notification navigation target** — `navigate_to` parameter on `ticker.notify` controls where notification taps navigate. Category-level default configurable via the Navigation Picker in the admin panel.
+
+**Fixed:**
+- iOS delivery incorrectly stripped `image`, `image_url`, and `attachment` data keys from notifications — regression introduced in v1.4.0 by the HTML stripping feature; filter removed.
+- Queued single-entry notifications discarded all original data fields (image, url, custom keys) on delivery.
+
+### v1.4.0
 
 **Added:**
 - **Device recipients** — admins configure shared devices (TVs, speakers, tablets) in a new Devices tab. Each recipient has its own subscriptions and conditions. Push and TTS delivery types supported; TTS uses announce mode, snapshot/restore, or plain fallback in priority order.

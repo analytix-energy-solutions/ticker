@@ -61,6 +61,11 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Device recipients** - send notifications to shared devices (TVs, speakers, tablets) independently of household members, with TTS and push support *(v1.4.0)*
 - **Critical notifications** - single `critical: true` flag translates to platform-specific critical alert payloads on both iOS and Android *(v1.4.0)*
 - **Alarmo and blueprint compatibility** - Ticker registers as a standard `notify.ticker` service, discoverable by Alarmo and any integration scanning for notify services *(v1.4.0)*
+- **AND/OR condition grouping** - Mix AND and OR logic in the conditions builder with up to two nesting levels. Existing conditions migrate automatically *(v1.5.0)*
+- **Automations Manager** - Admin tab that surfaces every automation and script using `ticker.notify` with inline editing, no automation editor required *(v1.5.0)*
+- **Action Sets Library** - Reusable action button sets managed from a central library tab, referenced by ID from any category *(v1.5.0)*
+- **Smart notification management** - Auto-grouping, auto-tagging, sticky/persistent flags, and `ticker.clear_notification` service injected automatically at delivery time *(v1.5.0)*
+- **Notification navigation target** - `navigate_to` parameter on `ticker.notify` deep-links to any HA panel on notification tap, with a live navigation picker in the admin panel *(v1.5.0)*
 - **Device routing** - global device preference plus per-category overrides
 - **Notification history** - grouped by notification call, with deep-link from phone notifications
 - **Dashboard sensors** - `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
@@ -72,6 +77,15 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 This integration is being developed with AI assistance. 
 
 ## Version history
+
+### v1.5.0
+
+- **AND/OR condition grouping** — the conditions builder now supports mixed AND/OR logic. Toggle the operator pill between conditions, or group adjacent conditions into a sub-group with its own operator. Up to two nesting levels. Existing flat conditions migrate automatically.
+- **Automations Manager** — a new Automations tab in the admin panel surfaces every automation and script that uses `ticker.notify`, with inline editing of category, title, message, and more without opening the automation editor.
+- **Action Sets Library** — action sets are now a first-class resource managed from a dedicated library tab rather than embedded inside individual categories. Any category can reference a shared action set by ID.
+- **Smart notification management** — per-category auto-grouping, auto-tagging for replacement, `ticker.clear_notification` service, and persistent/sticky status notifications, all injected automatically at delivery time.
+- **Notification navigation target** — a `navigate_to` parameter on `ticker.notify` deep-links to any HA panel when a notification is tapped. The admin panel includes a live navigation picker populated from the sidebar panel registry.
+- Bug fixes: iOS delivery incorrectly stripped image data from notifications (regression in v1.4.0); queued single-entry notifications discarded all original data fields on delivery.
 
 ### v1.4.0
 
