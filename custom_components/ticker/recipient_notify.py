@@ -20,6 +20,7 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     DEFAULT_EXPIRATION_HOURS,
+    DEFAULT_NAVIGATE_TO,
     DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_PERSISTENT,
     DELIVERY_FORMAT_RICH,
@@ -34,6 +35,8 @@ from .const import (
 from .formatting import (
     detect_delivery_format,
     inject_critical_payload,
+    inject_navigate_to,
+    inject_smart_notification,
     resolve_ios_platform,
     transform_payload_for_format,
 )
@@ -61,6 +64,8 @@ async def async_send_to_recipient(
     data: dict[str, Any] | None = None,
     notification_id: str | None = None,
     suppress_actions: bool = False,
+    action_set_id: str | None = None,
+    navigate_to: str | None = None,
 ) -> dict[str, list[str]]:
     """Send a notification to a recipient based on its device_type.
 
@@ -78,6 +83,8 @@ async def async_send_to_recipient(
         data: Optional extra data dict.
         notification_id: Unique notification call ID for log grouping.
         suppress_actions: Whether to suppress action buttons.
+        action_set_id: Optional action set ID override.
+        navigate_to: Optional URL/path override for tap-to-navigate.
 
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists.
@@ -92,7 +99,7 @@ async def async_send_to_recipient(
 
     return await _async_send_push(
         hass, store, recipient, category_id, title, message,
-        data, notification_id, suppress_actions,
+        data, notification_id, suppress_actions, action_set_id, navigate_to,
     )
 
 
@@ -106,6 +113,8 @@ async def _async_send_push(
     data: dict[str, Any] | None = None,
     notification_id: str | None = None,
     suppress_actions: bool = False,
+    action_set_id: str | None = None,
+    navigate_to: str | None = None,
 ) -> dict[str, list[str]]:
     """Send a push notification to a recipient's notify services.
 
@@ -123,6 +132,8 @@ async def _async_send_push(
         data: Optional extra data dict.
         notification_id: Unique notification call ID for log grouping.
         suppress_actions: Whether to suppress action buttons.
+        action_set_id: Optional action set ID override.
+        navigate_to: Optional URL/path override for tap-to-navigate.
 
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists.
@@ -182,16 +193,35 @@ async def _async_send_push(
         if delivery_format not in _NO_ACTION_FORMATS and "data" not in payload:
             payload["data"] = {}
 
-        # Inject action buttons for supported formats
+        # F-5/F-5b: Inject action buttons via resolved action set
+        category = store.get_category(category_id)
         if not effective_suppress and "data" in payload:
-            if "actions" not in payload["data"]:
-                category = store.get_category(category_id)
-                if category and category.get("action_set") and notification_id:
-                    from .actions import build_action_payload
+            if "actions" not in payload["data"] and notification_id:
+                from .actions import build_action_payload, resolve_action_set
 
+                action_set, resolved_id = resolve_action_set(
+                    store, category, action_set_id,
+                )
+                if action_set and resolved_id:
                     payload["data"]["actions"] = build_action_payload(
-                        category, notification_id
+                        action_set, resolved_id, notification_id
                     )
+
+        # F-6: Inject smart notification fields (group, tag, sticky, persistent)
+        smart_config = (category or {}).get("smart_notification")
+        if smart_config and isinstance(payload.get("data"), dict):
+            inject_smart_notification(
+                payload["data"], category_id, title, smart_config, delivery_format
+            )
+
+        # F-22: Inject tap-to-navigate deep-link (per-call > category > default)
+        if isinstance(payload.get("data"), dict):
+            resolved_navigate_to = (
+                navigate_to
+                or (category or {}).get("navigate_to")
+                or DEFAULT_NAVIGATE_TO
+            )
+            inject_navigate_to(payload["data"], resolved_navigate_to, delivery_format)
 
         try:
             domain, service_name = service_id.split(".", 1)
@@ -264,6 +294,8 @@ async def async_handle_conditional_recipient(
     expiration: int = DEFAULT_EXPIRATION_HOURS,
     notification_id: str | None = None,
     suppress_actions: bool = False,
+    action_set_id: str | None = None,
+    navigate_to: str | None = None,
 ) -> dict[str, list[str]]:
     """Handle conditional delivery for a recipient.
 
@@ -282,6 +314,8 @@ async def async_handle_conditional_recipient(
         expiration: Hours until queued notification expires.
         notification_id: Unique notification call ID for log grouping.
         suppress_actions: Whether to suppress action buttons.
+        action_set_id: Optional action set ID override.
+        navigate_to: Optional URL/path override for tap-to-navigate.
 
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists.
@@ -305,6 +339,7 @@ async def async_handle_conditional_recipient(
         return await async_send_to_recipient(
             hass, store, recipient, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
+            action_set_id=action_set_id, navigate_to=navigate_to,
         )
 
     # person_state=None tells conditions.py to skip zone rules
@@ -318,6 +353,7 @@ async def async_handle_conditional_recipient(
         return await async_send_to_recipient(
             hass, store, recipient, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
+            action_set_id=action_set_id, navigate_to=navigate_to,
         )
 
     do_queue, queue_reason = should_queue(hass, conditions, None)

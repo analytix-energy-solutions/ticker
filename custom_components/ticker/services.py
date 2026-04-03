@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import TYPE_CHECKING, Any
-
-import voluptuous as vol
+from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_set_service_schema
 
 from homeassistant.util import dt as dt_util
@@ -26,14 +23,14 @@ from .const import (
     ATTR_DATA,
     ATTR_ACTIONS,
     ATTR_CRITICAL,
+    ATTR_NAVIGATE_TO,
     DEFAULT_EXPIRATION_HOURS,
-    MAX_EXPIRATION_HOURS,
     MODE_ALWAYS,
     MODE_NEVER,
     MODE_CONDITIONAL,
     LOG_OUTCOME_SKIPPED,
-    CATEGORY_DEFAULT_NAME,
 )
+from .service_schema import _build_service_schema, _build_service_description
 from .conditions import evaluate_condition_tree
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
@@ -47,108 +44,6 @@ if TYPE_CHECKING:
     from .store import TickerStore
 
 _LOGGER = logging.getLogger(__name__)
-
-
-def _build_service_schema() -> vol.Schema:
-    """Build basic service schema (categories validated at runtime)."""
-    return vol.Schema(
-        {
-            vol.Required(ATTR_CATEGORY): cv.string,
-            vol.Required(ATTR_TITLE): cv.string,
-            vol.Required(ATTR_MESSAGE): cv.string,
-            vol.Optional(ATTR_EXPIRATION, default=DEFAULT_EXPIRATION_HOURS): vol.All(
-                vol.Coerce(int), vol.Range(min=1, max=MAX_EXPIRATION_HOURS)
-            ),
-            vol.Optional(ATTR_DATA, default={}): dict,
-            vol.Optional(ATTR_ACTIONS): vol.In(["category_default", "none"]),
-            vol.Optional(ATTR_CRITICAL): bool,
-        }
-    )
-
-
-def _build_service_description(store: "TickerStore | None") -> dict[str, Any]:
-    """Build service description with current categories for UI."""
-    if store:
-        categories = store.get_categories()
-        category_options = [cat["name"] for cat in categories.values()]
-    else:
-        category_options = [CATEGORY_DEFAULT_NAME]
-
-    return {
-        "name": "Send notification",
-        "description": "Send a notification through Ticker to subscribed users",
-        "fields": {
-            ATTR_CATEGORY: {
-                "name": "Category",
-                "description": "The notification category",
-                "required": True,
-                "example": CATEGORY_DEFAULT_NAME,
-                "selector": {
-                    "select": {
-                        "options": category_options,
-                        "mode": "dropdown",
-                    }
-                },
-            },
-            ATTR_TITLE: {
-                "name": "Title",
-                "description": "The notification title",
-                "required": True,
-                "example": "Motion Detected",
-                "selector": {"text": {}},
-            },
-            ATTR_MESSAGE: {
-                "name": "Message",
-                "description": "The notification message body",
-                "required": True,
-                "example": "Motion detected at front door",
-                "selector": {"text": {"multiline": True}},
-            },
-            ATTR_EXPIRATION: {
-                "name": "Expiration",
-                "description": "Hours until notification expires (for queued notifications)",
-                "required": False,
-                "default": DEFAULT_EXPIRATION_HOURS,
-                "example": 24,
-                "selector": {
-                    "number": {
-                        "min": 1,
-                        "max": MAX_EXPIRATION_HOURS,
-                        "unit_of_measurement": "hours",
-                    }
-                },
-            },
-            ATTR_DATA: {
-                "name": "Data",
-                "description": "Additional data to pass to the underlying notify service",
-                "required": False,
-                "example": '{"image": "/local/snapshot.jpg"}',
-                "selector": {"object": {}},
-            },
-            ATTR_ACTIONS: {
-                "name": "Actions",
-                "description": "Action button behavior: category_default (use category action set) or none (suppress)",
-                "required": False,
-                "default": "category_default",
-                "selector": {
-                    "select": {
-                        "options": ["category_default", "none"],
-                        "mode": "dropdown",
-                    }
-                },
-            },
-            ATTR_CRITICAL: {
-                "name": "Critical",
-                "description": (
-                    "Send as critical notification (bypasses Do Not "
-                    "Disturb and silent mode). If omitted, inherits "
-                    "from category setting."
-                ),
-                "required": False,
-                "selector": {"boolean": {}},
-            },
-        },
-    }
 
 
 def _get_loaded_entry(hass: HomeAssistant) -> "TickerConfigEntry":
@@ -219,6 +114,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         data = dict(call.data.get(ATTR_DATA, {}))
         actions_param = call.data.get(ATTR_ACTIONS)
         suppress_actions = actions_param == "none"
+        navigate_to = call.data.get(ATTR_NAVIGATE_TO)
 
         # Resolve category (raises ServiceValidationError if invalid)
         category_id = _resolve_category_id(category_input, store)
@@ -292,6 +188,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     hass, store, person_id, person_name, category_id, title, message,
                     data, notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
@@ -311,6 +208,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     expiration=expiration,
                     notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
@@ -387,6 +285,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     hass, store, r_data, category_id, title, message, data,
                     notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
@@ -398,6 +297,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     expiration,
                     notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
@@ -448,7 +348,7 @@ def register_schema_updater(hass: HomeAssistant, entry: "TickerConfigEntry") -> 
             hass,
             DOMAIN,
             SERVICE_NOTIFY,
-            _build_service_description(store),
+            _build_service_description(store, hass=hass),
         )
         _LOGGER.debug("Updated ticker.notify service schema with new categories")
 

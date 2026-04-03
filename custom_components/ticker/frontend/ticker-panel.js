@@ -95,6 +95,7 @@ class TickerPanel extends HTMLElement {
       `${base}/ticker-styles.js`,
       `${base}/ticker-styles-extended.js`,
       `${base}/ticker-conditions-styles.js`,
+      `${base}/ticker-conditions-tree.js`,
       `${base}/ticker-conditions-ui.js`,
       `${base}/user/user-panel-styles.js`,
       `${base}/user/recovery-handlers.js`,

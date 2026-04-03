@@ -27,9 +27,9 @@ from custom_components.ticker.const import (
 
 
 class TestVersion:
-    def test_version_is_141(self):
-        """Version bumped to 1.4.1 for F-20."""
-        assert VERSION == "1.4.1"
+    def test_version_is_140(self):
+        """Version is 1.4.0."""
+        assert VERSION == "1.4.0"
 
 
 class TestDeviceTypes:

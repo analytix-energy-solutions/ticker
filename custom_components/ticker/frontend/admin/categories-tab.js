@@ -58,6 +58,7 @@ window.Ticker.AdminCategoriesTab = {
             <ha-icon icon="${escIcon}" style="--mdc-icon-size:18px"></ha-icon>
             ${escName}
             ${c.is_default ? '<span class="badge badge-outline">Default</span>' : ''}
+            ${this._hasSmartConfig(c) ? '<span class="badge" style="background:var(--ticker-info)">Smart</span>' : ''}
           </span>
           <span class="list-item-subtitle">${subText}</span>
         </div>
@@ -79,6 +80,8 @@ window.Ticker.AdminCategoriesTab = {
       content = this._renderModeTab(c, escId);
     } else if (subTab === 'actions') {
       content = this._renderActionsTab(c, state);
+    } else if (subTab === 'smart') {
+      content = this._renderSmartTab(c, escId);
     }
 
     const accordion = `
@@ -101,6 +104,7 @@ window.Ticker.AdminCategoriesTab = {
       { id: 'general', label: 'General' },
       { id: 'mode', label: 'Default Mode' },
       { id: 'actions', label: 'Actions' },
+      { id: 'smart', label: 'Smart' },
     ];
 
     const btns = tabs.map(t => {
@@ -145,6 +149,7 @@ window.Ticker.AdminCategoriesTab = {
           </div>
         </div>
       </div>
+      ${window.Ticker.NavigationPicker.render(c.navigate_to || '', 'cat-edit', { panels: window.Ticker._adminPanel._hasPanels || [], dashboards: window.Ticker._adminPanel._lovelaceDashboards || [], views: window.Ticker._adminPanel._lovelaceViews || {} })}
     `;
   },
 
@@ -181,19 +186,108 @@ window.Ticker.AdminCategoriesTab = {
   },
 
   _renderActionsTab(c, state) {
-    if (!window.Ticker.ActionSetEditor) return '<p>Action editor not loaded.</p>';
-    return `<div style="padding-top:8px">${window.Ticker.ActionSetEditor.render(c.id, c.action_set || null, state.scripts || [])}</div>`;
+    const { esc, escAttr } = window.Ticker.utils;
+    const ns = 'window.Ticker.AdminCategoriesTab';
+    const opts = (state.actionSets || []).map(as =>
+      `<option value="${escAttr(as.id)}" ${c.action_set_id === as.id ? 'selected' : ''}>${esc(as.name)} (${as.actions.length} actions)</option>`
+    ).join('');
+    return `<div style="padding-top:8px"><div class="form-group" style="margin-bottom:12px">
+      <label>Default Action Set</label>
+      <select id="cat-action-set-${escAttr(c.id)}" class="form-select" style="width:100%;box-sizing:border-box"
+        onchange="${ns}.handlers.saveActionSetId(window.Ticker._adminPanel,'${escAttr(c.id)}',this.value)">
+        <option value="">None (no action buttons)</option>${opts}</select>
+      <p style="margin:4px 0 0;font-size:12px;color:var(--secondary-text-color)">
+        Select an action set from the library. Manage action sets in the Action Sets tab.</p>
+    </div></div>`;
+  },
+
+  _hasSmartConfig(c) {
+    const s = c.smart_notification;
+    return s && (s.group || (s.tag_mode && s.tag_mode !== 'none') || s.sticky || s.persistent);
+  },
+
+  _renderSmartTab(c, escId) {
+    const s = c.smart_notification || {};
+    const group = !!s.group;
+    const tagMode = s.tag_mode || 'none';
+    const sticky = !!s.sticky;
+    const persistent = !!s.persistent;
+    const stickyForced = persistent;
+    const stickyChecked = sticky || persistent;
+    const ns = 'window.Ticker.AdminCategoriesTab';
+
+    return `
+      <div style="padding-top:8px">
+        <div style="font-size:14px;font-weight:600;color:var(--primary-text-color,#212121);margin-bottom:12px">Smart Delivery</div>
+
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--divider,#e0e0e0)">
+          <label class="toggle" style="margin:0">
+            <input type="checkbox" id="smart-group-${escId}" ${group ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+          <div>
+            <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Group notifications</span>
+            <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+              Group all notifications from this category together in the notification shade.
+            </div>
+          </div>
+        </div>
+
+        <div style="padding:10px 0;border-bottom:1px solid var(--divider,#e0e0e0)">
+          <div class="form-group">
+            <label>Notification replacement</label>
+            <select id="smart-tag-mode-${escId}" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)">
+              <option value="none" ${tagMode === 'none' ? 'selected' : ''}>None</option>
+              <option value="category" ${tagMode === 'category' ? 'selected' : ''}>Per category</option>
+              <option value="title" ${tagMode === 'title' ? 'selected' : ''}>Per title</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--divider,#e0e0e0)">
+          <label class="toggle" style="margin:0${stickyForced ? ';opacity:0.5;pointer-events:none' : ''}">
+            <input type="checkbox" id="smart-sticky-${escId}" ${stickyChecked ? 'checked' : ''} ${stickyForced ? 'disabled' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+          <div>
+            <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Sticky (keep visible)</span>
+            <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+              Cannot be swiped away on device.${stickyForced ? ' Forced on by Persistent.' : ''}
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 0">
+          <label class="toggle" style="margin:0">
+            <input type="checkbox" id="smart-persistent-${escId}" ${persistent ? 'checked' : ''}
+              onchange="${ns}.handlers.persistentChanged(window.Ticker._adminPanel, '${escId}')">
+            <span class="toggle-slider"></span>
+          </label>
+          <div>
+            <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Persistent</span>
+            <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+              Cannot be dismissed. Requires <code>ticker.clear_notification</code> to remove.
+            </div>
+          </div>
+        </div>
+        ${persistent ? `
+          <div class="warning-banner">
+            <ha-icon icon="mdi:alert" style="--mdc-icon-size:16px;color:var(--ticker-warning-dark)"></ha-icon>
+            Persistent notifications cannot be dismissed by the user. Use with caution.
+          </div>
+        ` : ''}
+
+        <div class="button-row" style="margin-top:16px">
+          <button class="btn btn-primary" onclick="${ns}.handlers.saveSmart(window.Ticker._adminPanel, '${escId}')">Save</button>
+        </div>
+      </div>
+    `;
   },
 
   _renderNewCategoryItem(state) {
     const expanded = state.addingCategory;
-    const expandIcon = `
-      <svg class="expand-icon ${expanded ? 'open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <polyline points="6,9 12,15 18,9"></polyline>
-      </svg>
-    `;
+    const expandIcon = `<svg class="expand-icon ${expanded ? 'open' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"></polyline></svg>`;
     const headerStyle = `border-left:3px solid ${expanded ? 'var(--ticker-500)' : 'transparent'};background:${expanded ? 'var(--ticker-500-alpha-8)' : 'transparent'}`;
-
     const header = `
       <div class="list-item-header" onclick="window.Ticker.AdminCategoriesTab.handlers.toggleAdd(window.Ticker._adminPanel)" style="${headerStyle}">
         <div class="list-item-content">
@@ -203,42 +297,25 @@ window.Ticker.AdminCategoriesTab = {
           </span>
         </div>
         <div class="list-item-actions">${expandIcon}</div>
-      </div>
-    `;
-
+      </div>`;
     if (!expanded) return `<div class="list-item">${header}</div>`;
-
+    const selStyle = 'padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)';
     const accordion = `
       <div class="accordion-content">
         <div class="form-row" style="padding-top:12px">
-          <div class="form-group">
-            <label>Name</label>
-            <input type="text" id="new-category-name" placeholder="e.g. Security" style="min-width:180px">
-          </div>
-          <div class="form-group">
-            <label>Icon</label>
-            <input type="text" id="new-category-icon" placeholder="mdi:bell" style="width:100px">
-          </div>
-          <div class="form-group">
-            <label>Color</label>
-            <input type="color" id="new-category-color" value="${window.Ticker.styles.brandPrimary}">
-          </div>
-          <div class="form-group">
-            <label>Default Mode</label>
-            <select id="new-category-default-mode" style="padding:6px 10px;border:1px solid var(--divider,#e0e0e0);border-radius:4px;font-size:13px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#212121)">
-              <option value="always" selected>Always</option>
-              <option value="never">Never</option>
-              <option value="conditional">Conditional</option>
-            </select>
-          </div>
+          <div class="form-group"><label>Name</label><input type="text" id="new-category-name" placeholder="e.g. Security" style="min-width:180px"></div>
+          <div class="form-group"><label>Icon</label><input type="text" id="new-category-icon" placeholder="mdi:bell" style="width:100px"></div>
+          <div class="form-group"><label>Color</label><input type="color" id="new-category-color" value="${window.Ticker.styles.brandPrimary}"></div>
+          <div class="form-group"><label>Default Mode</label>
+            <select id="new-category-default-mode" style="${selStyle}">
+              <option value="always" selected>Always</option><option value="never">Never</option><option value="conditional">Conditional</option>
+            </select></div>
         </div>
         <div class="button-row">
           <button class="btn btn-primary" onclick="window.Ticker.AdminCategoriesTab.handlers.create(window.Ticker._adminPanel)">Create Category</button>
           <button class="btn btn-secondary" onclick="window.Ticker.AdminCategoriesTab.handlers.cancelEdit(window.Ticker._adminPanel)">Cancel</button>
         </div>
-      </div>
-    `;
-
+      </div>`;
     return `<div class="list-item">${header}${accordion}</div>`;
   },
 
@@ -290,7 +367,7 @@ window.Ticker.AdminCategoriesTab = {
           panel._pendingDefaultConditions = {
             deliver_when_met: true,
             queue_until_met: true,
-            rules: [{ type: 'zone', zone_id: 'zone.home' }],
+            condition_tree: { type: 'group', operator: 'AND', children: [{ type: 'zone', zone_id: 'zone.home' }] },
           };
         }
       } else {
@@ -341,6 +418,12 @@ window.Ticker.AdminCategoriesTab = {
       try {
         const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
         if (criticalEl) { params.critical = criticalEl.checked; }
+        // Only read navigate_to when the picker is in the DOM (General sub-tab).
+        // Omitting it lets the backend's sparse update preserve the existing value.
+        const navPresetEl = panel.shadowRoot.getElementById('nav-preset-cat-edit');
+        if (navPresetEl) {
+          params.navigate_to = window.Ticker.NavigationPicker.read(panel.shadowRoot, 'cat-edit');
+        }
 
         if (defaultMode === 'conditional') {
           params.default_mode = 'conditional';
@@ -358,6 +441,45 @@ window.Ticker.AdminCategoriesTab = {
         panel._renderTabContentPreserveScroll();
         panel._showSuccess('Updated');
       } catch (err) { panel._showError(err.message); }
+    },
+
+    persistentChanged(panel, categoryId) {
+      panel._renderTabContentPreserveScroll();
+    },
+
+    async saveSmart(panel, categoryId) {
+      const root = panel.shadowRoot;
+      const group = root.getElementById(`smart-group-${categoryId}`)?.checked || false;
+      const tagMode = root.getElementById(`smart-tag-mode-${categoryId}`)?.value || 'none';
+      const persistent = root.getElementById(`smart-persistent-${categoryId}`)?.checked || false;
+      const stickyEl = root.getElementById(`smart-sticky-${categoryId}`);
+      const sticky = persistent || (stickyEl?.checked || false);
+
+      try {
+        await panel._hass.callWS({
+          type: 'ticker/category/update',
+          category_id: categoryId,
+          smart_notification: { group, tag_mode: tagMode, sticky, persistent },
+        });
+        await panel._loadCategories();
+        panel._renderTabContentPreserveScroll();
+        panel._showSuccess('Smart delivery updated');
+      } catch (err) { panel._showError(err.message); }
+    },
+
+    async saveActionSetId(panel, categoryId, actionSetId) {
+      try {
+        await panel._hass.callWS({
+          type: 'ticker/category/update',
+          category_id: categoryId,
+          action_set_id: actionSetId || '',  // empty string clears
+        });
+        await panel._loadCategories();
+        panel._renderTabContentPreserveScroll();
+        panel._showSuccess('Action set updated');
+      } catch (e) {
+        panel._showError(e.message || 'Failed to update action set');
+      }
     },
 
     async delete(panel, categoryId) {

@@ -8,12 +8,31 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.helpers.storage import Store
 
-from ..const import CATEGORY_DEFAULT, CATEGORY_DEFAULT_NAME
+from ..const import CATEGORY_DEFAULT, CATEGORY_DEFAULT_NAME, SMART_TAG_MODE_NONE
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _has_active_smart_config(config: dict) -> bool:
+    """Check if smart_notification config has any non-default values.
+
+    The default tag_mode is "none" which is truthy, so a naive
+    ``any(config.values())`` check would incorrectly treat an
+    all-default config as active. This helper inspects each field
+    individually against its default.
+    """
+    if config.get("group"):
+        return True
+    if config.get("tag_mode", SMART_TAG_MODE_NONE) != SMART_TAG_MODE_NONE:
+        return True
+    if config.get("sticky"):
+        return True
+    if config.get("persistent"):
+        return True
+    return False
 
 
 class CategoryMixin:
@@ -78,6 +97,9 @@ class CategoryMixin:
         default_mode: str | None = None,
         default_conditions: dict[str, Any] | None = None,
         critical: bool = False,
+        smart_notification: dict[str, Any] | None = None,
+        action_set_id: str | None = None,
+        navigate_to: str | None = None,
     ) -> dict[str, Any]:
         """Create a new category.
 
@@ -95,6 +117,13 @@ class CategoryMixin:
                 critical by default. The category dict omits the "critical" key when
                 False (sparse storage). Per-call overrides on ticker.notify always take
                 precedence over this category-level default.
+            smart_notification: Optional dict of smart notification settings (group,
+                tag, sticky, persistent). Omitted when None or all-default (sparse).
+            action_set_id: Optional reference to a library action set. Omitted when None
+                (sparse storage). An empty string clears any existing reference.
+            navigate_to: Optional URL or HA path for tap-to-navigate on notification
+                click (e.g., "/lovelace/cameras"). Omitted when None (sparse storage);
+                the global default is applied at send time by formatting.py.
         """
         category: dict[str, Any] = {
             "id": category_id,
@@ -109,6 +138,12 @@ class CategoryMixin:
             category["default_conditions"] = default_conditions
         if critical:
             category["critical"] = True
+        if smart_notification and _has_active_smart_config(smart_notification):
+            category["smart_notification"] = smart_notification
+        if action_set_id:
+            category["action_set_id"] = action_set_id
+        if navigate_to:
+            category["navigate_to"] = navigate_to
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -124,12 +159,23 @@ class CategoryMixin:
         default_conditions: dict[str, Any] | None = None,
         clear_defaults: bool = False,
         critical: bool | None = None,
+        smart_notification: dict[str, Any] | None = None,
+        clear_smart_notification: bool = False,
+        action_set_id: str | None = None,
+        navigate_to: str | None = None,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
         Args:
             clear_defaults: If True, remove default_mode and default_conditions.
             critical: If provided, set the critical flag on the category.
+            smart_notification: If provided, set or clear smart notification config.
+                A non-empty dict with truthy values is stored; an empty or all-default
+                dict removes the key (sparse storage).
+            clear_smart_notification: If True, explicitly remove smart_notification
+                from the category dict. Takes precedence over smart_notification arg.
+            navigate_to: If provided, set the tap-to-navigate URL on the category.
+                A non-empty string is stored; an empty string clears the key (sparse).
         """
         if category_id not in self._categories:
             return None
@@ -147,6 +193,28 @@ class CategoryMixin:
                 category["critical"] = True
             else:
                 category.pop("critical", None)
+
+        if clear_smart_notification:
+            category.pop("smart_notification", None)
+        elif smart_notification is not None:
+            if smart_notification and _has_active_smart_config(smart_notification):
+                category["smart_notification"] = smart_notification
+            else:
+                category.pop("smart_notification", None)
+
+        # action_set_id: non-empty string sets, empty string clears (sparse)
+        if action_set_id is not None:
+            if action_set_id:
+                category["action_set_id"] = action_set_id
+            else:
+                category.pop("action_set_id", None)
+
+        # navigate_to: non-empty string sets, empty string clears (sparse)
+        if navigate_to is not None:
+            if navigate_to:
+                category["navigate_to"] = navigate_to
+            else:
+                category.pop("navigate_to", None)
 
         if clear_defaults:
             category.pop("default_mode", None)
@@ -193,25 +261,6 @@ class CategoryMixin:
 
         _LOGGER.info("Deleted category: %s", category_id)
         return True
-
-    async def async_update_category_action_set(
-        self, category_id: str, action_set: dict[str, Any] | None
-    ) -> dict[str, Any] | None:
-        """Set or clear the action_set on a category."""
-        if category_id not in self._categories:
-            return None
-
-        category = self._categories[category_id]
-
-        if action_set is None:
-            category.pop("action_set", None)
-        else:
-            category["action_set"] = action_set
-
-        category["updated_at"] = datetime.now(timezone.utc).isoformat()
-        await self.async_save_categories()
-        _LOGGER.info("Updated action_set for category: %s", category_id)
-        return category
 
     async def _async_ensure_default_category(self) -> None:
         """Ensure the default 'General' category exists."""

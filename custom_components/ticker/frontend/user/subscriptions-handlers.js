@@ -19,10 +19,11 @@ window.Ticker.UserSubscriptionsTab.handlers = {
       const conditions = {
         deliver_when_met: true,
         queue_until_met: true,
-        rules: [{
-          type: 'zone',
-          zone_id: 'zone.home',
-        }],
+        condition_tree: {
+          type: 'group',
+          operator: 'AND',
+          children: [{ type: 'zone', zone_id: 'zone.home' }],
+        },
       };
       panel._expandedCategories.add(categoryId);
       await this.setSubscription(panel, categoryId, newMode, conditions, existingOverride);
@@ -58,43 +59,32 @@ window.Ticker.UserSubscriptionsTab.handlers = {
   },
 
   async handleRulesChanged(panel, categoryId, detail) {
-    const { rules, deliver_when_met, queue_until_met } = detail;
+    const { condition_tree, deliver_when_met, queue_until_met } = detail;
     const sub = panel._subscriptions[categoryId] || {};
     const deviceOverride = sub.device_override || { enabled: false, devices: [] };
-    if (!rules || rules.length === 0) {
+    // No children in tree means no conditions: revert to always
+    const leaves = window.Ticker.conditionsTree.collectLeaves(condition_tree);
+    if (leaves.length === 0) {
       await this.setSubscription(panel, categoryId, 'always', null, deviceOverride);
       return;
     }
     const conditions = {
       deliver_when_met: deliver_when_met,
       queue_until_met: queue_until_met,
-      rules: rules,
+      condition_tree: condition_tree,
     };
-    await this._saveRulesWithoutRerender(panel, categoryId, conditions, deviceOverride);
+    await this._saveTreeWithoutRerender(panel, categoryId, conditions, deviceOverride);
   },
 
   /**
-   * Save rules without triggering a full re-render.
+   * Save condition tree without triggering a full re-render.
    * This preserves the conditions UI expanded state.
-   * Incomplete rules (e.g. state rules missing entity_id/state)
-   * are kept in local state but excluded from the backend call.
+   * Incomplete leaves (e.g. state rules missing entity_id/state)
+   * are pruned from the backend payload but kept in local state.
    */
-  async _saveRulesWithoutRerender(panel, categoryId, conditions, deviceOverride) {
+  async _saveTreeWithoutRerender(panel, categoryId, conditions, deviceOverride) {
     if (!panel._currentPerson) return;
-    // Filter out incomplete rules for backend validation
-    const validRules = (conditions.rules || []).filter(rule => {
-      if (rule.type === 'state') {
-        return rule.entity_id && rule.state;
-      }
-      if (rule.type === 'zone') {
-        return !!rule.zone_id;
-      }
-      if (rule.type === 'time') {
-        return rule.after && rule.before;
-      }
-      return true;
-    });
-    // Always update local state with full rules (including incomplete)
+    // Always update local state with full tree (including incomplete leaves)
     if (!panel._subscriptions[categoryId]) {
       panel._subscriptions[categoryId] = {};
     }
@@ -103,13 +93,16 @@ window.Ticker.UserSubscriptionsTab.handlers = {
     if (deviceOverride !== null) {
       panel._subscriptions[categoryId].device_override = deviceOverride;
     }
-    // Skip backend save if no complete rules yet
-    if (validRules.length === 0) return;
+    // Prune incomplete leaves for backend validation
+    const tree = conditions.condition_tree;
+    const pruned = window.Ticker.conditionsTree.pruneTree(tree);
+    const validLeaves = window.Ticker.conditionsTree.collectLeaves(pruned);
+    if (validLeaves.length === 0) return;
     try {
       const saveConditions = {
         deliver_when_met: conditions.deliver_when_met,
         queue_until_met: conditions.queue_until_met,
-        rules: validRules,
+        condition_tree: pruned,
       };
       const params = {
         type: 'ticker/subscription/set',

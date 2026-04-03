@@ -80,7 +80,10 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
         : '<span class="badge badge-warning">No services</span>';
     }
 
-    const hasDeviceConditions = !!(r.conditions && r.conditions.rules && r.conditions.rules.length > 0);
+    const hasDeviceConditions = !!(r.conditions && (
+      (r.conditions.condition_tree && r.conditions.condition_tree.children && r.conditions.condition_tree.children.length > 0) ||
+      (r.conditions.rules && r.conditions.rules.length > 0)
+    ));
     const conditionsBadge = hasDeviceConditions
       ? `<span class="badge badge-outline" style="font-size:10px;margin-left:4px">Conditions</span>`
       : '';
@@ -246,9 +249,12 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
         if (!conditionsUI) continue;
 
         const conditions = subObj.conditions || {};
-        const rules = conditions.rules || [];
-
-        conditionsUI.rules = rules;
+        // Use condition_tree if available, fall back to wrapping flat rules
+        if (conditions.condition_tree) {
+          conditionsUI.tree = conditions.condition_tree;
+        } else {
+          conditionsUI.rules = conditions.rules || [];
+        }
         conditionsUI.deliverWhenMet = conditions.deliver_when_met || false;
         conditionsUI.queueUntilMet = conditions.queue_until_met || false;
         conditionsUI.zones = panel._zones;

@@ -70,9 +70,9 @@ async def async_convert_notification(
     if apply_directly:
         try:
             if finding["source_type"] == MIGRATE_SOURCE_AUTOMATION:
-                await _apply_to_automation(hass, finding, new_action)
+                await apply_to_automation(hass, finding, new_action)
             else:
-                await _apply_to_script(hass, finding, new_action)
+                await apply_to_script(hass, finding, new_action)
             result["applied"] = True
             _LOGGER.info("Converted %s to ticker.notify (category: %s)", finding["source_id"], category_name)
         except Exception as e:
@@ -83,7 +83,7 @@ async def async_convert_notification(
     return result
 
 
-async def _apply_to_automation(
+async def apply_to_automation(
     hass: HomeAssistant,
     finding: dict[str, Any],
     new_action: dict[str, Any],
@@ -151,7 +151,7 @@ async def _apply_to_ui_automation(
     await hass.services.async_call("automation", "reload")
 
 
-async def _apply_to_script(
+async def apply_to_script(
     hass: HomeAssistant,
     finding: dict[str, Any],
     new_action: dict[str, Any],

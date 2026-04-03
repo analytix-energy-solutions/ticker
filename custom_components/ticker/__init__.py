@@ -28,6 +28,7 @@ from .const import (
     STORAGE_KEY_LOGS,
     STORAGE_KEY_SNOOZES,
     STORAGE_KEY_RECIPIENTS,
+    STORAGE_KEY_ACTION_SETS,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
@@ -58,6 +59,7 @@ class TickerData:
 
     store: TickerStore
     category_listener: Callable[[], None] | None = None
+    action_set_listener: Callable[[], None] | None = None
     unsub_arrival: Callable[[], None] | None = None
     unsub_actions: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
@@ -132,6 +134,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     store.register_category_listener(on_category_change)
     runtime_data.category_listener = on_category_change
 
+    # Refresh service schema when action sets change (F-5b)
+    store.register_action_set_listener(on_category_change)
+    runtime_data.action_set_listener = on_category_change
+
     # Set up person state listener for ON_ARRIVAL mode
     unsub_arrival = await async_setup_arrival_listener(hass, entry)
     runtime_data.unsub_arrival = unsub_arrival
@@ -165,6 +171,10 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     # Unregister category listener
     if runtime_data.category_listener:
         runtime_data.store.unregister_category_listener(runtime_data.category_listener)
+
+    # Unregister action set listener
+    if runtime_data.action_set_listener:
+        runtime_data.store.unregister_action_set_listener(runtime_data.action_set_listener)
 
     # Unregister arrival listener
     if runtime_data.unsub_arrival:
@@ -219,6 +229,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
         STORAGE_KEY_LOGS,
         STORAGE_KEY_SNOOZES,
         STORAGE_KEY_RECIPIENTS,
+        STORAGE_KEY_ACTION_SETS,
     ]
 
     for key in storage_keys:

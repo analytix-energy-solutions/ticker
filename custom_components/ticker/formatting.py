@@ -20,6 +20,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import slugify
 
 from .const import (
+    DEFAULT_NAVIGATE_TO,
     DELIVERY_FORMAT_RICH,
     DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_TTS,
@@ -27,20 +28,15 @@ from .const import (
     DELIVERY_FORMAT_PATTERNS,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
+    SMART_TAG_MODE_NONE,
+    SMART_TAG_MODE_CATEGORY,
+    SMART_TAG_MODE_TITLE,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 # Compiled regex for stripping HTML tags
 _HTML_TAG_PATTERN = re.compile(r"<[^>]+>")
-
-# F-16: Data keys stripped from plain-format payloads (image-related keys
-# that plain notification platforms cannot render)
-_PLAIN_STRIP_KEYS = frozenset({
-    "image",
-    "image_url",
-    "attachment",
-})
 
 
 def strip_html(text: str) -> str:
@@ -189,13 +185,7 @@ def transform_payload_for_format(
             "message": strip_html(message),
         }
         if data:
-            # F-16: Strip image-related keys that plain platforms cannot render
-            plain_data = {
-                k: v for k, v in data.items()
-                if k not in _PLAIN_STRIP_KEYS
-            }
-            if plain_data:
-                payload["data"] = plain_data
+            payload["data"] = dict(data)
         return payload
 
     if format_type == DELIVERY_FORMAT_TTS:
@@ -246,6 +236,111 @@ def inject_critical_payload(service_data: dict[str, Any], format_type: str) -> N
         data["importance"] = "high"
         data["channel"] = "ticker_critical"
         data["priority"] = "high"
+
+
+def build_smart_tag(
+    category_id: str, title: str | None, tag_mode: str
+) -> str | None:
+    """Build a tag string based on the smart tag mode.
+
+    Args:
+        category_id: The category slug identifier.
+        title: Notification title (used for title-based tags).
+        tag_mode: One of SMART_TAG_MODE_NONE, SMART_TAG_MODE_CATEGORY,
+            or SMART_TAG_MODE_TITLE.
+
+    Returns:
+        A tag string, or None if tag_mode is 'none'.
+    """
+    if tag_mode == SMART_TAG_MODE_NONE:
+        return None
+    if tag_mode == SMART_TAG_MODE_CATEGORY:
+        return f"ticker_{category_id}"
+    if tag_mode == SMART_TAG_MODE_TITLE:
+        return f"ticker_{category_id}_{slugify(title or 'untitled')}"
+    return None
+
+
+def inject_smart_notification(
+    enriched_data: dict[str, Any],
+    category_id: str,
+    title: str | None,
+    smart_config: dict[str, Any],
+    delivery_format: str,
+) -> None:
+    """Inject smart notification fields into the data payload.
+
+    Mutates enriched_data in-place. Only injects fields that the automation
+    has not already set (automation values always take precedence). Skips
+    entirely for TTS delivery format since TTS has no concept of grouping,
+    tags, or sticky notifications.
+
+    Args:
+        enriched_data: The notification data dict to mutate.
+        category_id: The category slug identifier.
+        title: Notification title.
+        smart_config: Smart notification config dict from the category.
+        delivery_format: The resolved delivery format string.
+    """
+    if delivery_format in (DELIVERY_FORMAT_TTS, DELIVERY_FORMAT_PERSISTENT):
+        return
+
+    # Group: collapse notifications by category
+    if smart_config.get("group") and "group" not in enriched_data:
+        enriched_data["group"] = f"ticker_{category_id}"
+
+    # Tag: replace previous notification (mode-dependent)
+    tag_mode = smart_config.get("tag_mode", SMART_TAG_MODE_NONE)
+    tag = build_smart_tag(category_id, title, tag_mode)
+    if tag and "tag" not in enriched_data:
+        enriched_data["tag"] = tag
+
+    # Sticky: notification persists until user dismisses it
+    if (
+        smart_config.get("sticky") or smart_config.get("persistent")
+    ) and "sticky" not in enriched_data:
+        enriched_data["sticky"] = "true"
+
+    # Persistent: notification survives app restart
+    if smart_config.get("persistent") and "persistent" not in enriched_data:
+        enriched_data["persistent"] = "true"
+
+
+def inject_navigate_to(
+    enriched_data: dict[str, Any],
+    navigate_to: str | None,
+    delivery_format: str,
+) -> None:
+    """Inject a clickAction/url into the data payload for tap-to-navigate.
+
+    Mutates enriched_data in-place. Only applies to push formats (rich and
+    plain) since TTS and persistent notifications have no concept of tap
+    navigation. Respects existing values — if the automation already set a
+    clickAction or url, this is a no-op.
+
+    The value comes from (in priority order):
+    1. Per-call ``navigate_to`` on ``ticker.notify``
+    2. Category-level ``navigate_to`` field
+    3. Global default ``DEFAULT_NAVIGATE_TO``
+
+    Args:
+        enriched_data: The notification data dict to mutate.
+        navigate_to: The resolved navigation URL/path, or None to use the
+            global default.
+        delivery_format: The resolved delivery format string.
+    """
+    if delivery_format in (DELIVERY_FORMAT_TTS, DELIVERY_FORMAT_PERSISTENT):
+        return
+
+    url = navigate_to or DEFAULT_NAVIGATE_TO
+
+    # Android (rich): clickAction
+    if "clickAction" not in enriched_data:
+        enriched_data["clickAction"] = url
+
+    # iOS (plain): url
+    if "url" not in enriched_data:
+        enriched_data["url"] = url
 
 
 def resolve_ios_platform(hass: HomeAssistant, service_id: str) -> bool:

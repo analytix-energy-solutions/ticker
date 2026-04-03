@@ -90,6 +90,31 @@ You do not need to handle platform differences in your automation. The same call
 
 Admins can also enable critical notifications at the category level from the category editor's General sub-tab. When a category has critical enabled, every notification sent to that category is treated as critical automatically — you do not need to include `critical: true` in the service call at all. If you do include `critical: true` or `critical: false` explicitly, that per-call value takes precedence over the category setting. This lets you send a non-critical test notification to an otherwise-critical category by passing `critical: false`, or force critical behavior for a specific call in a category that does not have it enabled by default.
 
+### Navigation target *(v1.5.0)*
+
+By default, tapping a notification from Ticker opens the Ticker history view (`/ticker#history`). You can override this per call with the `navigate_to` parameter:
+
+```yaml
+service: ticker.notify
+data:
+  category: security
+  title: "Motion Detected"
+  message: "Front door camera"
+  navigate_to: /lovelace/cameras
+```
+
+The value can be any HA Lovelace path (e.g., `/lovelace/0`, `/lovelace/cameras`) or a full HTTPS URL.
+
+Ticker injects the correct field per platform automatically — you do not need to set `clickAction` or `url` yourself:
+- **Android** — injects `clickAction` into the notification data.
+- **iOS** — injects `url` into the notification data.
+
+If the per-call `navigate_to` is omitted, Ticker falls back to the category-level default. Admins can configure a category default in the category editor's General sub-tab using the Navigation Picker. If neither is set, notifications navigate to `/ticker#history`.
+
+If your automation already sets `clickAction` or `url` explicitly in the `data` block, those values are preserved and `navigate_to` does not overwrite them.
+
+> **Note:** Per-call `navigate_to` is not preserved when a notification is queued. Queued notifications use the category default or the global default when they are eventually delivered.
+
 ### Controlling action button injection *(v1.3.0)*
 
 If a category has action buttons configured, Ticker injects them automatically into every outgoing notification. You can control this per call with the optional `actions` parameter:

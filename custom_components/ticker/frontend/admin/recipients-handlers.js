@@ -55,6 +55,7 @@ window.Ticker.AdminRecipientsTab.handlers = {
         mode: mode,
       };
       if (mode === 'conditional' && conditions) {
+        // Pass conditions as-is (may contain condition_tree or rules)
         params.conditions = conditions;
       }
       await panel._hass.callWS(params);
@@ -74,12 +75,16 @@ window.Ticker.AdminRecipientsTab.handlers = {
       const conditions = {
         deliver_when_met: true,
         queue_until_met: true,
-        rules: [{
-          type: 'time',
-          after: '08:00',
-          before: '22:00',
-          days: [1, 2, 3, 4, 5, 6, 7],
-        }],
+        condition_tree: {
+          type: 'group',
+          operator: 'AND',
+          children: [{
+            type: 'time',
+            after: '08:00',
+            before: '22:00',
+            days: [1, 2, 3, 4, 5, 6, 7],
+          }],
+        },
       };
       await this.setRecipientSubscription(panel, recipientId, categoryId, newMode, conditions);
     } else {
@@ -89,35 +94,30 @@ window.Ticker.AdminRecipientsTab.handlers = {
 
   /**
    * Handle rules-changed event from the conditions UI for a recipient subscription.
+   * Now receives condition_tree in detail instead of flat rules[].
    */
   async handleRecipientRulesChanged(panel, recipientId, categoryId, detail) {
-    const { rules, deliver_when_met, queue_until_met } = detail;
+    const { condition_tree, deliver_when_met, queue_until_met } = detail;
+    const leaves = window.Ticker.conditionsTree.collectLeaves(condition_tree);
 
-    if (!rules || rules.length === 0) {
-      // No rules left: fall back to always
+    if (leaves.length === 0) {
       await this.setRecipientSubscription(panel, recipientId, categoryId, 'always', null);
       return;
     }
 
-    // Filter incomplete rules for backend
-    const validRules = rules.filter(rule => {
-      if (rule.type === 'state') return rule.entity_id && rule.state;
-      if (rule.type === 'zone') return !!rule.zone_id;
-      if (rule.type === 'time') return rule.after && rule.before;
-      return true;
-    });
-
-    // Update local state immediately
+    // Update local state immediately with full tree
     const r = panel._recipients.find(x => x.recipient_id === recipientId);
     if (r && r.subscriptions && r.subscriptions[categoryId]) {
       r.subscriptions[categoryId] = {
         mode: 'conditional',
-        conditions: { deliver_when_met, queue_until_met, rules },
+        conditions: { deliver_when_met, queue_until_met, condition_tree },
       };
     }
 
-    // Skip backend if no complete rules
-    if (validRules.length === 0) return;
+    // Prune incomplete leaves for backend
+    const pruned = window.Ticker.conditionsTree.pruneTree(condition_tree);
+    const validLeaves = window.Ticker.conditionsTree.collectLeaves(pruned);
+    if (validLeaves.length === 0) return;
 
     try {
       await panel._hass.callWS({
@@ -128,7 +128,7 @@ window.Ticker.AdminRecipientsTab.handlers = {
         conditions: {
           deliver_when_met,
           queue_until_met,
-          rules: validRules,
+          condition_tree: pruned,
         },
       });
     } catch (err) {
@@ -198,7 +198,12 @@ window.Ticker.AdminRecipientsTab.handlers = {
       if (r.conditions) {
         conditionsEl.deliverWhenMet = r.conditions.deliver_when_met ?? true;
         conditionsEl.queueUntilMet = false;
-        conditionsEl.rules = r.conditions.rules || [];
+        // Use condition_tree if available, fall back to wrapping flat rules
+        if (r.conditions.condition_tree) {
+          conditionsEl.tree = r.conditions.condition_tree;
+        } else {
+          conditionsEl.rules = r.conditions.rules || [];
+        }
       }
       conditionsEl.zones = [];
       conditionsEl.entities = panel._hass
@@ -300,18 +305,16 @@ window.Ticker.AdminRecipientsTab.handlers = {
     // Read device-level conditions from the conditions UI component
     const conditionsEl = container.querySelector('#dlg-device-conditions');
     if (conditionsEl) {
-      const rules = conditionsEl.rules || [];
+      const tree = conditionsEl.tree;
+      const leaves = window.Ticker.conditionsTree.collectLeaves(tree);
       const deliverWhenMet = conditionsEl.deliverWhenMet ?? true;
-      if (rules.length > 0) {
-        const validRules = rules.filter(r => {
-          if (r.type === 'state') return r.entity_id && r.state;
-          if (r.type === 'time') return r.after && r.before;
-          return false;
-        });
-        if (validRules.length > 0) {
+      if (leaves.length > 0) {
+        const pruned = window.Ticker.conditionsTree.pruneTree(tree);
+        const validLeaves = window.Ticker.conditionsTree.collectLeaves(pruned);
+        if (validLeaves.length > 0) {
           wsMsg.conditions = {
             deliver_when_met: deliverWhenMet,
-            rules: validRules,
+            condition_tree: pruned,
           };
         } else {
           wsMsg.conditions = null;

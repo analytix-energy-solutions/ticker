@@ -39,28 +39,71 @@ async def async_setup_action_listener(
     return unsub
 
 
-def build_action_payload(
-    category: dict[str, Any], notification_id: str
-) -> list[dict[str, str]]:
-    """Build data.actions list for a notification from a category's action_set.
+def resolve_action_set(
+    store: Any,
+    category: dict[str, Any] | None,
+    per_call_action_set_id: str | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Resolve the action set to use for a notification.
 
-    Action ID format: TICKER_{category_id}_{action_index}_{notification_id_short}
+    Resolution priority (highest to lowest):
+    1. per_call_action_set_id -- look up from library
+    2. category.action_set_id -- category's library reference
+    3. category.action_set -- legacy inline (pre-migration fallback)
+    4. None -- no actions
+
+    Returns:
+        Tuple of (action_set_dict, action_set_id) or (None, None).
     """
-    action_set = category.get("action_set")
-    if not action_set:
-        return []
+    # Priority 1: per-call override
+    if per_call_action_set_id:
+        action_set = store.get_action_set(per_call_action_set_id)
+        if action_set:
+            return action_set, per_call_action_set_id
+        _LOGGER.warning(
+            "Action set '%s' not found in library",
+            per_call_action_set_id,
+        )
 
+    # Priority 2: category's library reference
+    if category:
+        cat_action_set_id = category.get("action_set_id")
+        if cat_action_set_id:
+            action_set = store.get_action_set(cat_action_set_id)
+            if action_set:
+                return action_set, cat_action_set_id
+            _LOGGER.warning(
+                "Category action_set_id '%s' not found in library",
+                cat_action_set_id,
+            )
+
+        # Priority 3: legacy inline fallback
+        inline = category.get("action_set")
+        if inline:
+            return inline, category.get("id", "unknown")
+
+    return None, None
+
+
+def build_action_payload(
+    action_set: dict[str, Any],
+    action_set_id: str,
+    notification_id: str,
+) -> list[dict[str, str]]:
+    """Build data.actions list for a notification from a resolved action set.
+
+    Action ID format: TICKER_{action_set_id}_{action_index}_{notification_id_short}
+    """
     actions = action_set.get("actions", [])
     if not actions:
         return []
 
-    category_id = category["id"]
     nid_short = notification_id[:8]
     result: list[dict[str, str]] = []
 
     for action_def in actions:
         idx = action_def.get("index", 0)
-        action_id = f"{ACTION_ID_PREFIX}{category_id}_{idx}_{nid_short}"
+        action_id = f"{ACTION_ID_PREFIX}{action_set_id}_{idx}_{nid_short}"
         result.append({
             "action": action_id,
             "title": action_def.get("title", "Action"),
@@ -70,9 +113,10 @@ def build_action_payload(
 
 
 def _parse_action_id(action_id: str) -> tuple[str, int, str] | None:
-    """Parse a Ticker action ID into (category_id, action_index, nid_short).
+    """Parse a Ticker action ID into (segment, action_index, nid_short).
 
-    Parses right-to-left since category_id can contain underscores.
+    The segment is an action_set_id (post-migration) or a legacy category_id.
+    Parses right-to-left since the segment can contain underscores.
     Returns None if the format is invalid.
     """
     if not action_id.startswith(ACTION_ID_PREFIX):
@@ -146,7 +190,7 @@ async def _async_handle_action_event(
         _LOGGER.warning("Could not parse Ticker action ID: %s", action_id)
         return
 
-    category_id, action_index, nid_short = parsed
+    segment, action_index, nid_short = parsed
 
     # Resolve person: try device_id first, fall back to log lookup
     device_id = event.data.get("device_id")
@@ -156,18 +200,37 @@ async def _async_handle_action_event(
     person_label = person_id or "unknown"
 
     _LOGGER.info(
-        "Action event: %s (category=%s, index=%d, person=%s)",
-        action_id, category_id, action_index, person_label,
+        "Action event: %s (segment=%s, index=%d, person=%s)",
+        action_id, segment, action_index, person_label,
     )
 
-    # Look up the action definition from the category
-    category = store.get_category(category_id)
-    if not category:
-        _LOGGER.warning("Action for unknown category: %s", category_id)
-        return
+    # Resolve the action set and the actual category_id.
+    # Post-migration, segment is an action_set_id; pre-migration it's a category_id.
+    resolved_cat_id: str | None = None
+    action_set_dict = store.get_action_set(segment)
+    if action_set_dict:
+        # segment is a library action_set_id — resolve real category
+        using = store.is_action_set_in_use(segment)
+        resolved_cat_id = using[0] if using else None
+    else:
+        # segment might be a legacy category_id
+        category = store.get_category(segment)
+        if not category:
+            _LOGGER.warning(
+                "Action segment '%s' not found as action set or category",
+                segment,
+            )
+            return
+        resolved_cat_id = segment
+        # Try category's library reference
+        cat_ref = category.get("action_set_id")
+        if cat_ref:
+            action_set_dict = store.get_action_set(cat_ref)
+        # Fallback to legacy inline
+        if not action_set_dict:
+            action_set_dict = category.get("action_set", {})
 
-    action_set = category.get("action_set", {})
-    actions = action_set.get("actions", [])
+    actions = action_set_dict.get("actions", []) if action_set_dict else []
 
     action_def = None
     for a in actions:
@@ -177,7 +240,7 @@ async def _async_handle_action_event(
 
     if not action_def:
         _LOGGER.warning(
-            "Action index %d not found in category %s", action_index, category_id
+            "Action index %d not found in segment %s", action_index, segment
         )
         return
 
@@ -203,7 +266,10 @@ async def _async_handle_action_event(
     elif action_type == ACTION_TYPE_SNOOZE:
         snooze_minutes = action_def.get("snooze_minutes", 30)
         if person_id:
-            await store.async_set_snooze(person_id, category_id, snooze_minutes)
+            if resolved_cat_id:
+                await store.async_set_snooze(person_id, resolved_cat_id, snooze_minutes)
+            else:
+                _LOGGER.warning("Cannot snooze: category unresolved for segment %s", segment)
             action_taken["snooze_minutes"] = snooze_minutes
         else:
             _LOGGER.warning("Cannot snooze: person unresolved for device %s", device_id)

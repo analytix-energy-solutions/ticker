@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .conditions_legacy import convert_legacy_zones_to_rules  # noqa: F401
 from .const import (
     CONDITION_NODE_GROUP,
     RULE_TYPE_ZONE,
@@ -122,17 +123,7 @@ def evaluate_rule(
     person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Evaluate a single rule.
-
-    Args:
-        hass: Home Assistant instance
-        rule: Rule configuration dict
-        person_state: Person entity state, or None for recipients
-        now: Current datetime (for time rules)
-
-    Returns:
-        Tuple of (is_met, reason_string)
-    """
+    """Evaluate a single rule by type. Returns (is_met, reason)."""
     rule_type = rule.get("type", "")
 
     if rule_type == RULE_TYPE_ZONE:
@@ -155,20 +146,7 @@ def evaluate_rules(
     person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, list[tuple[bool, str]]]:
-    """Evaluate all rules with AND logic.
-
-    All rules must be met for the overall condition to be true.
-
-    Args:
-        hass: Home Assistant instance
-        rules: List of rule dicts
-        person_state: Person entity state, or None for recipients
-        now: Current datetime (for time rules)
-
-    Returns:
-        Tuple of (all_met, list_of_per_rule_results) where each result
-        is (is_met, reason_string).
-    """
+    """Evaluate all rules with AND logic. Returns (all_met, per_rule_results)."""
     if not rules:
         return True, [(True, "No rules configured")]
 
@@ -191,20 +169,7 @@ def evaluate_group(
     person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, list[tuple[bool, str]]]:
-    """Evaluate a condition group node (AND or OR).
-
-    Recursively evaluates children. AND: all must be met.
-    OR: at least one must be met.
-
-    Args:
-        hass: Home Assistant instance
-        group: Group node dict with 'operator' and 'children'
-        person_state: Person entity state, or None for recipients
-        now: Current datetime (for time rules)
-
-    Returns:
-        Tuple of (is_met, per_child_results).
-    """
+    """Evaluate a condition group node (AND or OR) recursively."""
     operator = group.get("operator", "AND").upper()
     children = group.get("children", [])
 
@@ -242,19 +207,7 @@ def evaluate_condition_tree(
     person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, list[tuple[bool, str]]]:
-    """Evaluate conditions using condition_tree (new format) or rules[] (legacy).
-
-    Falls back to flat rules[] evaluation if condition_tree is absent.
-
-    Args:
-        hass: Home Assistant instance
-        conditions: Conditions dict with 'condition_tree' or 'rules'
-        person_state: Person entity state, or None for recipients
-        now: Current datetime (for time rules)
-
-    Returns:
-        Tuple of (all_met, per_node_results).
-    """
+    """Evaluate conditions using condition_tree or rules[] (legacy fallback)."""
     tree = conditions.get("condition_tree")
     if tree:
         return evaluate_group(hass, tree, person_state, now)
@@ -270,24 +223,10 @@ def should_deliver_now(
     person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Check if notification should be delivered now.
-
-    Evaluates all rules with AND logic. Only delivers if:
-    1. All rules are met, AND
-    2. deliver_when_met is True (at conditions level or in any rule)
-
-    Args:
-        hass: Home Assistant instance
-        conditions: Conditions dict with 'rules' and optional 'deliver_when_met'
-        person_state: Person entity state, or None for recipients
-        now: Current datetime
-
-    Returns:
-        Tuple of (should_deliver, reason_string)
-    """
+    """Check if notification should be delivered now based on conditions."""
     rules = conditions.get("rules", [])
-    if not rules:
-        # No rules = always deliver (fallback behavior)
+    tree = conditions.get("condition_tree")
+    if not rules and not tree:
         return True, "No conditions configured"
 
     # Check for deliver_when_met at conditions level
@@ -317,23 +256,10 @@ def should_queue(
     person_state: "State | None",
     now: datetime | None = None,
 ) -> tuple[bool, str]:
-    """Check if notification should be queued for later.
-
-    Queues if:
-    1. queue_until_met is True (at conditions level or in any rule), AND
-    2. Not all rules are currently met
-
-    Args:
-        hass: Home Assistant instance
-        conditions: Conditions dict with 'rules' and optional 'queue_until_met'
-        person_state: Person entity state, or None for recipients
-        now: Current datetime
-
-    Returns:
-        Tuple of (should_queue, reason_string)
-    """
+    """Check if notification should be queued (conditions not yet met)."""
     rules = conditions.get("rules", [])
-    if not rules:
+    tree = conditions.get("condition_tree")
+    if not rules and not tree:
         return False, "No conditions configured"
 
     # Check for queue_until_met at conditions level
@@ -358,16 +284,7 @@ def _collect_triggers_from_node(
     node: dict[str, Any],
     triggers: dict[str, Any],
 ) -> None:
-    """Recursively collect trigger data from a condition tree node.
-
-    Walks both group nodes (recursing into children) and leaf nodes
-    (extracting zone/state/time trigger data).
-
-    Args:
-        node: A condition tree node (group or leaf)
-        triggers: Mutable dict with 'zones' (set), 'entities' (set),
-            'time_windows' (list) to populate
-    """
+    """Recursively collect trigger data from a condition tree node."""
     if node.get("type") == CONDITION_NODE_GROUP:
         for child in node.get("children", []):
             _collect_triggers_from_node(child, triggers)
@@ -392,18 +309,7 @@ def _collect_triggers_from_node(
 def get_queue_triggers(
     conditions: dict[str, Any],
 ) -> dict[str, Any]:
-    """Extract triggers needed for queue release monitoring.
-
-    Only returns triggers if queue_until_met is enabled at conditions level.
-    Supports both condition_tree (new format) and flat rules[] (legacy).
-
-    Args:
-        conditions: Conditions dict with 'condition_tree' or 'rules'
-            and 'queue_until_met'
-
-    Returns:
-        Dict with 'zones', 'entities', 'time_windows' keys
-    """
+    """Extract triggers for queue release. Supports condition_tree and rules[]."""
     triggers: dict[str, Any] = {
         "zones": set(),
         "entities": set(),
@@ -430,60 +336,6 @@ def get_queue_triggers(
     triggers["entities"] = list(triggers["entities"])
 
     return triggers
-
-
-def convert_legacy_zones_to_rules(
-    zones_config: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    """Convert legacy zones format to new conditions format.
-
-    Legacy format:
-        {
-            "zone.home": {
-                "deliver_while_here": True,
-                "queue_until_arrival": True
-            }
-        }
-
-    New conditions format:
-        {
-            "deliver_when_met": True,
-            "queue_until_met": True,
-            "rules": [
-                {"type": "zone", "zone_id": "zone.home"}
-            ]
-        }
-
-    Since legacy format only had zone conditions, the per-zone flags
-    are promoted to conditions-level (1:1 conversion).
-
-    Args:
-        zones_config: Legacy zones dict
-
-    Returns:
-        Complete conditions dict with rules and top-level flags
-    """
-    rules = []
-    has_deliver = False
-    has_queue = False
-
-    for zone_id, zone_config in zones_config.items():
-        if zone_config.get("deliver_while_here", False):
-            has_deliver = True
-        if zone_config.get("queue_until_arrival", False):
-            has_queue = True
-
-        rule = {
-            "type": RULE_TYPE_ZONE,
-            "zone_id": zone_id,
-        }
-        rules.append(rule)
-
-    return {
-        "deliver_when_met": has_deliver,
-        "queue_until_met": has_queue,
-        "rules": rules,
-    }
 
 
 def has_valid_rules(conditions: dict[str, Any] | None) -> bool:
