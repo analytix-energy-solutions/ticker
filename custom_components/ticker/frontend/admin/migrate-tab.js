@@ -410,11 +410,17 @@ window.Ticker.AdminMigrateTab = {
           if (applyDirectly && result.applied) {
             panel._showSuccess(isYamlFile ? 'Applied! Backup created.' : 'Applied!');
           } else {
-            navigator.clipboard.writeText(result.yaml).then(() => {
-              panel._showSuccess('YAML copied!');
-            }).catch(() => {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(result.yaml).then(() => {
+                panel._showSuccess('YAML copied!');
+              }).catch(() => {
+                alert(result.yaml);
+                panel._showSuccess('YAML ready - copied to dialog.');
+              });
+            } else {
               alert(result.yaml);
-            });
+              panel._showSuccess('YAML ready - copied to dialog.');
+            }
           }
           this.skip(panel);
         } else {
