@@ -517,6 +517,8 @@ The wizard walks you through each found notification call and offers two convers
 - **Apply Directly** — For UI-created automations. Ticker modifies the automation in place, replacing the notify call with a `ticker.notify` call using a category you select or create inline.
 - **Copy YAML** — For YAML-based automations. Ticker generates the replacement YAML for you to paste into your configuration.
 
+> **Note:** "Copy YAML" uses the browser Clipboard API where available. In the HA Companion App or non-HTTPS environments the YAML is shown in a dialog instead — select all and copy from there.
+
 The wizard also detects duplicate notification calls across automations, showing a side-by-side comparison so you can decide which to keep.
 
 ---
@@ -570,7 +572,12 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 
 ## Version history
 
-### v1.5.0 (current)
+### v1.5.1 (current)
+
+**Fixed:**
+- **BUG-081**: "Copy YAML" in the Migration Wizard crashed in the HA Companion App and non-HTTPS contexts (`Cannot read properties of undefined (reading 'writeText')`). The Clipboard API call is now guarded; the fallback dialog is reachable in all environments.
+
+### v1.5.0
 
 **Added:**
 - **AND/OR condition grouping** — the conditions builder now supports mixed AND/OR logic. Toggle the operator pill between conditions, or group conditions into a sub-group with its own operator. Up to two nesting levels. Existing conditions migrate automatically.

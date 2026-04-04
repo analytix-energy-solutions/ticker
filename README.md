@@ -78,6 +78,12 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
+### v1.5.1
+
+- Fixed: "Copy YAML" in the Migration Wizard crashed in the HA Companion App and
+  non-HTTPS contexts (`Cannot read properties of undefined (reading 'writeText')`).
+  The YAML fallback dialog now works correctly in all environments (GitHub #19).
+
 ### v1.5.0
 
 - **AND/OR condition grouping** — the conditions builder now supports mixed AND/OR logic. Toggle the operator pill between conditions, or group adjacent conditions into a sub-group with its own operator. Up to two nesting levels. Existing flat conditions migrate automatically.
