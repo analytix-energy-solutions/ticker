@@ -181,7 +181,7 @@ async def ws_get_recipients(
         vol.Optional("tts_buffer_delay", default=TTS_BUFFER_DELAY_DEFAULT): vol.All(
             vol.Coerce(float), vol.Range(min=TTS_BUFFER_DELAY_MIN, max=TTS_BUFFER_DELAY_MAX),
         ),
-        vol.Optional("conditions"): dict,
+        vol.Optional("conditions"): vol.Any(dict, None),
     }
 )
 @websocket_api.async_response

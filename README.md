@@ -78,6 +78,12 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
+### v1.5.2
+
+- Fixed: adding a new device recipient (TTS or Push) always failed with
+  `expected dict for dictionary value @ data['conditions']. Got None` when
+  the Conditions tab was left empty. No device recipients could be created.
+
 ### v1.5.1
 
 - Fixed: "Copy YAML" in the Migration Wizard crashed in the HA Companion App and
