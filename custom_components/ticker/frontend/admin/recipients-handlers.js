@@ -317,10 +317,12 @@ window.Ticker.AdminRecipientsTab.handlers = {
             condition_tree: pruned,
           };
         } else {
-          wsMsg.conditions = null;
+          // Omit conditions key entirely when no conditions configured
+          // (backend treats absent key as no-op, avoids null rejection)
         }
       } else {
-        wsMsg.conditions = null;
+        // Omit conditions key entirely when no conditions configured
+        // (backend treats absent key as no-op, avoids null rejection)
       }
     }
 
