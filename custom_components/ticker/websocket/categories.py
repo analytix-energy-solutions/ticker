@@ -67,6 +67,7 @@ async def ws_get_categories(
         vol.Optional("navigate_to"): vol.Any(
             None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
         ),
+        vol.Optional("expose_in_sensor"): bool,
     }
 )
 @websocket_api.async_response
@@ -120,6 +121,7 @@ async def ws_create_category(
     smart_notification = msg.get("smart_notification")
     action_set_id = msg.get("action_set_id")
     navigate_to = sanitize_for_storage(msg.get("navigate_to"), MAX_NAVIGATE_TO_LENGTH)
+    expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
 
     category = await store.async_create_category(
         category_id=category_id,
@@ -132,6 +134,7 @@ async def ws_create_category(
         smart_notification=smart_notification,
         action_set_id=action_set_id,
         navigate_to=navigate_to,
+        expose_in_sensor=expose_in_sensor,
     )
 
     connection.send_result(msg["id"], {"category": category})
@@ -160,6 +163,7 @@ async def ws_create_category(
         vol.Optional("navigate_to"): vol.Any(
             None, vol.All(str, vol.Length(max=MAX_NAVIGATE_TO_LENGTH))
         ),
+        vol.Optional("expose_in_sensor"): bool,
     }
 )
 @websocket_api.async_response
@@ -226,6 +230,7 @@ async def ws_update_category(
     navigate_to = msg.get("navigate_to") if "navigate_to" in msg else None
     if navigate_to:
         navigate_to = sanitize_for_storage(navigate_to, MAX_NAVIGATE_TO_LENGTH)
+    expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
 
     category = await store.async_update_category(
         category_id=category_id,
@@ -240,6 +245,7 @@ async def ws_update_category(
         clear_smart_notification=clear_smart_notification,
         action_set_id=action_set_id,
         navigate_to=navigate_to,
+        expose_in_sensor=expose_in_sensor,
     )
 
     # Update service schema if name changed

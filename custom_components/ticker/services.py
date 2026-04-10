@@ -306,6 +306,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Update category sensor with notification data
         sensor = get_category_sensor(hass, category_id)
         if sensor:
+            # BUG-099: honor per-category expose_in_sensor flag. When False the
+            # sensor still tracks count + last_triggered but blanks header/body
+            # so recorder/history consumers cannot read raw notification content.
+            expose_content = (category or {}).get("expose_in_sensor", True)
             sensor.async_add_notification(
                 header=title,
                 body=message,
@@ -314,6 +318,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 dropped=delivery_results["dropped"],
                 priority="normal",
                 timestamp=dt_util.utcnow().isoformat(),
+                expose_content=expose_content,
             )
 
     hass.services.async_register(

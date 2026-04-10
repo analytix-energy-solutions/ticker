@@ -162,6 +162,7 @@ class TickerCategorySensor(SensorEntity):
         dropped: list[str],
         priority: str,
         timestamp: str,
+        expose_content: bool = True,
     ) -> None:
         """Add a notification to the sensor.
 
@@ -173,10 +174,15 @@ class TickerCategorySensor(SensorEntity):
             dropped: List of descriptions for dropped/skipped deliveries
             priority: Priority level (default "normal")
             timestamp: ISO 8601 timestamp of the notification
+            expose_content: If False, header and body are blanked in the stored
+                notification dict (BUG-099). Count and last_triggered still
+                update so dashboards can observe activity without leaking
+                raw notification text through entity attributes. Default True
+                preserves backward compatibility for any other caller.
         """
         notification = {
-            "header": header,
-            "body": body,
+            "header": header if expose_content else "",
+            "body": body if expose_content else "",
             "delivered": delivered,
             "queued": queued,
             "dropped": dropped,
