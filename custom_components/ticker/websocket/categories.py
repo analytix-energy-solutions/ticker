@@ -17,6 +17,7 @@ from .validation import (
     validate_category_id,
     validate_color,
     validate_icon,
+    validate_navigate_to,
     MAX_CATEGORY_NAME_LENGTH,
 )
 
@@ -121,6 +122,11 @@ async def ws_create_category(
     smart_notification = msg.get("smart_notification")
     action_set_id = msg.get("action_set_id")
     navigate_to = sanitize_for_storage(msg.get("navigate_to"), MAX_NAVIGATE_TO_LENGTH)
+    # BUG-100: enforce relative HA path, block javascript: / https:// etc.
+    is_valid, error = validate_navigate_to(navigate_to)
+    if not is_valid:
+        connection.send_error(msg["id"], "invalid_navigate_to", error)
+        return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
 
     category = await store.async_create_category(
@@ -230,6 +236,12 @@ async def ws_update_category(
     navigate_to = msg.get("navigate_to") if "navigate_to" in msg else None
     if navigate_to:
         navigate_to = sanitize_for_storage(navigate_to, MAX_NAVIGATE_TO_LENGTH)
+    # BUG-100: validate (None / empty string pass through to clear field)
+    if "navigate_to" in msg:
+        is_valid, error = validate_navigate_to(navigate_to)
+        if not is_valid:
+            connection.send_error(msg["id"], "invalid_navigate_to", error)
+            return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
 
     category = await store.async_update_category(

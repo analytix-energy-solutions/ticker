@@ -26,6 +26,7 @@ from ..const import (
 from .validation import (
     MAX_CATEGORY_NAME_LENGTH,
     sanitize_for_storage,
+    validate_navigate_to,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -143,6 +144,12 @@ async def ws_automations_update(
     # Use a sentinel to distinguish "navigate_to absent" from "navigate_to: null".
     _NAV_ABSENT = object()
     nav_value = msg.get("navigate_to", _NAV_ABSENT)
+    # BUG-100: enforce relative HA path on any explicitly provided value.
+    if nav_value is not _NAV_ABSENT:
+        is_valid, error = validate_navigate_to(nav_value)
+        if not is_valid:
+            connection.send_error(msg["id"], "invalid_navigate_to", error)
+            return
     new_action = _build_updated_action(
         finding, category, title, message, msg.get("data"), nav_value
     )

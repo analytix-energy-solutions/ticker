@@ -23,6 +23,7 @@ from .const import (
     MAX_NAVIGATE_TO_LENGTH,
     CATEGORY_DEFAULT_NAME,
 )
+from .websocket.validation import validate_navigate_to_vol
 
 if TYPE_CHECKING:
     from .store import TickerStore
@@ -41,8 +42,11 @@ def _build_service_schema() -> vol.Schema:
             vol.Optional(ATTR_DATA, default={}): dict,
             vol.Optional(ATTR_ACTIONS): vol.In(["category_default", "none"]),
             vol.Optional(ATTR_CRITICAL): bool,
+            # BUG-100: enforce relative HA path; blocks javascript:/http(s)://
             vol.Optional(ATTR_NAVIGATE_TO): vol.All(
-                cv.string, vol.Length(max=MAX_NAVIGATE_TO_LENGTH)
+                cv.string,
+                vol.Length(max=MAX_NAVIGATE_TO_LENGTH),
+                validate_navigate_to_vol,
             ),
         }
     )

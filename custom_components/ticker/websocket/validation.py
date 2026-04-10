@@ -16,6 +16,7 @@ from ..const import (
     CONDITION_OPERATORS,
     DOMAIN,
     MAX_ACTIONS_PER_SET,
+    MAX_NAVIGATE_TO_LENGTH,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
     RULE_TYPE_ZONE,
@@ -43,39 +44,14 @@ COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
 
 def sanitize_for_storage(value: str | None, max_length: int = 200) -> str | None:
-    """Sanitize a string for safe storage without HTML escaping.
-
-    Performs safe cleanup suitable for values persisted to HA storage,
-    passed to service calls, or written to YAML. Does NOT escape HTML
-    entities -- the frontend handles display-escaping via its own
-    esc() and escAttr() utilities.
-
-    Steps (in order):
-      1. Coerce non-string values to str
-      2. Strip leading/trailing whitespace
-      3. Remove null bytes
-      4. Truncate to max_length
-
-    Args:
-        value: The input string (or None).
-        max_length: Maximum allowed length after cleaning. Defaults to 200.
-
-    Returns:
-        The cleaned string, or None if the input was None.
-    """
+    """Coerce to str, strip whitespace, remove null bytes, truncate. No HTML escaping."""
     if value is None:
         return None
-
     if not isinstance(value, str):
         value = str(value)
-
-    # Strip whitespace and remove null bytes
     value = value.strip().replace("\x00", "")
-
-    # Truncate to max length
     if len(value) > max_length:
         value = value[:max_length]
-
     return value
 
 
@@ -153,6 +129,39 @@ def validate_color(color: str | None) -> tuple[bool, str | None]:
     return True, None
 
 
+_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x1f]")
+
+NAVIGATE_TO_ERROR = "navigate_to must be a relative path starting with /"
+
+
+def validate_navigate_to(value: Any) -> tuple[bool, str | None]:
+    """Validate a navigate_to field (BUG-100): safe relative HA path or empty."""
+    if value is None or value == "":
+        return True, None
+    if not isinstance(value, str):
+        return False, NAVIGATE_TO_ERROR
+    if len(value) > MAX_NAVIGATE_TO_LENGTH:
+        return False, f"navigate_to must be {MAX_NAVIGATE_TO_LENGTH} characters or less"
+    if _CONTROL_CHAR_PATTERN.search(value):
+        return False, "navigate_to must not contain control characters"
+    if not value.startswith("/"):
+        return False, NAVIGATE_TO_ERROR
+    # Reject protocol-relative URLs like "//evil.com" and embedded schemes.
+    if value.startswith("//") or "://" in value:
+        return False, NAVIGATE_TO_ERROR
+    return True, None
+
+
+def validate_navigate_to_vol(value: Any) -> str | None:
+    """Voluptuous-compatible wrapper around :func:`validate_navigate_to`."""
+    import voluptuous as vol
+
+    is_valid, error = validate_navigate_to(value)
+    if not is_valid:
+        raise vol.Invalid(error or NAVIGATE_TO_ERROR)
+    return value
+
+
 def validate_entity_id(entity_id: str, domain: str) -> tuple[bool, str | None]:
     """Validate an entity ID.
 
@@ -171,26 +180,9 @@ def validate_entity_id(entity_id: str, domain: str) -> tuple[bool, str | None]:
     return True, None
 
 
-# Condition-tree validator error codes.
-#
-# These are the codes preserved from the pre-BUG-097 subscriptions.py
-# `_validate_conditions` implementation:
-#   - invalid_zone       (malformed zone entity id)
-#   - zone_not_found     (zone state does not exist in HA)
-#   - invalid_time_format (after/before not HH:MM, or days list malformed)
-#   - entity_not_found   (state-rule entity does not exist in HA)
-#
-# Codes introduced by the BUG-097 tree validator that were NOT in the
-# original subscriptions.py error-code set:
-#   - invalid_time_rule  (missing 'after'/'before' keys entirely)
-#   - invalid_state_rule (missing 'entity_id' or 'state' keys)
-#   - invalid_leaf_type  (unknown leaf 'type' value)
-#   - invalid_tree       (structural issues: not-a-dict, missing type, bad
-#                         operator, children not a list, depth exceeded)
-#
-# Callers that need to preserve the old wire contract exactly can map the
-# new codes to existing ones; default behavior surfaces the new codes so
-# frontends can tell "missing key" apart from "wrong value".
+# Condition-tree validator error codes (BUG-097):
+#   Pre-BUG-097: invalid_zone, zone_not_found, invalid_time_format, entity_not_found
+#   New:         invalid_time_rule, invalid_state_rule, invalid_leaf_type, invalid_tree
 
 
 def _validate_zone_leaf(
