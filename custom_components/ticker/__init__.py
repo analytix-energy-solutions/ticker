@@ -40,6 +40,7 @@ from .const import (
 from .store import TickerStore
 from .actions import async_setup_action_listener
 from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
+from .auto_clear import AutoClearRegistry
 from .condition_listeners import ConditionListenerManager
 from .discovery import async_discover_notify_services, invalidate_discovery_cache
 from .services import async_setup_services, register_schema_updater
@@ -69,6 +70,8 @@ class TickerData:
     unsub_expired_sweep: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
     condition_listener_manager: ConditionListenerManager | None = None
+    # F-30: auto-clear trigger registry (in-memory, does not survive restart).
+    auto_clear: AutoClearRegistry | None = None
 
 
 type TickerConfigEntry = ConfigEntry[TickerData]
@@ -109,6 +112,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
 
     # Create runtime data
     runtime_data = TickerData(store=store)
+    # F-30: instantiate the auto-clear registry before services fire so the
+    # ticker.notify handler can always resolve it via runtime_data.
+    runtime_data.auto_clear = AutoClearRegistry(hass)
     entry.runtime_data = runtime_data
 
     # Initialize hass.data for sensor storage
@@ -221,6 +227,10 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     if runtime_data.unsub_expired_sweep:
         runtime_data.unsub_expired_sweep()
         runtime_data.unsub_expired_sweep = None
+
+    # F-30: tear down any still-pending auto-clear listeners.
+    if runtime_data.auto_clear is not None:
+        runtime_data.auto_clear.unregister_all()
 
     # Note: condition_listener_manager cleanup is handled by
     # async_unload() in async_unload_entry — no sync cleanup here.

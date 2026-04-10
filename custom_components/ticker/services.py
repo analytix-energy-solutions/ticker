@@ -24,14 +24,17 @@ from .const import (
     ATTR_ACTIONS,
     ATTR_CRITICAL,
     ATTR_NAVIGATE_TO,
+    ATTR_CLEAR_WHEN,
     DEFAULT_EXPIRATION_HOURS,
     MODE_ALWAYS,
     MODE_NEVER,
     MODE_CONDITIONAL,
     LOG_OUTCOME_SKIPPED,
+    SMART_TAG_MODE_NONE,
 )
 from .service_schema import _build_service_schema, _build_service_description
 from .conditions import evaluate_condition_tree
+from .formatting import build_smart_tag
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
     async_send_to_recipient,
@@ -123,6 +126,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         navigate_to = call.data.get(ATTR_NAVIGATE_TO)
         critical_override_present = ATTR_CRITICAL in call.data
         critical_override_value = call.data.get(ATTR_CRITICAL)
+        # F-30: optional auto-clear trigger descriptor.
+        clear_when = call.data.get(ATTR_CLEAR_WHEN)
+        auto_clear_registry = getattr(entry.runtime_data, "auto_clear", None)
 
         # F-27: normalize category input to a de-duplicated list, preserving order.
         if isinstance(category_input, str):
@@ -185,7 +191,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 notification_id,
             )
 
-            await _dispatch_to_category(
+            dispatch_result = await _dispatch_to_category(
                 hass=hass,
                 store=store,
                 category=category,
@@ -201,6 +207,16 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 recipients=recipients,
             )
             processed_count += 1
+
+            # F-30: auto-clear registration — one per category (each category
+            # owns its own notification_id, delivered_services, and tag).
+            if clear_when and auto_clear_registry and dispatch_result["delivered_services"]:
+                await auto_clear_registry.register(
+                    notification_id=dispatch_result["notification_id"],
+                    clear_when=clear_when,
+                    delivered_services=dispatch_result["delivered_services"],
+                    tag=dispatch_result["tag"],
+                )
 
         # F-27: if no category in the list resolved, surface the last error so
         # automations see a failure rather than a silent no-op.
@@ -228,12 +244,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         navigate_to: str | None,
         persons: list,
         recipients: dict,
-    ) -> None:
+    ) -> dict:
         """Dispatch a single notification to one category's subscribers.
 
-        Runs the person loop, recipient loop, and category sensor update for
-        one resolved category_id. Extracted from async_handle_notify to keep
-        the F-27 fan-out loop readable.
+        Runs person loop, recipient loop, and category sensor update for one
+        resolved category_id. Returns a dict with notification_id,
+        delivered_services (flat notify.* list), and tag (smart-notif tag or
+        None) — consumed by the F-30 auto-clear registration in the caller.
         """
         # Accumulate delivery results for sensor update
         delivery_results: dict[str, list[str]] = {
@@ -413,6 +430,19 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 timestamp=dt_util.utcnow().isoformat(),
                 expose_content=expose_content,
             )
+
+        # F-30: mirror formatting.inject_smart_notification's tag resolution
+        # so the caller can register the auto-clear listener against the same
+        # tag the device received. delivery_results["delivered"] holds raw
+        # notify.* ids (see results["delivered"].append in user_notify /
+        # recipient_notify) — we pass them through unmodified.
+        smart_cfg = (category or {}).get("smart_notification") or {}
+        tag_mode = smart_cfg.get("tag_mode", SMART_TAG_MODE_NONE)
+        return {
+            "notification_id": notification_id,
+            "delivered_services": list(delivery_results["delivered"]),
+            "tag": build_smart_tag(category_id, title, tag_mode),
+        }
 
     hass.services.async_register(
         DOMAIN,

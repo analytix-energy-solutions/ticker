@@ -194,3 +194,10 @@ ATTR_ACTION_SET_ID = "action_set_id"
 MAX_ACTION_SET_ID_LENGTH = 64
 MAX_ACTION_SET_NAME_LENGTH = 100
 MAX_ACTION_SET_DESCRIPTION_LENGTH = 200
+
+# F-30: Auto-Clear Triggers
+# ticker.notify accepts a `clear_when` parameter describing a state or event
+# trigger that will auto-dismiss the just-sent notification when it fires.
+ATTR_CLEAR_WHEN = "clear_when"
+CLEAR_WHEN_TYPE_STATE = "state"
+CLEAR_WHEN_TYPE_EVENT = "event"
