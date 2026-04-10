@@ -14,34 +14,48 @@ window.Ticker.AdminLogsTab = {
    */
   render(state) {
     const { esc, escAttr, formatTime, getCategoryName } = window.Ticker.utils;
-    const { logs, logStats, users, categories } = state;
+    const { logs, logStats, users, categories, statusFilter } = state;
 
     const byOutcome = logStats.by_outcome || {};
 
+    // F-24: Filter logs by selected status (client-side). Counters below
+    // always show UNFILTERED totals from logStats.
+    const filteredLogs = statusFilter
+      ? logs.filter(l => l.outcome === statusFilter)
+      : logs;
+
+    // F-24: Build stat-card classes with active marker
+    const totalActive = !statusFilter ? ' active' : '';
+    const sentActive = statusFilter === 'sent' ? ' active' : '';
+    const queuedActive = statusFilter === 'queued' ? ' active' : '';
+    const skippedActive = statusFilter === 'skipped' ? ' active' : '';
+    const failedActive = statusFilter === 'failed' ? ' active' : '';
+    const snoozedActive = statusFilter === 'snoozed' ? ' active' : '';
+
     const statsGrid = `
       <div class="stats-grid">
-        <div class="stat-card">
+        <div class="stat-card${totalActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, null)">
           <div class="stat-value">${logStats.total || 0}</div>
           <div class="stat-label">Total</div>
         </div>
-        <div class="stat-card stat-sent">
+        <div class="stat-card stat-sent${sentActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'sent')">
           <div class="stat-value">${byOutcome.sent || 0}</div>
           <div class="stat-label">Sent</div>
         </div>
-        <div class="stat-card stat-queued">
+        <div class="stat-card stat-queued${queuedActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'queued')">
           <div class="stat-value">${byOutcome.queued || 0}</div>
           <div class="stat-label">Queued</div>
         </div>
-        <div class="stat-card stat-skipped">
+        <div class="stat-card stat-skipped${skippedActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'skipped')">
           <div class="stat-value">${byOutcome.skipped || 0}</div>
           <div class="stat-label">Skipped</div>
         </div>
-        <div class="stat-card stat-failed">
+        <div class="stat-card stat-failed${failedActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'failed')">
           <div class="stat-value">${byOutcome.failed || 0}</div>
           <div class="stat-label">Failed</div>
         </div>
         ${byOutcome.snoozed ? `
-        <div class="stat-card stat-skipped">
+        <div class="stat-card stat-skipped${snoozedActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'snoozed')">
           <div class="stat-value">${byOutcome.snoozed}</div>
           <div class="stat-label">Snoozed</div>
         </div>
@@ -61,7 +75,7 @@ window.Ticker.AdminLogsTab = {
       `;
     }
 
-    const rows = logs.map(log => {
+    const rows = filteredLogs.map(log => {
       const escTitle = esc(log.title);
       const escMessage = esc(log.message);
       const escPname = esc(this._getPersonName(users, log.person_id));
@@ -92,6 +106,11 @@ window.Ticker.AdminLogsTab = {
       `;
     }).join('');
 
+    // F-24: Show empty-state message when filter hides all rows
+    const rowsOrEmpty = filteredLogs.length
+      ? rows
+      : `<div class="empty-state">No ${esc(statusFilter)} logs.</div>`;
+
     return `
       <div class="card">
         <div class="card-header">
@@ -100,7 +119,7 @@ window.Ticker.AdminLogsTab = {
         </div>
         <p class="card-description">Notification log — last 7 days, up to 500 entries.</p>
         ${statsGrid}
-        ${rows}
+        ${rowsOrEmpty}
       </div>
     `;
   },
@@ -158,6 +177,17 @@ window.Ticker.AdminLogsTab = {
       } catch (err) {
         panel._showError(err.message);
       }
+    },
+
+    /**
+     * F-24: Set log status filter (client-side only — no reload).
+     * @param {Object} panel - Admin panel instance
+     * @param {string|null} status - Outcome to filter by, or null for all
+     */
+    setFilter(panel, status) {
+      if (!panel) return;
+      panel._statusFilter = status;
+      panel._renderTabContentPreserveScroll();
     },
   },
 };

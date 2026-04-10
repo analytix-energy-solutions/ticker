@@ -114,6 +114,13 @@
       border-radius: 6px;
       padding: 12px;
       text-align: center;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+    .stat-card.active {
+      border-color: var(--ticker-500);
+      background: var(--ticker-500-alpha-10);
     }
     .stat-value {
       font-size: 24px;

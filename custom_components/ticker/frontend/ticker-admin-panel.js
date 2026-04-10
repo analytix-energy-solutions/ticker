@@ -60,6 +60,9 @@ class TickerAdminPanel extends HTMLElement {
     this._actionSets = [];
     this._editingActionSetId = null;
 
+    // F-24: Logs tab status filter (null = show all)
+    this._statusFilter = null;
+
     // DOM cache
     this._els = {};
     this._dependenciesLoaded = false;
@@ -108,6 +111,8 @@ class TickerAdminPanel extends HTMLElement {
       this._connectionReadyHandler = null;
     }
     this._initialized = false;
+    // F-24: Reset logs status filter when panel closes
+    this._statusFilter = null;
   }
 
   async _init() {
@@ -371,6 +376,7 @@ class TickerAdminPanel extends HTMLElement {
       lovelaceDashboards: this._lovelaceDashboards,
       hasPanels: this._hasPanels || [],
       lovelaceViews: this._lovelaceViews || {},
+      statusFilter: this._statusFilter,
     };
   }
 
