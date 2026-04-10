@@ -98,7 +98,7 @@ class QueueLogMixin:
         title: str,
         message: str,
         data: dict[str, Any] | None = None,
-        expiration_hours: int = DEFAULT_EXPIRATION_HOURS,
+        expiration_hours: float = DEFAULT_EXPIRATION_HOURS,
         retry_count: int = 0,
     ) -> dict[str, Any]:
         """Add a notification to the queue."""
@@ -121,10 +121,10 @@ class QueueLogMixin:
         await self.async_save_queue()
 
         _LOGGER.debug(
-            "Queued notification for %s: %s (expires in %dh, retry %d)",
+            "Queued notification for %s: %s (expires in %.2fh, retry %d)",
             person_id,
             title,
-            expiration_hours,
+            float(expiration_hours),
             retry_count,
         )
         return entry
@@ -179,6 +179,7 @@ class QueueLogMixin:
         """
         requeued = 0
         discarded = 0
+        now = datetime.now(timezone.utc)
 
         for entry in entries:
             retry_count = entry.get("retry_count", 0) + 1
@@ -193,21 +194,61 @@ class QueueLogMixin:
                 discarded += 1
                 continue
 
-            # Re-queue with incremented retry count, preserving original expiration
+            # Compute remaining hours from the original expires_at so that
+            # persistently-failing notifications do not get a fresh 48h window
+            # on every retry (BUG-089).
+            expires_at_raw = entry.get("expires_at")
+            if expires_at_raw is None:
+                _LOGGER.warning(
+                    "Queue entry for %s missing expires_at; falling back to "
+                    "DEFAULT_EXPIRATION_HOURS: %s",
+                    entry["person_id"],
+                    entry.get("title"),
+                )
+                remaining_hours: float = float(DEFAULT_EXPIRATION_HOURS)
+            else:
+                try:
+                    expires_at = datetime.fromisoformat(expires_at_raw)
+                except (TypeError, ValueError):
+                    _LOGGER.warning(
+                        "Queue entry for %s has invalid expires_at %r; falling "
+                        "back to DEFAULT_EXPIRATION_HOURS: %s",
+                        entry["person_id"],
+                        expires_at_raw,
+                        entry.get("title"),
+                    )
+                    remaining_hours = float(DEFAULT_EXPIRATION_HOURS)
+                else:
+                    remaining_seconds = (expires_at - now).total_seconds()
+                    if remaining_seconds <= 0:
+                        _LOGGER.debug(
+                            "Skipping re-queue for %s: entry already past "
+                            "expires_at (%s): %s",
+                            entry["person_id"],
+                            expires_at_raw,
+                            entry["title"],
+                        )
+                        discarded += 1
+                        continue
+                    remaining_hours = remaining_seconds / 3600.0
+
+            # Re-queue with incremented retry count and the remaining lifetime
+            # of the original expiration window.
             await self.async_add_to_queue(
                 person_id=entry["person_id"],
                 category_id=entry["category_id"],
                 title=entry["title"],
                 message=entry["message"],
                 data=entry.get("data"),
-                expiration_hours=DEFAULT_EXPIRATION_HOURS,  # Reset expiration on retry
+                expiration_hours=remaining_hours,
                 retry_count=retry_count,
             )
             requeued += 1
             _LOGGER.debug(
-                "Re-queued notification for %s (retry %d): %s",
+                "Re-queued notification for %s (retry %d, %.2fh remaining): %s",
                 entry["person_id"],
                 retry_count,
+                remaining_hours,
                 entry["title"],
             )
 
