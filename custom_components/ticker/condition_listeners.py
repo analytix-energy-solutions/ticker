@@ -72,7 +72,12 @@ def _leaf_matches_filter(
     if filter_type == RULE_TYPE_STATE:
         return leaf.get("entity_id") == filter_value
     if filter_type == RULE_TYPE_TIME:
-        return leaf.get("after") == filter_value
+        # BUG-096: match either edge of the time window so `before`
+        # triggers re-evaluate subscriptions too.
+        return (
+            leaf.get("after") == filter_value
+            or leaf.get("before") == filter_value
+        )
     return True
 
 
@@ -167,11 +172,16 @@ class ConditionListenerManager:
             for entity_id in triggers.get("entities", []):
                 all_entities.add(entity_id)
 
-            # Collect time triggers
+            # Collect time triggers (BUG-096: track both edges of the
+            # window so `before` fires listeners too). Empty strings
+            # mean open-ended and are skipped.
             for time_window in triggers.get("time_windows", []):
                 after = time_window.get("after", "")
+                before = time_window.get("before", "")
                 if after:
                     all_times.add(after)
+                if before:
+                    all_times.add(before)
 
         # Set up entity listeners
         if all_entities:
