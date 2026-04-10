@@ -13,6 +13,8 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import config_validation as cv
@@ -22,6 +24,10 @@ from homeassistant.helpers.typing import ConfigType
 from .const import (
     DOMAIN,
     VERSION,
+    DEVICE_MANUFACTURER,
+    DEVICE_MODEL,
+    DEVICE_NAME,
+    DEVICE_IDENTIFIER,
     STORAGE_VERSION,
     STORAGE_KEY_CATEGORIES,
     STORAGE_KEY_SUBSCRIPTIONS,
@@ -116,6 +122,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     # ticker.notify handler can always resolve it via runtime_data.
     runtime_data.auto_clear = AutoClearRegistry(hass)
     entry.runtime_data = runtime_data
+
+    # F-31: Register Ticker as a virtual device so it shows up in HA device
+    # pickers and is discoverable to community blueprints. Phase 1 is
+    # visibility only — device actions for ticker.notify are deferred.
+    # async_get_or_create is idempotent on reload; HA prunes devices linked
+    # to removed config entries automatically, so no explicit cleanup.
+    dev_reg = dr.async_get(hass)
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, DEVICE_IDENTIFIER)},
+        manufacturer=DEVICE_MANUFACTURER,
+        model=DEVICE_MODEL,
+        name=DEVICE_NAME,
+        entry_type=DeviceEntryType.SERVICE,
+    )
 
     # Initialize hass.data for sensor storage
     hass.data.setdefault(DOMAIN, {})

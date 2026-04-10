@@ -201,3 +201,11 @@ MAX_ACTION_SET_DESCRIPTION_LENGTH = 200
 ATTR_CLEAR_WHEN = "clear_when"
 CLEAR_WHEN_TYPE_STATE = "state"
 CLEAR_WHEN_TYPE_EVENT = "event"
+
+# F-31: Blueprint-Friendly HA Device Registration (Phase 1 — visibility only)
+# Ticker registers a single virtual device in HA's device registry so it
+# appears in device pickers and is discoverable to community blueprints.
+DEVICE_MANUFACTURER = "Analytix Energy Solutions"
+DEVICE_MODEL = "Ticker Notification Router"
+DEVICE_NAME = "Ticker"
+DEVICE_IDENTIFIER = "ticker"
