@@ -98,11 +98,11 @@ async def async_setup_arrival_listener(
 
         # Group queued notifications by category
         queued_by_category: dict[str, list[dict]] = {}
-        for entry in queued:
-            cat_id = entry.get("category_id")
+        for queued_entry in queued:
+            cat_id = queued_entry.get("category_id")
             if cat_id not in queued_by_category:
                 queued_by_category[cat_id] = []
-            queued_by_category[cat_id].append(entry)
+            queued_by_category[cat_id].append(queued_entry)
 
         # Check each category's conditions to see which are now met
         subscriptions = store.get_subscriptions_for_person(person_id)
@@ -194,8 +194,8 @@ async def async_setup_arrival_listener(
         )
 
         # Remove delivered entries from queue
-        for entry in entries_to_deliver:
-            await store.async_remove_from_queue(entry["queue_id"])
+        for queued_entry in entries_to_deliver:
+            await store.async_remove_from_queue(queued_entry["queue_id"])
 
         # Send bundled notification for delivered entries
         success = await async_send_bundled_notification(
@@ -327,8 +327,8 @@ async def async_release_queue_for_conditions(
     )
 
     # Remove entries from queue
-    for entry in entries_to_deliver:
-        await store.async_remove_from_queue(entry["queue_id"])
+    for queued_entry in entries_to_deliver:
+        await store.async_remove_from_queue(queued_entry["queue_id"])
 
     # Route to recipient or person delivery path
     is_recipient = person_id.startswith("recipient:")
