@@ -241,9 +241,10 @@ async def ws_create_recipient(
         tree = conditions.get("condition_tree")
         rules = conditions.get("rules")
         if tree:
-            tree_error = validate_condition_tree(tree)
+            tree_error = validate_condition_tree(tree, hass)
             if tree_error:
-                connection.send_error(msg["id"], "invalid_conditions", tree_error)
+                code, msg_text = tree_error
+                connection.send_error(msg["id"], code, msg_text)
                 return
         elif not isinstance(rules, list):
             connection.send_error(
@@ -387,9 +388,10 @@ async def ws_update_recipient(
             tree = cond_val.get("condition_tree")
             rules = cond_val.get("rules")
             if tree:
-                tree_error = validate_condition_tree(tree)
+                tree_error = validate_condition_tree(tree, hass)
                 if tree_error:
-                    connection.send_error(msg["id"], "invalid_conditions", tree_error)
+                    code, msg_text = tree_error
+                    connection.send_error(msg["id"], code, msg_text)
                     return
             elif not isinstance(rules, list):
                 connection.send_error(

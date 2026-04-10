@@ -19,6 +19,7 @@ from ..const import (
 )
 from ..discovery import async_discover_notify_services
 from .validation import (
+    _validate_leaf,
     get_store,
     validate_category_id,
     validate_condition_tree,
@@ -157,15 +158,12 @@ async def ws_set_subscription(
             )
             return
 
-        # Validate condition_tree structure if present
+        # Validate condition_tree structure + leaf semantics if present
         if tree:
-            tree_error = validate_condition_tree(tree)
+            tree_error = validate_condition_tree(tree, hass)
             if tree_error:
-                connection.send_error(
-                    msg["id"],
-                    "invalid_condition_tree",
-                    f"Invalid condition tree: {tree_error}",
-                )
+                code, msg_text = tree_error
+                connection.send_error(msg["id"], code, msg_text)
                 return
 
     # Determine set_by: check if caller is modifying their own subscription
@@ -226,27 +224,13 @@ def _validate_conditions(
                 f"Rule {idx}: invalid type '{rule_type}'",
             )
 
-        if rule_type == "zone":
-            zone_id = rule.get("zone_id", "")
-            is_valid, error = validate_entity_id(zone_id, "zone")
-            if not is_valid:
-                return (msg_id, "invalid_zone", f"Rule {idx}: {error}")
-            if not hass.states.get(zone_id):
-                return (
-                    msg_id,
-                    "zone_not_found",
-                    f"Rule {idx}: Zone '{zone_id}' does not exist",
-                )
-
-        elif rule_type == "time":
-            validation_error = _validate_time_rule(rule, idx, msg_id)
-            if validation_error:
-                return validation_error
-
-        elif rule_type == "state":
-            validation_error = _validate_state_rule(hass, rule, idx, msg_id)
-            if validation_error:
-                return validation_error
+        # Delegate to the shared leaf validator (see BUG-097). The shared
+        # helper returns a (error_code, error_message) tuple; we prefix
+        # the message with the rule index to preserve the WS contract.
+        leaf_error = _validate_leaf(rule, hass)
+        if leaf_error:
+            error_code, error_msg = leaf_error
+            return (msg_id, error_code, f"Rule {idx}: {error_msg}")
 
     # Validate conditions-level action flags (deliver/queue apply to the
     # entire ruleset, not individual rules)
@@ -261,78 +245,6 @@ def _validate_conditions(
                 "'queue_until_met' must be true",
             )
 
-    return None
-
-
-def _validate_time_rule(
-    rule: dict[str, Any],
-    idx: int,
-    msg_id: int,
-) -> tuple[int, str, str] | None:
-    """Validate a time rule."""
-    after = rule.get("after", "")
-    before = rule.get("before", "")
-    if not after or not before:
-        return (
-            msg_id,
-            "invalid_time_rule",
-            f"Rule {idx}: 'after' and 'before' are required for time rules",
-        )
-    # Validate time format HH:MM
-    for time_val, name in [(after, "after"), (before, "before")]:
-        try:
-            parts = time_val.split(":")
-            hour = int(parts[0])
-            minute = int(parts[1])
-            if not (0 <= hour <= 23 and 0 <= minute <= 59):
-                raise ValueError("Invalid time values")
-        except (ValueError, IndexError):
-            return (
-                msg_id,
-                "invalid_time_format",
-                f"Rule {idx}: '{name}' must be in HH:MM format",
-            )
-    # Validate days if provided
-    days = rule.get("days", [])
-    if days:
-        for day in days:
-            if not isinstance(day, int) or not (1 <= day <= 7):
-                return (
-                    msg_id,
-                    "invalid_day",
-                    f"Rule {idx}: days must be integers 1-7 (Mon-Sun)",
-                )
-    return None
-
-
-def _validate_state_rule(
-    hass: HomeAssistant,
-    rule: dict[str, Any],
-    idx: int,
-    msg_id: int,
-) -> tuple[int, str, str] | None:
-    """Validate a state rule."""
-    entity_id = rule.get("entity_id", "")
-    state_val = rule.get("state", "")
-    if not entity_id:
-        return (
-            msg_id,
-            "invalid_state_rule",
-            f"Rule {idx}: 'entity_id' is required for state rules",
-        )
-    if not state_val:
-        return (
-            msg_id,
-            "invalid_state_rule",
-            f"Rule {idx}: 'state' is required for state rules",
-        )
-    # Check entity exists
-    if not hass.states.get(entity_id):
-        return (
-            msg_id,
-            "entity_not_found",
-            f"Rule {idx}: Entity '{entity_id}' does not exist",
-        )
     return None
 
 

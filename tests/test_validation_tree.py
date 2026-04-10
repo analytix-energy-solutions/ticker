@@ -7,6 +7,18 @@ Covers:
 - validate_condition_tree with non-group root
 - validate_condition_tree with missing type
 - validate_condition_tree with unknown leaf type
+
+Note on hass parameter (BUG-097 refactor):
+    validate_condition_tree now accepts an optional ``hass`` parameter.
+    When hass is None (the default, used here in structural tests),
+    semantic entity/zone existence checks are skipped. Production
+    callers (subscriptions.py, recipients.py) pass a real hass so
+    state existence is enforced at runtime.
+
+    The validator now returns ``(error_code, error_message)`` tuples
+    instead of prefix-encoded strings. Tests unpack via the
+    ``_err_message`` helper below when they need to assert on message
+    content.
 """
 
 from __future__ import annotations
@@ -34,6 +46,18 @@ def _zone_leaf(zone_id: str = "zone.home") -> dict:
 
 def _time_leaf(after: str = "08:00", before: str = "22:00") -> dict:
     return {"type": "time", "after": after, "before": before}
+
+
+def _err_message(error) -> str:
+    """Extract the message portion of a validator error tuple.
+
+    The validator returns (error_code, error_message) or None.
+    Tests that assert against message content use this to remain
+    agnostic to the specific error_code.
+    """
+    assert error is not None
+    assert isinstance(error, tuple) and len(error) == 2
+    return error[1]
 
 
 # ---------------------------------------------------------------------------
@@ -88,8 +112,8 @@ class TestInvalidOperator:
         """XOR is not a valid operator."""
         tree = _group("XOR", [_state_leaf()])
         error = validate_condition_tree(tree)
-        assert error is not None
-        assert "operator" in error.lower() or "XOR" in error
+        msg = _err_message(error)
+        assert "operator" in msg.lower() or "XOR" in msg
 
     def test_empty_operator_rejected(self):
         """Empty string operator is rejected."""
@@ -120,8 +144,8 @@ class TestDepthExceeded:
             ]),
         ])
         error = validate_condition_tree(tree)
-        assert error is not None
-        assert "depth" in error.lower()
+        msg = _err_message(error)
+        assert "depth" in msg.lower()
 
     def test_depth_2_accepted(self):
         """Two levels of nesting is within max depth."""
@@ -147,28 +171,28 @@ class TestInvalidNodeTypes:
         """Unknown node type is rejected."""
         tree = {"type": "foobar"}
         error = validate_condition_tree(tree)
-        assert error is not None
-        assert "foobar" in error
+        msg = _err_message(error)
+        assert "foobar" in msg
 
     def test_missing_type_rejected(self):
         """Node without type key is rejected."""
         tree = {"operator": "AND", "children": []}
         error = validate_condition_tree(tree)
-        assert error is not None
-        assert "type" in error.lower()
+        msg = _err_message(error)
+        assert "type" in msg.lower()
 
     def test_non_dict_rejected(self):
         """Non-dict node is rejected."""
         error = validate_condition_tree("not a dict")
-        assert error is not None
-        assert "dict" in error.lower()
+        msg = _err_message(error)
+        assert "dict" in msg.lower()
 
     def test_children_not_list_rejected(self):
         """Group node where children is not a list is rejected."""
         tree = {"type": "group", "operator": "AND", "children": "not-a-list"}
         error = validate_condition_tree(tree)
-        assert error is not None
-        assert "list" in error.lower()
+        msg = _err_message(error)
+        assert "list" in msg.lower()
 
     def test_invalid_child_propagates_error(self):
         """Error in a child node is returned with index prefix."""
@@ -177,5 +201,5 @@ class TestInvalidNodeTypes:
             {"type": "unknown_leaf"},
         ])
         error = validate_condition_tree(tree)
-        assert error is not None
-        assert "children[1]" in error
+        msg = _err_message(error)
+        assert "children[1]" in msg
