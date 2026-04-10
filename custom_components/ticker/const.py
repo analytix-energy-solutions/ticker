@@ -85,6 +85,10 @@ LOG_OUTCOME_QUEUED = "queued"
 LOG_OUTCOME_SKIPPED = "skipped"
 LOG_OUTCOME_FAILED = "failed"
 LOG_OUTCOME_SNOOZED = "snoozed"
+LOG_OUTCOME_EXPIRED = "expired"
+
+# F-25: Expired queue sweep interval (seconds)
+EXPIRED_QUEUE_SWEEP_INTERVAL = 15 * 60  # 15 minutes
 
 # F-5: Notification Actions
 ACTION_TYPE_SCRIPT = "script"

@@ -28,6 +28,7 @@ window.Ticker.UserHistoryTab = {
 
     for (const entry of history) {
       const nid = entry.notification_id;
+      const isExpired = entry.outcome === 'expired';
       if (nid) {
         if (!groupedById[nid]) {
           groupedById[nid] = {
@@ -39,8 +40,14 @@ window.Ticker.UserHistoryTab = {
             image_url: entry.image_url || null,
             devices: [],
             action_taken: null,
+            expired: isExpired,
           };
           notifications.push(groupedById[nid]);
+        }
+        // F-25: any non-expired row in the group means the user did receive
+        // the notification — clear the expired flag in that case.
+        if (!isExpired) {
+          groupedById[nid].expired = false;
         }
         if (entry.notify_service) {
           groupedById[nid].devices.push(entry.notify_service);
@@ -57,6 +64,7 @@ window.Ticker.UserHistoryTab = {
           timestamp: entry.timestamp,
           image_url: entry.image_url || null,
           devices: entry.notify_service ? [entry.notify_service] : [],
+          expired: isExpired,
         });
       }
     }
@@ -105,8 +113,13 @@ window.Ticker.UserHistoryTab = {
           ? `<button class="btn btn-danger btn-small" title="Delete notification" onclick="window.Ticker.UserHistoryTab.handlers.deleteGroup(window.Ticker._userPanel, '${nidAttr}')">&times;</button>`
           : '';
 
+        const expiredClass = notif.expired ? ' expired' : '';
+        const expiredBadge = notif.expired
+          ? '<span class="badge badge-muted">expired</span>'
+          : '';
+
         return `
-          <div class="history-item">
+          <div class="history-item${expiredClass}">
             <div class="history-item-header">
               <span class="history-item-title">${escTitle}</span>
               <span class="history-item-time">${time}</span>
@@ -118,6 +131,7 @@ window.Ticker.UserHistoryTab = {
             <div class="history-item-meta">
               <span class="notify-service-tag">${escCatName}</span>
               ${deviceTags}
+              ${expiredBadge}
             </div>
           </div>
         `;

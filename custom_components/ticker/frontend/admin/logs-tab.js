@@ -31,6 +31,7 @@ window.Ticker.AdminLogsTab = {
     const skippedActive = statusFilter === 'skipped' ? ' active' : '';
     const failedActive = statusFilter === 'failed' ? ' active' : '';
     const snoozedActive = statusFilter === 'snoozed' ? ' active' : '';
+    const expiredActive = statusFilter === 'expired' ? ' active' : '';
 
     const statsGrid = `
       <div class="stats-grid">
@@ -58,6 +59,12 @@ window.Ticker.AdminLogsTab = {
         <div class="stat-card stat-skipped${snoozedActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'snoozed')">
           <div class="stat-value">${byOutcome.snoozed}</div>
           <div class="stat-label">Snoozed</div>
+        </div>
+        ` : ''}
+        ${byOutcome.expired ? `
+        <div class="stat-card stat-expired${expiredActive}" onclick="window.Ticker.AdminLogsTab.handlers.setFilter(window.Ticker._adminPanel, 'expired')">
+          <div class="stat-value">${byOutcome.expired}</div>
+          <div class="stat-label">Expired</div>
         </div>
         ` : ''}
       </div>
@@ -159,6 +166,8 @@ window.Ticker.AdminLogsTab = {
         return '<span class="badge badge-warning">Snoozed</span>';
       case 'failed':
         return '<span class="badge badge-danger">Failed</span>';
+      case 'expired':
+        return '<span class="badge badge-muted">Expired</span>';
       default:
         return `<span class="badge">${esc(outcome)}</span>`;
     }

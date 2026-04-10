@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from .const import (
     DEFAULT_EXPIRATION_HOURS,
+    LOG_OUTCOME_EXPIRED,
     MAX_QUEUE_RETRIES,
 )
 
@@ -38,7 +39,11 @@ class QueueMixin:
         await self._queue_store.async_save(self._queue)
 
     async def _async_cleanup_expired_queue(self) -> None:
-        """Remove expired queue entries."""
+        """Remove expired queue entries.
+
+        F-25: Before deletion, write a log entry with outcome "expired" so the
+        user and admin can see that a queued notification was never delivered.
+        """
         now = datetime.now(timezone.utc)
         expired_ids = []
 
@@ -49,6 +54,31 @@ class QueueMixin:
 
         if expired_ids:
             for queue_id in expired_ids:
+                entry = self._queue[queue_id]
+                # F-25: Log the expiration before removing the entry.
+                try:
+                    person_id = entry.get("person_id", "")
+                    user = self.get_user(person_id) if person_id else None
+                    person_name = (
+                        user.get("name") if user and user.get("name") else person_id
+                    )
+                    data = entry.get("data") or {}
+                    image_url = data.get("image") if isinstance(data, dict) else None
+                    await self.async_add_log(
+                        category_id=entry.get("category_id", ""),
+                        person_id=person_id,
+                        person_name=person_name,
+                        title=entry.get("title", ""),
+                        message=entry.get("message", ""),
+                        outcome=LOG_OUTCOME_EXPIRED,
+                        notification_id=entry.get("notification_id"),
+                        image_url=image_url,
+                        reason="Queue expired before delivery",
+                    )
+                except Exception:  # noqa: BLE001 — never block cleanup on log failure
+                    _LOGGER.exception(
+                        "Failed to write expired log entry for queue %s", queue_id
+                    )
                 del self._queue[queue_id]
             await self.async_save_queue()
             _LOGGER.info("Cleaned up %d expired queue entries", len(expired_ids))

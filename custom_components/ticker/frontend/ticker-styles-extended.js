@@ -415,6 +415,19 @@
       gap: 4px;
       flex-wrap: wrap;
     }
+    /* F-25: faded row for expired notifications */
+    .history-item.expired {
+      opacity: 0.6;
+    }
+    /* F-25: muted badge used for "expired" outcome in logs and history */
+    .badge-muted {
+      background: var(--divider);
+      color: var(--text-secondary);
+    }
+    /* F-25: stat card variant for expired count in admin logs tab */
+    .stat-card.stat-expired .stat-value {
+      color: var(--text-secondary);
+    }
   `;
 
   /** Brand alpha tokens */

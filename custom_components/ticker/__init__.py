@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -12,6 +13,7 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.start import async_at_start
@@ -29,6 +31,7 @@ from .const import (
     STORAGE_KEY_SNOOZES,
     STORAGE_KEY_RECIPIENTS,
     STORAGE_KEY_ACTION_SETS,
+    EXPIRED_QUEUE_SWEEP_INTERVAL,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
@@ -63,6 +66,7 @@ class TickerData:
     subscription_listener: Callable[[], None] | None = None
     unsub_arrival: Callable[[], None] | None = None
     unsub_actions: Callable[[], None] | None = None
+    unsub_expired_sweep: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
     condition_listener_manager: ConditionListenerManager | None = None
 
@@ -163,6 +167,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     unsub_actions = await async_setup_action_listener(hass, store)
     runtime_data.unsub_actions = unsub_actions
 
+    # F-25: Periodic sweep of expired queue entries so they surface in logs
+    # even when no new notification traffic triggers lazy cleanup.
+    async def _sweep_expired(_now) -> None:
+        """Run expired queue cleanup on a fixed interval."""
+        try:
+            await store._async_cleanup_expired_queue()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Expired queue sweep failed")
+
+    runtime_data.unsub_expired_sweep = async_track_time_interval(
+        hass,
+        _sweep_expired,
+        timedelta(seconds=EXPIRED_QUEUE_SWEEP_INTERVAL),
+    )
+
     # Register cleanup via async_on_unload
     entry.async_on_unload(
         lambda: _cleanup_entry(hass, entry)
@@ -197,6 +216,11 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     # Unregister action listener
     if runtime_data.unsub_actions:
         runtime_data.unsub_actions()
+
+    # F-25: Cancel expired queue sweep interval
+    if runtime_data.unsub_expired_sweep:
+        runtime_data.unsub_expired_sweep()
+        runtime_data.unsub_expired_sweep = None
 
     # Note: condition_listener_manager cleanup is handled by
     # async_unload() in async_unload_entry — no sync cleanup here.
