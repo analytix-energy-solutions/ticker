@@ -40,6 +40,24 @@ data:
 
 The `category` field accepts either the category display name (e.g., "Security Alerts") or its generated ID (e.g., `security_alerts`).
 
+### Targeting multiple categories *(v1.6.0)*
+
+The `category` field also accepts a list of category IDs, so a single call can fan out to multiple categories at once:
+
+```yaml
+service: ticker.notify
+data:
+  category:
+    - security
+    - info
+  title: "Motion Detected"
+  message: "Front door camera"
+```
+
+Each listed category is processed independently: Ticker generates a fresh `notification_id` per category, applies that category's conditions and critical flag, fans out to the right subscribers, and writes a separate history entry per category. Duplicates in the list are ignored. If one category in the list does not exist, Ticker logs a warning and continues with the valid ones; if none of the categories resolve, the call fails with a validation error.
+
+The admin Automations tab renders multi-category automations as read-only entries with a "N categories" badge. To edit them, modify the automation YAML directly.
+
 ### Passing data through
 
 Any additional data you include is forwarded to the underlying mobile app notify service. This means all standard HA companion app notification properties work — images, sounds, channels, and more:
@@ -114,6 +132,47 @@ If the per-call `navigate_to` is omitted, Ticker falls back to the category-leve
 If your automation already sets `clickAction` or `url` explicitly in the `data` block, those values are preserved and `navigate_to` does not overwrite them.
 
 > **Note:** Per-call `navigate_to` is not preserved when a notification is queued. Queued notifications use the category default or the global default when they are eventually delivered.
+
+**Security (v1.6.0):** `navigate_to` is validated as a relative HA path. Values must begin with `/` and cannot contain `://` or `//` protocol-relative prefixes or control characters. Absolute URLs (`https://…`), `javascript:` URIs, and similar unsafe values are rejected. This applies at category create/update time, on the admin Automations tab, and at service-call time.
+
+### Auto-clear triggers *(v1.6.0)*
+
+Persistent notifications (the kind that the user cannot swipe away) normally require a second automation to call `ticker.clear_notification` when the triggering condition ends. The `clear_when` parameter lets you declare the clear trigger inline with the notification, so a single `ticker.notify` call is enough.
+
+**Entity-state trigger** — dismisses the notification when a binary sensor returns to its off state:
+
+```yaml
+service: ticker.notify
+data:
+  category: alerts
+  title: "Washer finished"
+  message: "Unload when you have a moment"
+  data:
+    tag: washer_done
+  clear_when:
+    entity_id: binary_sensor.washer_running
+    state: "off"
+```
+
+**Event trigger** — dismisses the notification when a custom event fires:
+
+```yaml
+service: ticker.notify
+data:
+  category: alerts
+  title: "Door left open"
+  message: "Back door still open"
+  data:
+    tag: back_door_open
+  clear_when:
+    event_type: back_door_closed
+```
+
+When the trigger fires, Ticker calls `ticker.clear_notification` automatically against the tag of the delivered notification. Listeners are one-shot and are torn down after the first fire.
+
+> **Important limitation:** auto-clear listeners do not survive a Home Assistant restart. If HA restarts between delivery and trigger fire, the listener is lost and the notification stays on the device until the user dismisses it manually or another call clears the tag. For notifications that must survive restarts, drive the clear from an HA automation triggered by the same condition.
+
+Auto-clear is YAML-only in v1.6.0 — the HA service UI does not render a structured editor for this field.
 
 ### Controlling action button injection *(v1.3.0)*
 
@@ -408,6 +467,26 @@ Each `ticker.notify` call generates a unique `notification_id`. In the History t
 
 The History tab badge count reflects grouped notifications, not raw log entries.
 
+### Search and filters *(v1.6.0)*
+
+The History tab has a filter bar at the top with:
+
+- **Search box** — live full-text search against the title, message, and image URL of every entry. Case-insensitive, updates as you type.
+- **Category dropdown** — filter to a specific category. Populated dynamically from categories present in your history.
+- **Date range** — two date pickers for a from/to window (inclusive, local time).
+
+Filters compose with AND logic and run client-side, so there is no round-trip to the backend. When filters reduce the list to zero matches, an inline "No matches. Clear filters to see all." message appears while the filter bar stays visible so you can adjust. Filters reset when you switch away from the History tab or close the panel.
+
+### Delete and clear *(v1.6.0)*
+
+Each history entry has a small × button in the corner. Clicking it prompts for confirmation and then deletes the entire notification group (all device-level rows sharing that `notification_id`). Entries from older versions without a `notification_id` do not show a delete button.
+
+A **Clear History** button at the top of the tab wipes your own history after confirmation. This is scoped to the current user — other users' history is untouched. Admins can delete individual rows from the admin Logs tab (see below).
+
+### Expired notifications *(v1.6.0)*
+
+If a queued notification expires before its conditions are met, it now appears in the History tab as a faded entry with a muted "expired" badge. Previously expired notifications disappeared silently. This is driven by a periodic sweep that runs every 15 minutes plus once at integration startup.
+
 ### Inline images *(v1.3.0)*
 
 Notifications with a `data.image` field (HTTP/HTTPS URLs or `/local/` paths) display the image directly in the history entry. This makes it easy to do a quick visual check when reviewing multiple camera or snapshot notifications without opening each one on your phone.
@@ -466,7 +545,13 @@ Inspect all currently queued notifications across all users, grouped by person. 
 
 ### Logs tab
 
-View the notification log with outcome badges (sent, queued, skipped, snoozed, failed) and summary statistics. Logs are retained for 7 days with a maximum of 500 entries. The admin log is an ungrouped audit trail showing every individual delivery attempt. Entries where a user tapped an action button show a pill with the action title and person name.
+View the notification log with outcome badges (sent, queued, skipped, snoozed, failed, expired) and summary statistics. Logs are retained for 7 days with a maximum of 500 entries. The admin log is an ungrouped audit trail showing every individual delivery attempt. Entries where a user tapped an action button show a pill with the action title and person name.
+
+**Click-to-filter *(v1.6.0):*** the stat counters at the top of the Logs tab are clickable. Clicking Sent, Queued, Skipped, Failed, Snoozed, or Expired filters the log list to show only entries with that outcome; the counter card highlights to indicate the active filter. Clicking Total clears the filter. Counters always display unfiltered totals so you can see what clicking them would restore. The filter is client-side only and resets when the admin panel closes.
+
+**Per-row delete *(v1.6.0):*** each log row has a small × button in its header. Clicking it deletes that single entry after confirmation. The existing **Clear All** button remains and wipes the entire log (global, across all users).
+
+**Expired badge *(v1.6.0):*** notifications that aged out of the queue before delivery now carry a muted "expired" badge and contribute to the new Expired stat counter.
 
 ### Devices tab *(v1.4.0)*
 
@@ -572,7 +657,45 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 
 ## Version history
 
-### v1.5.1 (current)
+### v1.6.0 (current)
+
+**Added:**
+- **Notification history search** — the user History tab has a new filter bar with full-text search, category dropdown, and a date-range picker. Filters compose with AND logic and run entirely client-side. An inline "No matches" state appears when filters reduce the list to zero while keeping the filter bar visible.
+- **Log Filter by Status** — the admin Logs tab stat counters (Total, Sent, Queued, Skipped, Failed, Snoozed, Expired) are now clickable. Clicking filters the log list to that outcome; clicking Total clears the filter. Counters always show unfiltered totals.
+- **Expired notification visibility** — queued notifications that expire before delivery are now logged with the new "expired" outcome and shown as faded entries in user History and admin Logs. A periodic sweep runs every 15 minutes.
+- **Multi-category fan-out** — `ticker.notify` `category` field accepts either a single category ID (string) or a list. Each category in the list is processed independently with its own `notification_id`, conditions, critical flag, and log entry. Duplicates are de-duplicated; invalid category IDs in a list are logged as warnings and skipped.
+- **Auto-clear triggers** — new `clear_when` parameter on `ticker.notify` takes either an entity-state trigger (`entity_id` + `state`) or an event trigger (`event_type`). When the trigger fires, Ticker automatically calls `ticker.clear_notification` against the delivered tag. Listeners do not survive HA restarts.
+- **History management** — per-entry × delete buttons on the admin Logs tab and per-group × delete on the user History tab. A user-scoped "Clear History" button wipes the current user's history without affecting others.
+- **Blueprint-friendly device registration** — Ticker now registers itself as a Home Assistant device (`entry_type=service`) under manufacturer "Analytix Energy Solutions" and model "Ticker Notification Router". It appears in device pickers for blueprints and the HA Devices list. Blueprints still call `notify.ticker`; device-action platform support is deferred to a later release.
+- **Per-category `expose_in_sensor` flag** — a new category setting (default on) controls whether raw notification title and body are copied into the `sensor.ticker_<category>` extra attributes. Turn off for sensitive categories such as 2FA codes, medical reminders, or authentication flows.
+- **navigate_to validation** — `navigate_to` values are now validated as relative HA paths. Absolute URLs (`https://`), `javascript:` URIs, `//`-protocol-relative paths, and strings containing control characters are rejected at category create/update, automations edit, and service-call time.
+- **Condition tree leaf validation** — subscription and device-conditions validation now recursively checks leaf node contents (entity IDs, zone IDs, HH:MM time format, weekday integers). Invalid leaves are rejected at save time rather than surfacing as runtime errors later.
+- **Condition listener refresh on subscription CRUD** — creating, updating, or deleting a conditional subscription now refreshes the global condition listener registry via a debounced callback, so new state/time rules start firing without requiring an HA restart.
+- **Audit log `set_by` correctness** — subscription changes now correctly record `set_by=USER` when a non-admin edits another user's subscription (previously tagged as ADMIN regardless of caller role).
+
+**Fixed:**
+- Conditional subscriptions migrated to the F-2b tree format (v1.5.0) were silently delivering as Always because the notify handler only checked the legacy `rules` key, which the tree migration removes. Added a shared `has_any_conditions()` helper and wired both user and recipient notify paths through it. (BUG-084, BUG-085)
+- Zone rules and arrival release compared the zone friendly name returned by HA against the zone object-id slug, which only matched by coincidence. Added a `resolve_zone_name()` helper that reads the friendly name from the HA state machine. Also removed a hard-coded `new_zone == "home"` literal in the non-conditional fallback. (BUG-087, BUG-088)
+- Queue retries reset the notification's `expires_at` to 48 hours from the retry time instead of preserving the remaining lifetime from the original call. Already-expired entries are now skipped instead of re-queued. (BUG-089)
+- Snooze action tap resolved to an arbitrary category when an action set was shared across multiple categories. Now resolves the originating category via the notification log. (BUG-090)
+- Bundled arrival notifications did not pass `notification_id` into the log entry, breaking history correlation and F-30 auto-clear resolution for bundled deliveries. Added `notification_id` propagation through the queue and bundled delivery path. (BUG-091)
+- `_check_device_ios` returned False on the first non-matching device config entry instead of continuing, so devices with multiple integrations could be mis-classified. (BUG-092)
+- `_check_device_ios` and related iOS fallback logic — see above. Related: discovery name-matching fallback removed because it was cross-linking notify services when one person's name was a substring of another. (BUG-094)
+- Zone arrival and condition re-evaluation could release queued notifications for disabled users. The `is_user_enabled` guard that was already in the arrival handler has been extended to the condition listener re-evaluation and the async queue release paths. (BUG-044 extension)
+- Condition rules with `after: HH:MM` and `before: HH:MM` only tracked the opening edge. The closing edge is now also tracked so deliver-when-met windows correctly close. (BUG-096)
+- `conditions={}` on `ticker/create_recipient` and `ticker/update_recipient` was rejected; empty dict is now normalized to `None`. Malformed conditions dicts with unknown keys are still rejected. (BUG-093)
+- The Persistent toggle on the category Smart sub-tab did not stay on when clicked and reset the replacement dropdown as a side effect. The in-flight Smart sub-tab state is now buffered in `_pendingSmart[categoryId]` before re-render, matching the existing `_pendingDefaultConditions` pattern. (BUG-083, GitHub #25, reported by kurdt1994)
+- `ticker.clear_notification` was defined but never registered as a service. It is now wired into `async_setup` alongside `ticker.notify`. (BUG-103)
+- Admin Navigation Picker dashboard list was always empty because the loader called `lovelace/dashboards` instead of `lovelace/dashboards/list`. (BUG-102)
+- Notification titles were logged at INFO level; now at DEBUG. (BUG-101)
+- 19 bugs fixed in total. See BUGS.md and CHANGELOG.md for the complete list.
+
+### v1.5.2
+
+**Fixed:**
+- **BUG-082**: Adding a new device recipient (TTS or Push) always failed with `expected dict for dictionary value @ data['conditions']. Got None` when the Conditions tab was left empty.
+
+### v1.5.1
 
 **Fixed:**
 - **BUG-081**: "Copy YAML" in the Migration Wizard crashed in the HA Companion App and non-HTTPS contexts (`Cannot read properties of undefined (reading 'writeText')`). The Clipboard API call is now guarded; the fallback dialog is reachable in all environments.
