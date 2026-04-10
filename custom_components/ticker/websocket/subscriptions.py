@@ -166,8 +166,11 @@ async def ws_set_subscription(
                 connection.send_error(msg["id"], code, msg_text)
                 return
 
-    # Determine set_by: check if caller is modifying their own subscription
-    set_by = SET_BY_ADMIN  # Default to admin
+    # Determine set_by: record ADMIN only when the caller actually has
+    # admin rights. A non-admin HA user editing another user's subscription
+    # must not be tagged as ADMIN — that is an audit-log correctness bug
+    # (BUG-098). Self-edits are always tagged USER regardless of admin flag.
+    set_by = SET_BY_ADMIN  # Default to admin (preserved when caller_user is None)
     caller_user = connection.user
     if caller_user:
         discovered_users = await async_discover_notify_services(hass)
@@ -175,6 +178,14 @@ async def ws_set_subscription(
         target_user_id = target_user_data.get("user_id")
 
         if target_user_id and target_user_id == caller_user.id:
+            # Caller is editing their own subscription
+            set_by = SET_BY_USER
+        elif caller_user.is_admin:
+            # Cross-user edit by an actual admin
+            set_by = SET_BY_ADMIN
+        else:
+            # Cross-user edit by a non-admin caller — not an admin action;
+            # fall back to USER rather than mislabeling the audit log.
             set_by = SET_BY_USER
 
     subscription = await store.async_set_subscription(
