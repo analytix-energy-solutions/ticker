@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from custom_components.ticker.condition_listeners import ConditionListenerManager
 from custom_components.ticker.store.subscriptions import SubscriptionMixin

@@ -14,9 +14,7 @@ from custom_components.ticker.bundled_notify import (
     async_send_bundled_notification,
 )
 from custom_components.ticker.const import (
-    DEFAULT_NAVIGATE_TO,
     DEVICE_MODE_ALL,
-    LOG_OUTCOME_SENT,
 )
 
 

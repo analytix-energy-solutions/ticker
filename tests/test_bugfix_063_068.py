@@ -19,7 +19,6 @@ from custom_components.ticker.conditions import (
     evaluate_rule,
     evaluate_rules,
     should_deliver_now,
-    should_queue,
 )
 from custom_components.ticker.const import (
     DELIVERY_FORMAT_PATTERNS,

@@ -5,7 +5,6 @@ Covers strip_html, detect_delivery_format, and transform_payload_for_format.
 
 from __future__ import annotations
 
-import pytest
 
 from custom_components.ticker.formatting import (
     build_tts_payload,

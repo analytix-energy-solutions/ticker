@@ -5,15 +5,13 @@ Verifies CRUD operations, enabled toggling, and subscription cleanup on delete.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from custom_components.ticker.store.recipients import RecipientMixin
 from custom_components.ticker.const import (
     DELIVERY_FORMAT_RICH,
-    DELIVERY_FORMAT_TTS,
-    DELIVERY_FORMATS,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
 )

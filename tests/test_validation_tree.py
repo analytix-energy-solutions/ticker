@@ -23,7 +23,6 @@ Note on hass parameter (BUG-097 refactor):
 
 from __future__ import annotations
 
-import pytest
 
 from custom_components.ticker.websocket.validation import validate_condition_tree
 

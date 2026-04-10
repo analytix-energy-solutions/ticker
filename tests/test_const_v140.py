@@ -5,7 +5,6 @@ Verifies new constants, removed patterns, and structural requirements.
 
 from __future__ import annotations
 
-import pytest
 
 from custom_components.ticker.const import (
     DELIVERY_FORMAT_PATTERNS,
