@@ -322,7 +322,9 @@ class TickerPanel extends HTMLElement {
 
   /**
    * F-26: Update a history filter field and re-render the history tab
-   * without losing scroll position.
+   * without losing scroll position. Captures the currently focused input
+   * (id + selection range) before re-render and restores it afterwards
+   * so the search box keeps focus across keystrokes.
    * @param {string} field - One of historySearch, historyCategory, historyDateFrom, historyDateTo
    * @param {string} value - New value
    */
@@ -331,7 +333,34 @@ class TickerPanel extends HTMLElement {
     if (!allowed.includes(field)) return;
     const key = '_' + field;
     this[key] = value || '';
+
+    // Save focus state from the shadow root's active element.
+    const active = this.shadowRoot?.activeElement;
+    let focusInfo = null;
+    if (active && active.id && active.id.startsWith('ticker-history-')) {
+      focusInfo = { id: active.id };
+      // Only text-like inputs expose selection range
+      if (active.tagName === 'INPUT' && (active.type === 'search' || active.type === 'text')) {
+        focusInfo.selStart = active.selectionStart;
+        focusInfo.selEnd = active.selectionEnd;
+      }
+    }
+
     this._renderTabContentPreserveScroll();
+
+    if (focusInfo) {
+      const restored = this.shadowRoot?.getElementById(focusInfo.id);
+      if (restored) {
+        restored.focus();
+        if (focusInfo.selStart != null && typeof restored.setSelectionRange === 'function') {
+          try {
+            restored.setSelectionRange(focusInfo.selStart, focusInfo.selEnd);
+          } catch {
+            // setSelectionRange throws on some input types — safe to ignore
+          }
+        }
+      }
+    }
   }
 
   _renderTabContent() {
