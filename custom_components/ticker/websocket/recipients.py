@@ -233,9 +233,11 @@ async def ws_create_recipient(
         connection.send_error(msg["id"], "invalid_icon", error)
         return
 
-    # Validate conditions structure if provided (accepts condition_tree or rules)
+    # Validate conditions structure if provided (accepts condition_tree or rules).
+    # BUG-093: treat conditions={} same as conditions=None — empty dict is a
+    # natural "no conditions" value and must normalize to None for storage.
     conditions = msg.get("conditions")
-    if conditions is not None:
+    if conditions and (conditions.get("condition_tree") or conditions.get("rules") is not None):
         tree = conditions.get("condition_tree")
         rules = conditions.get("rules")
         if tree:
@@ -249,6 +251,9 @@ async def ws_create_recipient(
                 "Conditions must contain 'condition_tree' or 'rules'",
             )
             return
+    else:
+        # Empty dict or None — store as None
+        conditions = None
 
     try:
         recipient = await store.async_create_recipient(
@@ -263,7 +268,7 @@ async def ws_create_recipient(
             enabled=msg["enabled"],
             resume_after_tts=msg["resume_after_tts"],
             tts_buffer_delay=msg["tts_buffer_delay"],
-            conditions=msg.get("conditions"),
+            conditions=conditions,
         )
     except ValueError as err:
         connection.send_error(msg["id"], "create_failed", str(err))
@@ -374,10 +379,11 @@ async def ws_update_recipient(
     if "tts_buffer_delay" in msg:
         kwargs["tts_buffer_delay"] = msg["tts_buffer_delay"]
 
-    # F-21: Device-level conditions (None clears via sparse storage)
+    # F-21: Device-level conditions (None clears via sparse storage).
+    # BUG-093: empty dict normalizes to None, same as explicit None.
     if "conditions" in msg:
         cond_val = msg["conditions"]
-        if cond_val is not None:
+        if cond_val and (cond_val.get("condition_tree") or cond_val.get("rules") is not None):
             tree = cond_val.get("condition_tree")
             rules = cond_val.get("rules")
             if tree:
@@ -391,6 +397,8 @@ async def ws_update_recipient(
                     "Conditions must contain 'condition_tree' or 'rules'",
                 )
                 return
+        else:
+            cond_val = None
         kwargs["conditions"] = cond_val
 
     if not kwargs:
