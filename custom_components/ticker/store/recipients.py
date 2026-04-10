@@ -223,6 +223,9 @@ class RecipientMixin:
             for key in sub_keys_to_remove:
                 del self._subscriptions[key]
             await self.async_save_subscriptions()  # type: ignore[attr-defined]
+            # Fire once after the cascade so condition listeners refresh
+            # a single time instead of per-key (BUG-086).
+            self._notify_subscription_change()  # type: ignore[attr-defined]
             _LOGGER.debug(
                 "Removed %d subscriptions for deleted recipient %s",
                 len(sub_keys_to_remove),

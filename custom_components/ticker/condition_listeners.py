@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_change,
 )
@@ -109,6 +110,9 @@ class ConditionListenerManager:
         # Track which entities we're listening to
         self._tracked_entities: set[str] = set()
         self._tracked_times: set[str] = set()  # "HH:MM" format
+
+        # Debounced refresh state (BUG-086)
+        self._pending_refresh_unsub: Callable[[], None] | None = None
 
     async def async_setup(self) -> None:
         """Set up initial listeners based on current subscriptions."""
@@ -409,7 +413,40 @@ class ConditionListenerManager:
                     [reason for met, reason in rule_results if not met],
                 )
 
+    @callback
+    def schedule_refresh(self) -> None:
+        """Schedule a debounced refresh of condition listeners.
+
+        Called from the store subscription listener whenever subscriptions
+        change. Uses async_call_later with a 0.5s delay so cascaded deletes
+        (e.g., removing a recipient with many subscriptions) coalesce into
+        a single refresh instead of thrashing (BUG-086).
+        """
+        # Cancel any previously scheduled refresh so the timer resets
+        if self._pending_refresh_unsub is not None:
+            self._pending_refresh_unsub()
+            self._pending_refresh_unsub = None
+
+        async def _do_refresh(_now) -> None:
+            self._pending_refresh_unsub = None
+            try:
+                await self.async_refresh_listeners()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error(
+                    "Error refreshing condition listeners: %s", err
+                )
+
+        self._pending_refresh_unsub = async_call_later(
+            self.hass, 0.5, _do_refresh
+        )
+
     async def async_unload(self) -> None:
         """Clean up all listeners on unload."""
+        # Cancel any pending debounced refresh so it does not fire
+        # after teardown (BUG-086).
+        if self._pending_refresh_unsub is not None:
+            self._pending_refresh_unsub()
+            self._pending_refresh_unsub = None
+
         self._cleanup_listeners()
         _LOGGER.debug("Condition listeners unloaded")

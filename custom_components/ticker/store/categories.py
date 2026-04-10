@@ -258,6 +258,9 @@ class CategoryMixin:
 
         if keys_to_remove:
             await self.async_save_subscriptions()
+            # Fire once after the cascade so condition listeners refresh
+            # a single time instead of per-key (BUG-086).
+            self._notify_subscription_change()  # type: ignore[attr-defined]
 
         _LOGGER.info("Deleted category: %s", category_id)
         return True

@@ -98,6 +98,7 @@ class TickerStore(
         self._action_sets: dict[str, dict[str, Any]] = {}
         self._category_listeners: list[Callable[[], None]] = []
         self._action_set_listeners: list[Callable[[], None]] = []
+        self._subscription_listeners: list[Callable[[], None]] = []
 
         # Debounced log saving state (used by QueueLogMixin)
         self._logs_dirty: bool = False

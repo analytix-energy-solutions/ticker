@@ -60,6 +60,7 @@ class TickerData:
     store: TickerStore
     category_listener: Callable[[], None] | None = None
     action_set_listener: Callable[[], None] | None = None
+    subscription_listener: Callable[[], None] | None = None
     unsub_arrival: Callable[[], None] | None = None
     unsub_actions: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
@@ -151,6 +152,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     await condition_manager.async_setup()
     runtime_data.condition_listener_manager = condition_manager
 
+    # Refresh condition listeners whenever subscriptions change so newly
+    # created conditional subscriptions receive their state/time listeners
+    # without requiring an HA restart (BUG-086). Register AFTER async_setup
+    # so the initial load is not duplicated.
+    store.register_subscription_listener(condition_manager.schedule_refresh)
+    runtime_data.subscription_listener = condition_manager.schedule_refresh
+
     # Set up notification action listener (F-5)
     unsub_actions = await async_setup_action_listener(hass, store)
     runtime_data.unsub_actions = unsub_actions
@@ -175,6 +183,12 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     # Unregister action set listener
     if runtime_data.action_set_listener:
         runtime_data.store.unregister_action_set_listener(runtime_data.action_set_listener)
+
+    # Unregister subscription listener (BUG-086)
+    if runtime_data.subscription_listener:
+        runtime_data.store.unregister_subscription_listener(
+            runtime_data.subscription_listener
+        )
 
     # Unregister arrival listener
     if runtime_data.unsub_arrival:
