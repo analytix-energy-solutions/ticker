@@ -134,7 +134,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Generate a unique ID for this notification call to group log entries
         notification_id = str(uuid.uuid4())
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "Processing notification for category '%s': %s (notification_id: %s)",
             category_id,
             title,
