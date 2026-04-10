@@ -1,9 +1,4 @@
-/**
- * Ticker Admin Panel - Categories Tab
- * Handles category management with inner sub-tabs per category.
- *
- * Brand: See branding/README.md
- */
+/** Ticker Admin Panel - Categories Tab. Brand: see branding/README.md */
 window.Ticker = window.Ticker || {};
 
 window.Ticker.AdminCategoriesTab = {
@@ -207,7 +202,8 @@ window.Ticker.AdminCategoriesTab = {
   },
 
   _renderSmartTab(c, escId) {
-    const s = c.smart_notification || {};
+    const pending = window.Ticker._adminPanel._pendingSmart?.[c.id];
+    const s = Object.assign({}, c.smart_notification || {}, pending || {});
     const group = !!s.group;
     const tagMode = s.tag_mode || 'none';
     const sticky = !!s.sticky;
@@ -358,8 +354,6 @@ window.Ticker.AdminCategoriesTab = {
     },
 
     defaultModeChanged(panel, categoryId, mode) {
-      // Store pending mode on the panel, NOT on the category object.
-      // This prevents stale in-memory mutation if the user cancels the edit.
       panel._pendingDefaultMode = mode;
       if (mode === 'conditional') {
         const cat = panel._categories.find(c => c.id === categoryId);
@@ -402,7 +396,6 @@ window.Ticker.AdminCategoriesTab = {
       const cat = panel._categories.find(c => c.id === categoryId);
       if (!cat) return;
 
-      // Fall back to existing category values when inputs are on a different sub-tab
       const nameEl = panel.shadowRoot.getElementById(`edit-name-${categoryId}`);
       const name = nameEl ? nameEl.value.trim() : cat.name;
       const iconEl = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`);
@@ -418,8 +411,6 @@ window.Ticker.AdminCategoriesTab = {
       try {
         const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
         if (criticalEl) { params.critical = criticalEl.checked; }
-        // Only read navigate_to when the picker is in the DOM (General sub-tab).
-        // Omitting it lets the backend's sparse update preserve the existing value.
         const navPresetEl = panel.shadowRoot.getElementById('nav-preset-cat-edit');
         if (navPresetEl) {
           params.navigate_to = window.Ticker.NavigationPicker.read(panel.shadowRoot, 'cat-edit');
@@ -444,6 +435,12 @@ window.Ticker.AdminCategoriesTab = {
     },
 
     persistentChanged(panel, categoryId) {
+      const r = panel.shadowRoot, g = id => r.getElementById(`smart-${id}-${categoryId}`);
+      panel._pendingSmart = panel._pendingSmart || {};
+      panel._pendingSmart[categoryId] = {
+        group: g('group')?.checked || false, tag_mode: g('tag-mode')?.value || 'none',
+        sticky: g('sticky')?.checked || false, persistent: g('persistent')?.checked || false,
+      };
       panel._renderTabContentPreserveScroll();
     },
 
@@ -461,6 +458,7 @@ window.Ticker.AdminCategoriesTab = {
           category_id: categoryId,
           smart_notification: { group, tag_mode: tagMode, sticky, persistent },
         });
+        if (panel._pendingSmart) delete panel._pendingSmart[categoryId];
         await panel._loadCategories();
         panel._renderTabContentPreserveScroll();
         panel._showSuccess('Smart delivery updated');
