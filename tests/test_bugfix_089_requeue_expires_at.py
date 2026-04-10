@@ -13,12 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.ticker.store_queue_log import QueueLogMixin
+from custom_components.ticker.store_queue import QueueMixin
 
 
-def _make_mixin() -> QueueLogMixin:
-    """Build a QueueLogMixin with just enough state to exercise requeue."""
-    mixin = QueueLogMixin()
+def _make_mixin() -> QueueMixin:
+    """Build a QueueMixin with just enough state to exercise requeue."""
+    mixin = QueueMixin()
     mixin.hass = MagicMock()
     mixin._queue = {}
     mixin._queue_store = MagicMock()

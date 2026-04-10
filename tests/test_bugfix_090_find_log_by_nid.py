@@ -10,11 +10,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from custom_components.ticker.store_queue_log import QueueLogMixin
+from custom_components.ticker.store_log import LogMixin
 
 
-def _make_mixin() -> QueueLogMixin:
-    mixin = QueueLogMixin()
+def _make_mixin() -> LogMixin:
+    mixin = LogMixin()
     mixin.hass = MagicMock()
     mixin._logs = []
     return mixin
