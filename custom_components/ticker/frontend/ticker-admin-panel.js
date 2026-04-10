@@ -161,6 +161,7 @@ class TickerAdminPanel extends HTMLElement {
       `${base}/admin/logs-tab.js`,
       `${base}/admin/migrate-tab.js`,
       `${base}/admin/automations-tab.js`,
+      `${base}/admin/automations-tab-multicategory.js`,
       `${base}/admin/action-sets-tab.js`,
     ];
 

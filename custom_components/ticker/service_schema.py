@@ -33,7 +33,9 @@ def _build_service_schema() -> vol.Schema:
     """Build basic service schema (categories validated at runtime)."""
     return vol.Schema(
         {
-            vol.Required(ATTR_CATEGORY): cv.string,
+            # F-27: accept single category ID/name or list for fan-out.
+            # The UI selector stays single-dropdown; multi only via YAML.
+            vol.Required(ATTR_CATEGORY): vol.Any(cv.string, [cv.string]),
             vol.Required(ATTR_TITLE): cv.string,
             vol.Required(ATTR_MESSAGE): cv.string,
             vol.Optional(ATTR_EXPIRATION, default=DEFAULT_EXPIRATION_HOURS): vol.All(

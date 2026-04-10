@@ -152,22 +152,33 @@ window.Ticker.AdminAutomationsTab = {
   },
 
   /**
+   * Render a single category badge by id/name. Used by both the collapsed
+   * list-item and the F-27 multi-category read-only view.
+   */
+  _renderCategoryBadge(state, cid) {
+    const { esc, escAttr } = window.Ticker.utils;
+    const c = state.categories.find(cc => cc.id === cid || cc.name === cid);
+    return c
+      ? `<span class="badge" style="background:${escAttr(c.color || 'var(--ticker-500)')}">${esc(c.name)}</span>`
+      : `<span class="badge badge-gray">${esc(cid)}</span>`;
+  },
+
+  /**
    * Render a collapsed finding item.
-   * @param {Object} state - Panel state
-   * @param {Object} finding - The finding object
-   * @param {number} index - Original index in findings array
-   * @returns {string} - HTML string
    */
   _renderFindingItem(state, finding, index) {
-    const { esc, escAttr } = window.Ticker.utils;
+    const { esc } = window.Ticker.utils;
     const sd = finding.service_data || {};
-    const catId = sd.category || '';
-    const cat = state.categories.find(c => c.id === catId || c.name === catId);
-    const categoryBadge = cat
-      ? `<span class="badge" style="background:${escAttr(cat.color || 'var(--ticker-500)')}">${esc(cat.name)}</span>`
-      : catId
-        ? `<span class="badge badge-gray">${esc(catId)}</span>`
-        : '';
+    const catRaw = sd.category;
+    // F-27: category may be a list (multi-category fan-out).
+    let categoryBadge = '';
+    if (Array.isArray(catRaw)) {
+      categoryBadge = catRaw.length <= 2
+        ? catRaw.map(cid => this._renderCategoryBadge(state, cid)).join(' ')
+        : `<span class="badge badge-gray" title="${window.Ticker.utils.escAttr(catRaw.join(', '))}">${catRaw.length} categories</span>`;
+    } else if (catRaw) {
+      categoryBadge = this._renderCategoryBadge(state, catRaw);
+    }
     const icon = finding.source_type === 'automation' ? 'mdi:robot' : 'mdi:file-document-outline';
 
     return `
@@ -200,8 +211,14 @@ window.Ticker.AdminAutomationsTab = {
   _renderExpandedForm(state, finding, index) {
     const { esc, escAttr } = window.Ticker.utils;
     const sd = finding.service_data || {};
-    const catId = sd.category || '';
     const icon = finding.source_type === 'automation' ? 'mdi:robot' : 'mdi:file-document-outline';
+
+    // F-27: multi-category findings are READ-ONLY; delegate to companion.
+    if (Array.isArray(sd.category)) {
+      return window.Ticker.AdminAutomationsMultiCategory.render(this, state, finding, index, icon);
+    }
+
+    const catId = sd.category || '';
 
     // Build category options — match by id OR name (automations may use either)
     const sortedCats = [...state.categories].sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
@@ -317,10 +334,14 @@ window.Ticker.AdminAutomationsTab = {
     return findings.filter(f => {
       if (filter.category) {
         const sd = f.service_data || {};
-        const val = sd.category || '';
-        // Match by id or resolve name→id via categories list
+        const val = sd.category;
+        // Match by id or resolve name→id via categories list.
+        // F-27: if category is a list, match when any entry resolves.
         const cat = categories && categories.find(c => c.id === filter.category);
-        const match = val === filter.category || (cat && val === cat.name);
+        const matchOne = (v) => v === filter.category || (cat && v === cat.name);
+        const match = Array.isArray(val)
+          ? val.some(matchOne)
+          : matchOne(val || '');
         if (!match) return false;
       }
       if (filter.sourceType) {
