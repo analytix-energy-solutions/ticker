@@ -236,8 +236,12 @@ async def ws_create_recipient(
     # Validate conditions structure if provided (accepts condition_tree or rules).
     # BUG-093: treat conditions={} same as conditions=None — empty dict is a
     # natural "no conditions" value and must normalize to None for storage.
+    # Dicts with unknown keys but no tree/rules are still malformed and rejected.
     conditions = msg.get("conditions")
-    if conditions and (conditions.get("condition_tree") or conditions.get("rules") is not None):
+    if not conditions:
+        # None or empty dict {} — store as None
+        conditions = None
+    elif conditions.get("condition_tree") or conditions.get("rules") is not None:
         tree = conditions.get("condition_tree")
         rules = conditions.get("rules")
         if tree:
@@ -253,8 +257,11 @@ async def ws_create_recipient(
             )
             return
     else:
-        # Empty dict or None — store as None
-        conditions = None
+        connection.send_error(
+            msg["id"], "invalid_conditions",
+            "Conditions must contain 'condition_tree' or 'rules'",
+        )
+        return
 
     try:
         recipient = await store.async_create_recipient(
@@ -382,9 +389,13 @@ async def ws_update_recipient(
 
     # F-21: Device-level conditions (None clears via sparse storage).
     # BUG-093: empty dict normalizes to None, same as explicit None.
+    # Dicts with unknown keys but no tree/rules are still malformed and rejected.
     if "conditions" in msg:
         cond_val = msg["conditions"]
-        if cond_val and (cond_val.get("condition_tree") or cond_val.get("rules") is not None):
+        if not cond_val:
+            # None or empty dict {} — store as None
+            cond_val = None
+        elif cond_val.get("condition_tree") or cond_val.get("rules") is not None:
             tree = cond_val.get("condition_tree")
             rules = cond_val.get("rules")
             if tree:
@@ -400,7 +411,11 @@ async def ws_update_recipient(
                 )
                 return
         else:
-            cond_val = None
+            connection.send_error(
+                msg["id"], "invalid_conditions",
+                "Conditions must contain 'condition_tree' or 'rules'",
+            )
+            return
         kwargs["conditions"] = cond_val
 
     if not kwargs:
