@@ -338,6 +338,44 @@ def get_queue_triggers(
     return triggers
 
 
+def has_any_conditions(conditions: dict[str, Any] | None) -> bool:
+    """Return True if conditions contain any evaluable content.
+
+    Unlike :func:`has_valid_rules`, this does NOT require
+    ``deliver_when_met`` or ``queue_until_met`` to be set. It is used by
+    the notification delivery paths to decide whether a subscription has
+    conditions to evaluate at all — regardless of which storage shape the
+    conditions use.
+
+    Supported shapes:
+        * F-2b tree: ``{"condition_tree": {"type": "group",
+          "children": [...]}}``
+        * F-2 flat: ``{"rules": [...]}``
+        * Legacy zones: ``{"zones": {"zone.home": {...}}}``
+
+    Args:
+        conditions: Conditions dict from a subscription, or ``None``.
+
+    Returns:
+        True if any of condition_tree.children, rules, or zones contain
+        at least one entry.
+    """
+    if not conditions:
+        return False
+
+    tree = conditions.get("condition_tree")
+    if tree and tree.get("children"):
+        return True
+
+    if conditions.get("rules"):
+        return True
+
+    if conditions.get("zones"):
+        return True
+
+    return False
+
+
 def has_valid_rules(conditions: dict[str, Any] | None) -> bool:
     """Check if conditions have at least one effective delivery path.
 

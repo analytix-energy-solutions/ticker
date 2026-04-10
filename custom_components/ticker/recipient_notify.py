@@ -320,7 +320,7 @@ async def async_handle_conditional_recipient(
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists.
     """
-    from .conditions import should_deliver_now, should_queue
+    from .conditions import has_any_conditions, should_deliver_now, should_queue
 
     recipient_id = recipient["recipient_id"]
     recipient_name = recipient.get("name", recipient_id)
@@ -329,7 +329,9 @@ async def async_handle_conditional_recipient(
 
     conditions = store.get_subscription_conditions(person_id, category_id)
 
-    if not conditions or not conditions.get("rules"):
+    # BUG-085: check both condition_tree and rules (F-2b migration
+    # removes the legacy rules key in favor of condition_tree).
+    if not has_any_conditions(conditions):
         _LOGGER.warning(
             "Conditional mode for recipient %s/%s has no conditions, "
             "sending immediately",
