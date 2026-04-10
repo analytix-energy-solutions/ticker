@@ -209,9 +209,22 @@ async def _async_handle_action_event(
     resolved_cat_id: str | None = None
     action_set_dict = store.get_action_set(segment)
     if action_set_dict:
-        # segment is a library action_set_id — resolve real category
-        using = store.is_action_set_in_use(segment)
-        resolved_cat_id = using[0] if using else None
+        # segment is a library action_set_id — resolve real category.
+        # When the same action set is shared across multiple categories, we
+        # must look up which category this specific notification belonged to
+        # via the log (BUG-090). Fall back to the first user only if the log
+        # lookup fails (e.g. bundled notifications or expired log entries).
+        if person_id:
+            resolved_cat_id = store.find_log_category_by_nid(nid_short, person_id)
+        if not resolved_cat_id:
+            using = store.is_action_set_in_use(segment)
+            if using:
+                resolved_cat_id = using[0]
+                _LOGGER.debug(
+                    "BUG-090 fallback: log lookup for nid=%s person=%s failed; "
+                    "using first category %s from action set %s users",
+                    nid_short, person_label, resolved_cat_id, segment,
+                )
     else:
         # segment might be a legacy category_id
         category = store.get_category(segment)

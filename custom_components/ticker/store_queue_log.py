@@ -462,6 +462,28 @@ class QueueLogMixin:
 
         return updated
 
+    def find_log_category_by_nid(
+        self, nid_short: str, person_id: str
+    ) -> str | None:
+        """Find the category_id of the most recent log entry matching a notification.
+
+        Matches by notification_id prefix (first 8 chars) and person_id, iterating
+        logs in reverse (most-recent first). Used by action handling to resolve the
+        correct category when an action set is shared across multiple categories
+        (BUG-090).
+
+        Returns the matching log entry's category_id, or None if no match.
+        """
+        for log in reversed(self._logs):
+            nid = log.get("notification_id", "")
+            if (
+                nid
+                and nid[:8] == nid_short
+                and log.get("person_id") == person_id
+            ):
+                return log.get("category_id")
+        return None
+
     async def async_clear_logs(self) -> int:
         """Clear all logs. Returns count removed."""
         count = len(self._logs)
