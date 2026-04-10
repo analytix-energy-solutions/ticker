@@ -307,6 +307,17 @@ async def async_release_queue_for_conditions(
         person_id: Person entity ID or "recipient:{recipient_id}"
         category_id: Category ID
     """
+    # BUG-044: disabled users must not have queued notifications released.
+    # Recipient queues are not user-gated.
+    is_recipient = person_id.startswith("recipient:")
+    if not is_recipient and not store.is_user_enabled(person_id):
+        _LOGGER.debug(
+            "Skipping queue release for disabled user %s/%s",
+            person_id,
+            category_id,
+        )
+        return
+
     # Get queued entries for this person/category
     queued = store.get_queue_for_person(person_id)
     entries_to_deliver = [q for q in queued if q.get("category_id") == category_id]
@@ -331,7 +342,6 @@ async def async_release_queue_for_conditions(
         await store.async_remove_from_queue(queued_entry["queue_id"])
 
     # Route to recipient or person delivery path
-    is_recipient = person_id.startswith("recipient:")
     if is_recipient:
         success = await _async_deliver_recipient_queue(
             hass, store, person_id, category_id, entries_to_deliver,

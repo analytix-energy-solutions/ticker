@@ -360,6 +360,11 @@ class ConditionListenerManager:
 
             is_recipient = key.startswith("recipient:")
 
+            # BUG-044: disabled users must not have queued notifications
+            # re-evaluated or released. Recipient subs are not user-gated.
+            if not is_recipient and not self.store.is_user_enabled(person_id):
+                continue
+
             # Check if this subscription has relevant conditions
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
