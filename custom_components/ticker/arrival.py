@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_registry import (
 )
 
 from .const import MODE_CONDITIONAL
-from .conditions import evaluate_condition_tree
+from .conditions import evaluate_condition_tree, resolve_zone_name
 from .bundled_notify import async_send_bundled_notification
 from .recipient_notify import async_send_to_recipient
 
@@ -113,11 +113,14 @@ async def async_setup_arrival_listener(
             sub = subscriptions.get(cat_id, {})
 
             if sub.get("mode") != MODE_CONDITIONAL:
-                # Non-conditional: deliver on any zone change (legacy behavior)
-                if new_zone == "home":
-                    entries_to_deliver.extend(cat_entries)
-                else:
-                    entries_to_keep_queued.extend(cat_entries)
+                # Non-conditional: legacy queued entries are delivered on any
+                # zone change. The previous implementation hard-coded
+                # ``new_zone == "home"``, which never matched because
+                # ``person.state`` holds a zone's friendly_name (e.g. "Home")
+                # rather than a slug. Non-conditional subscriptions do not
+                # queue under modern logic, so flush any legacy entries on
+                # the next zone transition.
+                entries_to_deliver.extend(cat_entries)
                 continue
 
             conditions = sub.get("conditions", {})
@@ -128,11 +131,13 @@ async def async_setup_arrival_listener(
                 # Check legacy zones format
                 zones = conditions.get("zones", {})
                 if zones:
-                    # Legacy: check if arrived at any queue_until_arrival zone
+                    # Legacy: check if arrived at any queue_until_arrival zone.
+                    # person.state holds the zone's friendly_name, so resolve
+                    # zone_id -> friendly_name before comparing.
                     arrived = False
                     for zone_id, zone_config in zones.items():
                         if zone_config.get("queue_until_arrival"):
-                            zone_name = zone_id.replace("zone.", "")
+                            zone_name = resolve_zone_name(hass, zone_id)
                             if new_zone == zone_name:
                                 arrived = True
                                 break
@@ -142,11 +147,9 @@ async def async_setup_arrival_listener(
                     else:
                         entries_to_keep_queued.extend(cat_entries)
                 else:
-                    # No rules, tree, or zones - deliver on home arrival
-                    if new_zone == "home":
-                        entries_to_deliver.extend(cat_entries)
-                    else:
-                        entries_to_keep_queued.extend(cat_entries)
+                    # No rules, tree, or zones configured — flush any legacy
+                    # queued entries on the next zone transition.
+                    entries_to_deliver.extend(cat_entries)
                 continue
 
             # F-2/F-2b: Evaluate conditions (tree or flat rules)

@@ -27,7 +27,31 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
+def resolve_zone_name(hass: HomeAssistant, zone_id: str) -> str:
+    """Resolve zone_id to the friendly name that HA reports on person.state.
+
+    Home Assistant populates ``person.state`` with a zone's ``friendly_name``
+    (e.g. "Main House"), not the entity_id slug. Comparing a subscription's
+    stored ``zone.main_house`` against ``person.state`` therefore requires
+    looking up the friendly_name from the zone entity state. If the zone no
+    longer exists, fall back to the slug portion of the entity_id so legacy
+    comparisons still work (and log the fallback for diagnostics).
+    """
+    zone_state = hass.states.get(zone_id)
+    if zone_state:
+        friendly = zone_state.attributes.get("friendly_name")
+        if friendly:
+            return friendly
+    _LOGGER.debug(
+        "resolve_zone_name: zone %s not found in state machine, "
+        "falling back to slug",
+        zone_id,
+    )
+    return zone_id.removeprefix("zone.")
+
+
 def evaluate_zone_rule(
+    hass: HomeAssistant,
     rule: dict[str, Any],
     person_state: "State",
 ) -> tuple[bool, str]:
@@ -36,8 +60,8 @@ def evaluate_zone_rule(
     if not zone_id:
         return False, "No zone_id specified"
 
-    # Extract zone name from zone_id (e.g., "zone.home" -> "home")
-    zone_name = zone_id.replace("zone.", "")
+    # person.state holds the zone's friendly_name, so resolve zone_id -> name
+    zone_name = resolve_zone_name(hass, zone_id)
     person_zone = person_state.state
 
     is_met = person_zone == zone_name
@@ -130,7 +154,7 @@ def evaluate_rule(
         if person_state is None:
             # Recipients have no location; skip zone rules (treat as met)
             return True, "Zone rule skipped (no person state)"
-        return evaluate_zone_rule(rule, person_state)
+        return evaluate_zone_rule(hass, rule, person_state)
     elif rule_type == RULE_TYPE_TIME:
         return evaluate_time_rule(rule, now)
     elif rule_type == RULE_TYPE_STATE:
