@@ -49,6 +49,10 @@ from .arrival import async_setup_arrival_listener, async_release_queue_for_condi
 from .auto_clear import AutoClearRegistry
 from .condition_listeners import ConditionListenerManager
 from .discovery import async_discover_notify_services, invalidate_discovery_cache
+from .clear_notification import (
+    async_setup_clear_service,
+    register_clear_schema_updater,
+)
 from .services import async_setup_services, register_schema_updater
 from .websocket import async_setup_websocket_api
 
@@ -91,6 +95,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """
     # Register services in async_setup per IQS action-setup rule
     await async_setup_services(hass)
+    await async_setup_clear_service(hass)
 
     # Set up WebSocket API
     await async_setup_websocket_api(hass)
@@ -155,6 +160,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
 
     # Register schema updater for service descriptions
     register_schema_updater(hass, entry)
+    register_clear_schema_updater(hass, runtime_data.store)
 
     # Register category change listener to update service schema
     @callback
