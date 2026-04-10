@@ -33,6 +33,16 @@ class FakeStore(RecipientMixin):
         self._recipients_store.async_save = AsyncMock()
         self._subscriptions: dict = subscriptions if subscriptions is not None else {}
         self.async_save_subscriptions = AsyncMock()
+        # BUG-086: SubscriptionMixin provides _notify_subscription_change;
+        # RecipientMixin.async_delete_recipient calls it after cascade deletes.
+        self._subscription_listeners: list = []
+
+    def _notify_subscription_change(self) -> None:
+        for cb in list(self._subscription_listeners):
+            try:
+                cb()
+            except Exception:
+                pass
 
 
 @pytest.fixture

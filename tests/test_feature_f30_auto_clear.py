@@ -44,7 +44,16 @@ def _make_hass_with_entity(entity_id: str | None = "binary_sensor.door"):
     hass.states = MagicMock()
     hass.states.get = MagicMock(return_value=state)
 
-    hass.async_create_task = MagicMock()
+    # Close any coroutine handed to async_create_task so the test does not
+    # leak an unawaited coroutine warning.
+    def _consume_coro(coro, *_a, **_kw):
+        try:
+            coro.close()
+        except Exception:
+            pass
+        return MagicMock(name="task")
+
+    hass.async_create_task = MagicMock(side_effect=_consume_coro)
     return hass
 
 

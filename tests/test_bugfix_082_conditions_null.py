@@ -153,16 +153,16 @@ class TestBug082ConditionsNull:
         conn.send_result.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_conditions_empty_dict_rejected(self):
-        """An empty dict {} has no rules or condition_tree -- should error."""
+    async def test_conditions_empty_dict_accepted(self):
+        """BUG-093: empty dict {} normalizes to None (same as no conditions)."""
         hass, conn, store = _make_mocks()
 
         with _standard_patches(store):
             await ws_create_recipient(hass, conn, _base_msg(conditions={}))
 
-        conn.send_error.assert_called_once()
-        error_args = conn.send_error.call_args[0]
-        assert error_args[1] == "invalid_conditions"
+        # Empty dict now accepted (normalized to None)
+        conn.send_result.assert_called_once()
+        conn.send_error.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_conditions_with_condition_tree_succeeds(self):

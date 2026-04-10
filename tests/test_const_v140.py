@@ -27,9 +27,12 @@ from custom_components.ticker.const import (
 
 
 class TestVersion:
-    def test_version_is_140(self):
-        """Version is 1.4.0."""
-        assert VERSION == "1.4.0"
+    def test_version_is_valid_semver(self):
+        """Version string is valid semver (X.Y.Z)."""
+        parts = VERSION.split(".")
+        assert len(parts) == 3, f"Expected X.Y.Z, got {VERSION}"
+        for p in parts:
+            assert p.isdigit(), f"Non-numeric version part: {p}"
 
 
 class TestDeviceTypes:

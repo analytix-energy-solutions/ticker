@@ -246,8 +246,13 @@ class TestF27MultiCategoryFanOut:
 
         # Two dispatch calls, one per category.
         assert mock_send.await_count == 2
-        # Resolve by matching category_id kwarg.
-        by_cat = {c.kwargs["category_id"]: c.kwargs["data"] for c in mock_send.call_args_list}
+        # async_send_notification(hass, store, person_id, person_name, category_id, title, message, data, ...)
+        by_cat = {}
+        for c in mock_send.call_args_list:
+            args = c.args
+            category_id = args[4]
+            data_arg = args[7]
+            by_cat[category_id] = data_arg
         assert by_cat["cat_a"].get("critical") is True
         assert "critical" not in by_cat["cat_b"], (
             "F-27 regression: critical flag leaked from cat_a into cat_b. "

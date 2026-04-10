@@ -35,6 +35,22 @@ from custom_components.ticker.const import (
 def mock_hass():
     hass = MagicMock()
     hass.states = MagicMock()
+    # BUG-087: resolve_zone_name calls hass.states.get(zone_id). Default
+    # MagicMock returns a truthy MagicMock with a MagicMock friendly_name,
+    # which breaks slug fallback. Return None for zone.* lookups so the
+    # helper falls back to the slug; tests that need a stored entity
+    # state override via side_effect below.
+    _state_store: dict[str, object] = {}
+
+    def _states_get(entity_id: str):
+        if entity_id in _state_store:
+            return _state_store[entity_id]
+        if entity_id.startswith("zone."):
+            return None
+        return None
+
+    hass.states.get.side_effect = _states_get
+    hass.states._test_store = _state_store  # type: ignore[attr-defined]
     return hass
 
 
@@ -80,7 +96,7 @@ class TestEvaluateRulesReturnType:
         person = fake_state("person.alice", "home")
         state_obj = MagicMock()
         state_obj.state = "off"
-        mock_hass.states.get.return_value = state_obj
+        mock_hass.states._test_store["switch.x"] = state_obj
 
         rules = [
             {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"},
@@ -105,7 +121,7 @@ class TestEvaluateRulesReturnType:
         person = fake_state("person.alice", "not_home")
         state_obj = MagicMock()
         state_obj.state = "on"
-        mock_hass.states.get.return_value = state_obj
+        mock_hass.states._test_store["switch.x"] = state_obj
 
         rules = [
             {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"},

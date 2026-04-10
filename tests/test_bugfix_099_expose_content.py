@@ -29,7 +29,7 @@ class TestBug099ExposeContent:
 
     def test_default_preserves_content(self):
         sensor = _make_sensor()
-        with patch.object(sensor, "async_write_ha_state"):
+        with patch.object(sensor, "async_write_ha_state", create=True):
             sensor.async_add_notification(
                 header="Secret Title",
                 body="Secret Body",
@@ -49,7 +49,7 @@ class TestBug099ExposeContent:
 
     def test_expose_content_false_blanks_header_and_body(self):
         sensor = _make_sensor()
-        with patch.object(sensor, "async_write_ha_state"):
+        with patch.object(sensor, "async_write_ha_state", create=True):
             sensor.async_add_notification(
                 header="Secret Title",
                 body="Secret Body",
@@ -77,7 +77,7 @@ class TestBug099ExposeContent:
     def test_expose_content_false_does_not_break_trimming(self):
         """The 10-entry cap still applies with expose_content=False."""
         sensor = _make_sensor()
-        with patch.object(sensor, "async_write_ha_state"):
+        with patch.object(sensor, "async_write_ha_state", create=True):
             for i in range(15):
                 sensor.async_add_notification(
                     header=f"H{i}",
