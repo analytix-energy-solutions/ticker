@@ -20,6 +20,8 @@ window.Ticker.UserHistoryTab = {
       return '<div class="card"><div class="empty-state"><p>No notification history yet.</p></div></div>';
     }
 
+    const clearBtn = `<button class="btn btn-danger btn-small" onclick="window.Ticker.UserHistoryTab.handlers.clearHistory(window.Ticker._userPanel)">Clear History</button>`;
+
     // Group entries by notification_id, then by date
     const notifications = [];
     const groupedById = {};
@@ -96,11 +98,19 @@ window.Ticker.UserHistoryTab = {
           ? `<div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:4px">&#10003; You tapped: ${esc(notif.action_taken.title || '')}</div>`
           : '';
 
+        const nidAttr = notif.notification_id
+          ? window.Ticker.utils.escAttr(notif.notification_id)
+          : '';
+        const deleteBtn = notif.notification_id
+          ? `<button class="btn btn-danger btn-small" title="Delete notification" onclick="window.Ticker.UserHistoryTab.handlers.deleteGroup(window.Ticker._userPanel, '${nidAttr}')">&times;</button>`
+          : '';
+
         return `
           <div class="history-item">
             <div class="history-item-header">
               <span class="history-item-title">${escTitle}</span>
               <span class="history-item-time">${time}</span>
+              ${deleteBtn}
             </div>
             <div class="history-item-message">${escMessage}</div>
             ${imageHtml}
@@ -123,13 +133,55 @@ window.Ticker.UserHistoryTab = {
 
     return `
       <div class="card">
-        <h2 class="card-title">Notification History</h2>
+        <div class="card-header">
+          <h2 class="card-title">Notification History</h2>
+          ${clearBtn}
+        </div>
         <p class="card-description">Notifications sent to your devices in the last 7 days.</p>
         <div class="history-list">
           ${sections}
         </div>
       </div>
     `;
+  },
+
+  /**
+   * Handler methods (F-32).
+   */
+  handlers: {
+    async clearHistory(panel) {
+      if (!panel || !panel._currentPerson) return;
+      if (!confirm('Clear all notification history?')) return;
+
+      try {
+        await panel._hass.callWS({
+          type: 'ticker/logs/clear_for_person',
+          person_id: panel._currentPerson.person_id,
+        });
+        await panel._loadHistory();
+        panel._renderTabContent();
+        panel._showSuccess('History cleared');
+      } catch (err) {
+        panel._showError(err.message || 'Failed to clear history');
+      }
+    },
+
+    async deleteGroup(panel, notificationId) {
+      if (!panel || !panel._currentPerson || !notificationId) return;
+      if (!confirm('Delete this notification from history?')) return;
+
+      try {
+        await panel._hass.callWS({
+          type: 'ticker/logs/remove_group',
+          notification_id: notificationId,
+          person_id: panel._currentPerson.person_id,
+        });
+        await panel._loadHistory();
+        panel._renderTabContent();
+      } catch (err) {
+        panel._showError(err.message || 'Failed to delete notification');
+      }
+    },
   },
 
   /**

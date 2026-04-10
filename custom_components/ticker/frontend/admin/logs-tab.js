@@ -83,6 +83,10 @@ window.Ticker.AdminLogsTab = {
       const escService = log.notify_service ? esc(log.notify_service) : '';
       const escReason = log.reason ? esc(log.reason) : '';
       const badge = this._getOutcomeBadge(log.outcome);
+      const logIdAttr = window.Ticker.utils.escAttr(log.log_id || '');
+      const deleteBtn = log.log_id
+        ? `<button class="btn btn-danger btn-small" title="Delete entry" onclick="window.Ticker.AdminLogsTab.handlers.deleteEntry(window.Ticker._adminPanel, '${logIdAttr}')">&times;</button>`
+        : '';
 
       return `
         <div class="log-item">
@@ -91,6 +95,7 @@ window.Ticker.AdminLogsTab = {
               ${badge}
               <span class="log-item-title">${escTitle}</span>
               <span class="log-item-time">${formatTime(log.timestamp)}</span>
+              ${deleteBtn}
             </div>
             <div class="log-item-message">${escMessage}</div>
             <div class="log-item-meta">
@@ -188,6 +193,28 @@ window.Ticker.AdminLogsTab = {
       if (!panel) return;
       panel._statusFilter = status;
       panel._renderTabContentPreserveScroll();
+    },
+
+    /**
+     * F-32: Delete a single log entry by log_id.
+     * @param {Object} panel - Admin panel instance
+     * @param {string} logId - The log entry's UUID
+     */
+    async deleteEntry(panel, logId) {
+      if (!logId) return;
+      if (!confirm('Delete this log entry?')) return;
+
+      try {
+        await panel._hass.callWS({
+          type: 'ticker/logs/remove',
+          log_id: logId,
+        });
+        await Promise.all([panel._loadLogs(), panel._loadLogStats()]);
+        panel._renderTabContentPreserveScroll();
+        panel._showSuccess('Entry deleted');
+      } catch (err) {
+        panel._showError(err.message || 'Failed to delete entry');
+      }
     },
   },
 };

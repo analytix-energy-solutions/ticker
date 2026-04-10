@@ -286,3 +286,86 @@ class LogMixin:
         await self._async_save_logs_immediate()
         _LOGGER.info("Cleared %d log entries", count)
         return count
+
+    async def async_remove_log_entry(self, log_id: str) -> bool:
+        """Remove a single log entry by log_id (F-32).
+
+        Returns True if an entry was found and removed, False otherwise.
+        Saves immediately since this is a direct user action.
+        """
+        if not log_id:
+            return False
+
+        original_count = len(self._logs)
+        self._logs = [log for log in self._logs if log.get("log_id") != log_id]
+
+        if len(self._logs) == original_count:
+            return False
+
+        if self._logs_save_unsub:
+            self._logs_save_unsub()
+            self._logs_save_unsub = None
+
+        await self._async_save_logs_immediate()
+        _LOGGER.info("Removed log entry %s", log_id)
+        return True
+
+    async def async_remove_log_group(
+        self, notification_id: str, person_id: str
+    ) -> int:
+        """Remove all log entries matching notification_id and person_id (F-32).
+
+        A single user-facing notification can map to multiple log rows (one
+        per device delivery). Returns the number of entries removed.
+        """
+        if not notification_id or not person_id:
+            return 0
+
+        original_count = len(self._logs)
+        self._logs = [
+            log for log in self._logs
+            if not (
+                log.get("notification_id") == notification_id
+                and log.get("person_id") == person_id
+            )
+        ]
+        removed = original_count - len(self._logs)
+
+        if removed == 0:
+            return 0
+
+        if self._logs_save_unsub:
+            self._logs_save_unsub()
+            self._logs_save_unsub = None
+
+        await self._async_save_logs_immediate()
+        _LOGGER.info(
+            "Removed %d log entries for notification %s / %s",
+            removed, notification_id, person_id,
+        )
+        return removed
+
+    async def async_clear_logs_for_person(self, person_id: str) -> int:
+        """Remove all log entries for a specific person (F-32).
+
+        Returns the number of entries removed.
+        """
+        if not person_id:
+            return 0
+
+        original_count = len(self._logs)
+        self._logs = [
+            log for log in self._logs if log.get("person_id") != person_id
+        ]
+        removed = original_count - len(self._logs)
+
+        if removed == 0:
+            return 0
+
+        if self._logs_save_unsub:
+            self._logs_save_unsub()
+            self._logs_save_unsub = None
+
+        await self._async_save_logs_immediate()
+        _LOGGER.info("Cleared %d log entries for person %s", removed, person_id)
+        return removed
