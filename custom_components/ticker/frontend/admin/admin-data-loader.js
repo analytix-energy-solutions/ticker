@@ -196,7 +196,7 @@ window.Ticker.AdminDataLoader = {
    */
   async loadDashboards(panel) {
     try {
-      const result = await panel._hass.callWS({ type: 'lovelace/dashboards' });
+      const result = await panel._hass.callWS({ type: 'lovelace/dashboards/list' });
       panel._lovelaceDashboards = result || [];
     } catch (err) {
       console.error('[Ticker] Failed to load dashboards:', err);
