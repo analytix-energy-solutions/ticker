@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_registry import (
 )
 
 from .const import MODE_CONDITIONAL
-from .conditions import evaluate_condition_tree
+from .conditions import evaluate_condition_tree, resolve_zone_name
 from .bundled_notify import async_send_bundled_notification
 from .recipient_notify import async_send_to_recipient
 
@@ -98,11 +98,11 @@ async def async_setup_arrival_listener(
 
         # Group queued notifications by category
         queued_by_category: dict[str, list[dict]] = {}
-        for entry in queued:
-            cat_id = entry.get("category_id")
+        for queued_entry in queued:
+            cat_id = queued_entry.get("category_id")
             if cat_id not in queued_by_category:
                 queued_by_category[cat_id] = []
-            queued_by_category[cat_id].append(entry)
+            queued_by_category[cat_id].append(queued_entry)
 
         # Check each category's conditions to see which are now met
         subscriptions = store.get_subscriptions_for_person(person_id)
@@ -113,11 +113,14 @@ async def async_setup_arrival_listener(
             sub = subscriptions.get(cat_id, {})
 
             if sub.get("mode") != MODE_CONDITIONAL:
-                # Non-conditional: deliver on any zone change (legacy behavior)
-                if new_zone == "home":
-                    entries_to_deliver.extend(cat_entries)
-                else:
-                    entries_to_keep_queued.extend(cat_entries)
+                # Non-conditional: legacy queued entries are delivered on any
+                # zone change. The previous implementation hard-coded
+                # ``new_zone == "home"``, which never matched because
+                # ``person.state`` holds a zone's friendly_name (e.g. "Home")
+                # rather than a slug. Non-conditional subscriptions do not
+                # queue under modern logic, so flush any legacy entries on
+                # the next zone transition.
+                entries_to_deliver.extend(cat_entries)
                 continue
 
             conditions = sub.get("conditions", {})
@@ -128,11 +131,13 @@ async def async_setup_arrival_listener(
                 # Check legacy zones format
                 zones = conditions.get("zones", {})
                 if zones:
-                    # Legacy: check if arrived at any queue_until_arrival zone
+                    # Legacy: check if arrived at any queue_until_arrival zone.
+                    # person.state holds the zone's friendly_name, so resolve
+                    # zone_id -> friendly_name before comparing.
                     arrived = False
                     for zone_id, zone_config in zones.items():
                         if zone_config.get("queue_until_arrival"):
-                            zone_name = zone_id.replace("zone.", "")
+                            zone_name = resolve_zone_name(hass, zone_id)
                             if new_zone == zone_name:
                                 arrived = True
                                 break
@@ -142,11 +147,9 @@ async def async_setup_arrival_listener(
                     else:
                         entries_to_keep_queued.extend(cat_entries)
                 else:
-                    # No rules, tree, or zones - deliver on home arrival
-                    if new_zone == "home":
-                        entries_to_deliver.extend(cat_entries)
-                    else:
-                        entries_to_keep_queued.extend(cat_entries)
+                    # No rules, tree, or zones configured — flush any legacy
+                    # queued entries on the next zone transition.
+                    entries_to_deliver.extend(cat_entries)
                 continue
 
             # F-2/F-2b: Evaluate conditions (tree or flat rules)
@@ -191,8 +194,8 @@ async def async_setup_arrival_listener(
         )
 
         # Remove delivered entries from queue
-        for entry in entries_to_deliver:
-            await store.async_remove_from_queue(entry["queue_id"])
+        for queued_entry in entries_to_deliver:
+            await store.async_remove_from_queue(queued_entry["queue_id"])
 
         # Send bundled notification for delivered entries
         success = await async_send_bundled_notification(
@@ -304,6 +307,17 @@ async def async_release_queue_for_conditions(
         person_id: Person entity ID or "recipient:{recipient_id}"
         category_id: Category ID
     """
+    # BUG-044: disabled users must not have queued notifications released.
+    # Recipient queues are not user-gated.
+    is_recipient = person_id.startswith("recipient:")
+    if not is_recipient and not store.is_user_enabled(person_id):
+        _LOGGER.debug(
+            "Skipping queue release for disabled user %s/%s",
+            person_id,
+            category_id,
+        )
+        return
+
     # Get queued entries for this person/category
     queued = store.get_queue_for_person(person_id)
     entries_to_deliver = [q for q in queued if q.get("category_id") == category_id]
@@ -324,11 +338,10 @@ async def async_release_queue_for_conditions(
     )
 
     # Remove entries from queue
-    for entry in entries_to_deliver:
-        await store.async_remove_from_queue(entry["queue_id"])
+    for queued_entry in entries_to_deliver:
+        await store.async_remove_from_queue(queued_entry["queue_id"])
 
     # Route to recipient or person delivery path
-    is_recipient = person_id.startswith("recipient:")
     if is_recipient:
         success = await _async_deliver_recipient_queue(
             hass, store, person_id, category_id, entries_to_deliver,

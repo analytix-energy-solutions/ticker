@@ -11,17 +11,14 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import MagicMock
 
-import pytest
 
 from custom_components.ticker.conditions import (
     evaluate_group,
     evaluate_condition_tree,
     has_valid_rules,
     _collect_triggers_from_node,
-    get_queue_triggers,
 )
 
 

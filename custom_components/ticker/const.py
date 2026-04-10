@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.5.2"
+VERSION = "1.6.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -85,6 +85,10 @@ LOG_OUTCOME_QUEUED = "queued"
 LOG_OUTCOME_SKIPPED = "skipped"
 LOG_OUTCOME_FAILED = "failed"
 LOG_OUTCOME_SNOOZED = "snoozed"
+LOG_OUTCOME_EXPIRED = "expired"
+
+# F-25: Expired queue sweep interval (seconds)
+EXPIRED_QUEUE_SWEEP_INTERVAL = 15 * 60  # 15 minutes
 
 # F-5: Notification Actions
 ACTION_TYPE_SCRIPT = "script"
@@ -190,3 +194,18 @@ ATTR_ACTION_SET_ID = "action_set_id"
 MAX_ACTION_SET_ID_LENGTH = 64
 MAX_ACTION_SET_NAME_LENGTH = 100
 MAX_ACTION_SET_DESCRIPTION_LENGTH = 200
+
+# F-30: Auto-Clear Triggers
+# ticker.notify accepts a `clear_when` parameter describing a state or event
+# trigger that will auto-dismiss the just-sent notification when it fires.
+ATTR_CLEAR_WHEN = "clear_when"
+CLEAR_WHEN_TYPE_STATE = "state"
+CLEAR_WHEN_TYPE_EVENT = "event"
+
+# F-31: Blueprint-Friendly HA Device Registration (Phase 1 — visibility only)
+# Ticker registers a single virtual device in HA's device registry so it
+# appears in device pickers and is discoverable to community blueprints.
+DEVICE_MANUFACTURER = "Analytix Energy Solutions"
+DEVICE_MODEL = "Ticker Notification Router"
+DEVICE_NAME = "Ticker"
+DEVICE_IDENTIFIER = "ticker"

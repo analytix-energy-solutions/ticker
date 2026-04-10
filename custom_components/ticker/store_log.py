@@ -1,4 +1,4 @@
-"""Queue and log management mixin for TickerStore."""
+"""Log management mixin for TickerStore."""
 
 from __future__ import annotations
 
@@ -11,10 +11,8 @@ from homeassistant.core import callback
 from homeassistant.helpers.event import async_call_later
 
 from .const import (
-    DEFAULT_EXPIRATION_HOURS,
     MAX_LOG_ENTRIES,
     LOG_RETENTION_DAYS,
-    MAX_QUEUE_RETRIES,
 )
 
 if TYPE_CHECKING:
@@ -28,13 +26,11 @@ LOG_SAVE_DEBOUNCE_SECONDS = 30  # Wait 30 seconds after last log before saving
 LOG_SAVE_MAX_DELAY_SECONDS = 60  # Force save after 60 seconds regardless
 
 
-class QueueLogMixin:
-    """Mixin providing queue and log functionality for TickerStore.
+class LogMixin:
+    """Mixin providing log functionality for TickerStore.
 
     This mixin expects the following attributes on the class:
     - hass: HomeAssistant
-    - _queue: dict[str, dict[str, Any]]
-    - _queue_store: Store[dict[str, dict[str, Any]]]
     - _logs: list[dict[str, Any]]
     - _logs_store: Store[list[dict[str, Any]]]
     - _logs_dirty: bool
@@ -44,178 +40,11 @@ class QueueLogMixin:
 
     # Type hints for mixin attributes (provided by main class)
     hass: "HomeAssistant"
-    _queue: dict[str, dict[str, Any]]
-    _queue_store: "Store[dict[str, dict[str, Any]]]"
     _logs: list[dict[str, Any]]
     _logs_store: "Store[list[dict[str, Any]]]"
     _logs_dirty: bool
     _logs_save_unsub: Callable[[], None] | None
     _logs_first_dirty_time: datetime | None
-
-    # =========================================================================
-    # Queue methods
-    # =========================================================================
-
-    async def async_save_queue(self) -> None:
-        """Save queue to storage."""
-        await self._queue_store.async_save(self._queue)
-
-    async def _async_cleanup_expired_queue(self) -> None:
-        """Remove expired queue entries."""
-        now = datetime.now(timezone.utc)
-        expired_ids = []
-
-        for queue_id, entry in self._queue.items():
-            expires_at = datetime.fromisoformat(entry["expires_at"])
-            if now > expires_at:
-                expired_ids.append(queue_id)
-
-        if expired_ids:
-            for queue_id in expired_ids:
-                del self._queue[queue_id]
-            await self.async_save_queue()
-            _LOGGER.info("Cleaned up %d expired queue entries", len(expired_ids))
-
-    def get_queue(self) -> dict[str, dict[str, Any]]:
-        """Get all queued notifications."""
-        return self._queue.copy()
-
-    def get_queue_for_person(self, person_id: str) -> list[dict[str, Any]]:
-        """Get queued notifications for a specific person."""
-        return [
-            entry for entry in self._queue.values()
-            if entry["person_id"] == person_id
-        ]
-
-    def get_queue_count_for_person(self, person_id: str) -> int:
-        """Get count of queued notifications for a person."""
-        return len(self.get_queue_for_person(person_id))
-
-    async def async_add_to_queue(
-        self,
-        person_id: str,
-        category_id: str,
-        title: str,
-        message: str,
-        data: dict[str, Any] | None = None,
-        expiration_hours: int = DEFAULT_EXPIRATION_HOURS,
-        retry_count: int = 0,
-    ) -> dict[str, Any]:
-        """Add a notification to the queue."""
-        now = datetime.now(timezone.utc)
-        queue_id = str(uuid.uuid4())
-
-        entry = {
-            "queue_id": queue_id,
-            "person_id": person_id,
-            "category_id": category_id,
-            "title": title,
-            "message": message,
-            "data": data or {},
-            "created_at": now.isoformat(),
-            "expires_at": (now + timedelta(hours=expiration_hours)).isoformat(),
-            "retry_count": retry_count,
-        }
-
-        self._queue[queue_id] = entry
-        await self.async_save_queue()
-
-        _LOGGER.debug(
-            "Queued notification for %s: %s (expires in %dh, retry %d)",
-            person_id,
-            title,
-            expiration_hours,
-            retry_count,
-        )
-        return entry
-
-    async def async_remove_from_queue(self, queue_id: str) -> bool:
-        """Remove a single entry from the queue."""
-        if queue_id not in self._queue:
-            return False
-
-        del self._queue[queue_id]
-        await self.async_save_queue()
-        return True
-
-    async def async_clear_queue_for_person(self, person_id: str) -> int:
-        """Clear all queued notifications for a person. Returns count removed."""
-        to_remove = [
-            queue_id for queue_id, entry in self._queue.items()
-            if entry["person_id"] == person_id
-        ]
-
-        for queue_id in to_remove:
-            del self._queue[queue_id]
-
-        if to_remove:
-            await self.async_save_queue()
-            _LOGGER.info("Cleared %d queued notifications for %s", len(to_remove), person_id)
-
-        return len(to_remove)
-
-    async def async_get_and_clear_queue_for_person(
-        self, person_id: str
-    ) -> list[dict[str, Any]]:
-        """Get and remove all queued notifications for a person."""
-        entries = self.get_queue_for_person(person_id)
-
-        if entries:
-            for entry in entries:
-                del self._queue[entry["queue_id"]]
-            await self.async_save_queue()
-
-        return entries
-
-    async def async_requeue_entries(
-        self, entries: list[dict[str, Any]]
-    ) -> tuple[int, int]:
-        """Re-queue entries with incremented retry count.
-
-        Entries that exceed MAX_QUEUE_RETRIES are discarded.
-
-        Returns:
-            Tuple of (requeued_count, discarded_count)
-        """
-        requeued = 0
-        discarded = 0
-
-        for entry in entries:
-            retry_count = entry.get("retry_count", 0) + 1
-
-            if retry_count >= MAX_QUEUE_RETRIES:
-                _LOGGER.warning(
-                    "Discarding queued notification for %s after %d failed attempts: %s",
-                    entry["person_id"],
-                    retry_count,
-                    entry["title"],
-                )
-                discarded += 1
-                continue
-
-            # Re-queue with incremented retry count, preserving original expiration
-            await self.async_add_to_queue(
-                person_id=entry["person_id"],
-                category_id=entry["category_id"],
-                title=entry["title"],
-                message=entry["message"],
-                data=entry.get("data"),
-                expiration_hours=DEFAULT_EXPIRATION_HOURS,  # Reset expiration on retry
-                retry_count=retry_count,
-            )
-            requeued += 1
-            _LOGGER.debug(
-                "Re-queued notification for %s (retry %d): %s",
-                entry["person_id"],
-                retry_count,
-                entry["title"],
-            )
-
-        return requeued, discarded
-
-    # =========================================================================
-    # Log methods (with debounced saving)
-    # =========================================================================
 
     async def _async_save_logs_immediate(self) -> None:
         """Save logs to storage immediately."""
@@ -421,6 +250,28 @@ class QueueLogMixin:
 
         return updated
 
+    def find_log_category_by_nid(
+        self, nid_short: str, person_id: str
+    ) -> str | None:
+        """Find the category_id of the most recent log entry matching a notification.
+
+        Matches by notification_id prefix (first 8 chars) and person_id, iterating
+        logs in reverse (most-recent first). Used by action handling to resolve the
+        correct category when an action set is shared across multiple categories
+        (BUG-090).
+
+        Returns the matching log entry's category_id, or None if no match.
+        """
+        for log in reversed(self._logs):
+            nid = log.get("notification_id", "")
+            if (
+                nid
+                and nid[:8] == nid_short
+                and log.get("person_id") == person_id
+            ):
+                return log.get("category_id")
+        return None
+
     async def async_clear_logs(self) -> int:
         """Clear all logs. Returns count removed."""
         count = len(self._logs)
@@ -435,3 +286,86 @@ class QueueLogMixin:
         await self._async_save_logs_immediate()
         _LOGGER.info("Cleared %d log entries", count)
         return count
+
+    async def async_remove_log_entry(self, log_id: str) -> bool:
+        """Remove a single log entry by log_id (F-32).
+
+        Returns True if an entry was found and removed, False otherwise.
+        Saves immediately since this is a direct user action.
+        """
+        if not log_id:
+            return False
+
+        original_count = len(self._logs)
+        self._logs = [log for log in self._logs if log.get("log_id") != log_id]
+
+        if len(self._logs) == original_count:
+            return False
+
+        if self._logs_save_unsub:
+            self._logs_save_unsub()
+            self._logs_save_unsub = None
+
+        await self._async_save_logs_immediate()
+        _LOGGER.info("Removed log entry %s", log_id)
+        return True
+
+    async def async_remove_log_group(
+        self, notification_id: str, person_id: str
+    ) -> int:
+        """Remove all log entries matching notification_id and person_id (F-32).
+
+        A single user-facing notification can map to multiple log rows (one
+        per device delivery). Returns the number of entries removed.
+        """
+        if not notification_id or not person_id:
+            return 0
+
+        original_count = len(self._logs)
+        self._logs = [
+            log for log in self._logs
+            if not (
+                log.get("notification_id") == notification_id
+                and log.get("person_id") == person_id
+            )
+        ]
+        removed = original_count - len(self._logs)
+
+        if removed == 0:
+            return 0
+
+        if self._logs_save_unsub:
+            self._logs_save_unsub()
+            self._logs_save_unsub = None
+
+        await self._async_save_logs_immediate()
+        _LOGGER.info(
+            "Removed %d log entries for notification %s / %s",
+            removed, notification_id, person_id,
+        )
+        return removed
+
+    async def async_clear_logs_for_person(self, person_id: str) -> int:
+        """Remove all log entries for a specific person (F-32).
+
+        Returns the number of entries removed.
+        """
+        if not person_id:
+            return 0
+
+        original_count = len(self._logs)
+        self._logs = [
+            log for log in self._logs if log.get("person_id") != person_id
+        ]
+        removed = original_count - len(self._logs)
+
+        if removed == 0:
+            return 0
+
+        if self._logs_save_unsub:
+            self._logs_save_unsub()
+            self._logs_save_unsub = None
+
+        await self._async_save_logs_immediate()
+        _LOGGER.info("Cleared %d log entries for person %s", removed, person_id)
+        return removed

@@ -8,19 +8,11 @@ Covers:
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from custom_components.ticker.store.recipients import RecipientMixin
-from custom_components.ticker.const import (
-    DELIVERY_FORMAT_RICH,
-    DEVICE_TYPE_PUSH,
-    DEVICE_TYPE_TTS,
-    RULE_TYPE_STATE,
-    RULE_TYPE_TIME,
-)
 
 
 # ---------------------------------------------------------------------------

@@ -24,14 +24,17 @@ from .const import (
     ATTR_ACTIONS,
     ATTR_CRITICAL,
     ATTR_NAVIGATE_TO,
+    ATTR_CLEAR_WHEN,
     DEFAULT_EXPIRATION_HOURS,
     MODE_ALWAYS,
     MODE_NEVER,
     MODE_CONDITIONAL,
     LOG_OUTCOME_SKIPPED,
+    SMART_TAG_MODE_NONE,
 )
 from .service_schema import _build_service_schema, _build_service_description
 from .conditions import evaluate_condition_tree
+from .formatting import build_smart_tag
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
     async_send_to_recipient,
@@ -102,7 +105,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     """
 
     async def async_handle_notify(call: ServiceCall) -> None:
-        """Handle the ticker.notify service call."""
+        """Handle the ticker.notify service call.
+
+        F-27: accepts a single category (string) or a list of categories.
+        When a list is provided, the notification is fanned out to each
+        category in turn, with a fresh notification_id per category so
+        history correlation and action callbacks stay independent.
+        """
         # Get loaded entry (raises ServiceValidationError if not available)
         entry = _get_loaded_entry(hass)
         store = entry.runtime_data.store
@@ -111,38 +120,138 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         title = call.data[ATTR_TITLE]
         message = call.data[ATTR_MESSAGE]
         expiration = call.data.get(ATTR_EXPIRATION, DEFAULT_EXPIRATION_HOURS)
-        data = dict(call.data.get(ATTR_DATA, {}))
+        base_data = dict(call.data.get(ATTR_DATA, {}))
         actions_param = call.data.get(ATTR_ACTIONS)
         suppress_actions = actions_param == "none"
         navigate_to = call.data.get(ATTR_NAVIGATE_TO)
+        critical_override_present = ATTR_CRITICAL in call.data
+        critical_override_value = call.data.get(ATTR_CRITICAL)
+        # F-30: optional auto-clear trigger descriptor.
+        clear_when = call.data.get(ATTR_CLEAR_WHEN)
+        auto_clear_registry = getattr(entry.runtime_data, "auto_clear", None)
 
-        # Resolve category (raises ServiceValidationError if invalid)
-        category_id = _resolve_category_id(category_input, store)
-
-        # Resolve critical flag: per-call wins if explicitly set,
-        # otherwise fall back to category default
-        category = store.get_category(category_id)
-        if ATTR_CRITICAL in call.data:
-            resolved_critical = call.data[ATTR_CRITICAL]
+        # F-27: normalize category input to a de-duplicated list, preserving order.
+        if isinstance(category_input, str):
+            cats_input: list[str] = [category_input]
         else:
-            resolved_critical = (category or {}).get("critical", False)
-        if resolved_critical:
-            data["critical"] = True
-        else:
-            data.pop("critical", None)
+            cats_input = list(dict.fromkeys(category_input))
 
-        # Generate a unique ID for this notification call to group log entries
-        notification_id = str(uuid.uuid4())
+        if not cats_input:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_category",
+                translation_placeholders={"category": ""},
+            )
 
-        _LOGGER.info(
-            "Processing notification for category '%s': %s (notification_id: %s)",
-            category_id,
-            title,
-            notification_id,
-        )
-
+        # Hoist person discovery and recipient fetch above the per-category loop.
         persons = hass.states.async_all("person")
+        recipients = store.get_recipients()
 
+        processed_count = 0
+        last_resolve_error: ServiceValidationError | None = None
+
+        for cat_input in cats_input:
+            # Resolve each category independently; on miss, log a warning
+            # and continue to the next so a single bad ID does not abort the
+            # entire fan-out.
+            try:
+                category_id = _resolve_category_id(cat_input, store)
+            except ServiceValidationError as err:
+                _LOGGER.warning(
+                    "ticker.notify: skipping unknown category %r", cat_input
+                )
+                last_resolve_error = err
+                continue
+
+            # Per-category data copy so cross-category mutation (notably the
+            # critical flag) cannot leak between iterations.
+            data_for_cat = dict(base_data)
+
+            # Resolve critical flag INSIDE the loop: per-call override wins,
+            # otherwise fall back to this category's default.
+            category = store.get_category(category_id)
+            if critical_override_present:
+                resolved_critical = critical_override_value
+            else:
+                resolved_critical = (category or {}).get("critical", False)
+            if resolved_critical:
+                data_for_cat["critical"] = True
+            else:
+                data_for_cat.pop("critical", None)
+
+            # Fresh notification_id per category so history correlation and
+            # action callbacks remain independent.
+            notification_id = str(uuid.uuid4())
+
+            _LOGGER.debug(
+                "Processing notification for category '%s': %s "
+                "(notification_id: %s)",
+                category_id,
+                title,
+                notification_id,
+            )
+
+            dispatch_result = await _dispatch_to_category(
+                hass=hass,
+                store=store,
+                category=category,
+                category_id=category_id,
+                title=title,
+                message=message,
+                data=data_for_cat,
+                expiration=expiration,
+                notification_id=notification_id,
+                suppress_actions=suppress_actions,
+                navigate_to=navigate_to,
+                persons=persons,
+                recipients=recipients,
+            )
+            processed_count += 1
+
+            # F-30: auto-clear registration — one per category (each category
+            # owns its own notification_id, delivered_services, and tag).
+            if clear_when and auto_clear_registry and dispatch_result["delivered_services"]:
+                await auto_clear_registry.register(
+                    notification_id=dispatch_result["notification_id"],
+                    clear_when=clear_when,
+                    delivered_services=dispatch_result["delivered_services"],
+                    tag=dispatch_result["tag"],
+                )
+
+        # F-27: if no category in the list resolved, surface the last error so
+        # automations see a failure rather than a silent no-op.
+        if processed_count == 0:
+            if last_resolve_error is not None:
+                raise last_resolve_error
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="invalid_category",
+                translation_placeholders={"category": ""},
+            )
+
+    async def _dispatch_to_category(
+        *,
+        hass: HomeAssistant,
+        store: "TickerStore",
+        category: dict | None,
+        category_id: str,
+        title: str,
+        message: str,
+        data: dict,
+        expiration: int,
+        notification_id: str,
+        suppress_actions: bool,
+        navigate_to: str | None,
+        persons: list,
+        recipients: dict,
+    ) -> dict:
+        """Dispatch a single notification to one category's subscribers.
+
+        Runs person loop, recipient loop, and category sensor update for one
+        resolved category_id. Returns a dict with notification_id,
+        delivered_services (flat notify.* list), and tag (smart-notif tag or
+        None) — consumed by the F-30 auto-clear registration in the caller.
+        """
         # Accumulate delivery results for sensor update
         delivery_results: dict[str, list[str]] = {
             "delivered": [],
@@ -215,7 +324,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 delivery_results["dropped"].extend(results["dropped"])
 
         # --- Recipient loop (F-18) ---
-        recipients = store.get_recipients()
+        # NOTE: `recipients` is passed in from the caller so the fetch is
+        # hoisted above the F-27 per-category fan-out loop.
         for r_id, r_data in recipients.items():
             if not r_data.get("enabled", True):
                 _LOGGER.debug("Skipping recipient %s (disabled)", r_id)
@@ -306,6 +416,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # Update category sensor with notification data
         sensor = get_category_sensor(hass, category_id)
         if sensor:
+            # BUG-099: honor per-category expose_in_sensor flag. When False the
+            # sensor still tracks count + last_triggered but blanks header/body
+            # so recorder/history consumers cannot read raw notification content.
+            expose_content = (category or {}).get("expose_in_sensor", True)
             sensor.async_add_notification(
                 header=title,
                 body=message,
@@ -314,7 +428,21 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 dropped=delivery_results["dropped"],
                 priority="normal",
                 timestamp=dt_util.utcnow().isoformat(),
+                expose_content=expose_content,
             )
+
+        # F-30: mirror formatting.inject_smart_notification's tag resolution
+        # so the caller can register the auto-clear listener against the same
+        # tag the device received. delivery_results["delivered"] holds raw
+        # notify.* ids (see results["delivered"].append in user_notify /
+        # recipient_notify) — we pass them through unmodified.
+        smart_cfg = (category or {}).get("smart_notification") or {}
+        tag_mode = smart_cfg.get("tag_mode", SMART_TAG_MODE_NONE)
+        return {
+            "notification_id": notification_id,
+            "delivered_services": list(delivery_results["delivered"]),
+            "tag": build_smart_tag(category_id, title, tag_mode),
+        }
 
     hass.services.async_register(
         DOMAIN,

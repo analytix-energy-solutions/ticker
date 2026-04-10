@@ -28,6 +28,18 @@ from custom_components.ticker.const import (
 def mock_hass():
     hass = MagicMock()
     hass.states = MagicMock()
+    # BUG-087: resolve_zone_name calls hass.states.get(zone_id); default
+    # MagicMock returns a truthy mock with a mock friendly_name. Return None
+    # for zone lookups so the helper falls back to slug.
+    _state_store: dict[str, object] = {}
+
+    def _states_get(entity_id: str):
+        if entity_id in _state_store:
+            return _state_store[entity_id]
+        return None
+
+    hass.states.get.side_effect = _states_get
+    hass.states._test_store = _state_store  # type: ignore[attr-defined]
     return hass
 
 
@@ -59,7 +71,7 @@ class TestEvaluateRuleNoPerson:
     def test_state_rule_still_evaluated(self, mock_hass):
         state_obj = MagicMock()
         state_obj.state = "on"
-        mock_hass.states.get.return_value = state_obj
+        mock_hass.states._test_store["switch.alarm"] = state_obj
 
         rule = {"type": RULE_TYPE_STATE, "entity_id": "switch.alarm", "state": "on"}
         is_met, reason = evaluate_rule(mock_hass, rule, person_state=None)
@@ -68,7 +80,7 @@ class TestEvaluateRuleNoPerson:
     def test_state_rule_not_met(self, mock_hass):
         state_obj = MagicMock()
         state_obj.state = "off"
-        mock_hass.states.get.return_value = state_obj
+        mock_hass.states._test_store["switch.alarm"] = state_obj
 
         rule = {"type": RULE_TYPE_STATE, "entity_id": "switch.alarm", "state": "on"}
         is_met, reason = evaluate_rule(mock_hass, rule, person_state=None)
@@ -135,7 +147,7 @@ class TestEvaluateRulesNoPerson:
     def test_mixed_zone_time_state_all_met(self, mock_hass):
         state_obj = MagicMock()
         state_obj.state = "on"
-        mock_hass.states.get.return_value = state_obj
+        mock_hass.states._test_store["switch.x"] = state_obj
 
         rules = [
             {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"},

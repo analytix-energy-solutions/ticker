@@ -26,6 +26,7 @@ from ..const import (
 from .validation import (
     MAX_CATEGORY_NAME_LENGTH,
     sanitize_for_storage,
+    validate_navigate_to,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -93,7 +94,11 @@ async def ws_automations_scan(
             },
             extra=vol.ALLOW_EXTRA,
         ),
-        vol.Required("category"): str,
+        # F-27: category may be a single string or a list of strings for
+        # multi-category fan-out. The inline edit dialog only writes single
+        # strings; list-shape entries are read-only in the UI and preserved
+        # on the backend.
+        vol.Required("category"): vol.Any(str, [str]),
         vol.Required("title"): str,
         vol.Required("message"): str,
         vol.Optional("data"): dict,
@@ -130,11 +135,27 @@ async def ws_automations_update(
         )
         return
 
-    # Sanitize inputs
-    category = sanitize_for_storage(msg["category"], MAX_CATEGORY_NAME_LENGTH)
-    if not category:
-        connection.send_error(msg["id"], "invalid_category", "Category is required")
-        return
+    # Sanitize inputs. F-27: preserve list shape when the stored automation
+    # targets multiple categories; sanitize each element individually.
+    raw_category = msg["category"]
+    if isinstance(raw_category, list):
+        category: str | list[str] = [
+            sanitize_for_storage(c, MAX_CATEGORY_NAME_LENGTH) or ""
+            for c in raw_category
+        ]
+        category = [c for c in category if c]
+        if not category:
+            connection.send_error(
+                msg["id"], "invalid_category", "Category is required"
+            )
+            return
+    else:
+        category = sanitize_for_storage(raw_category, MAX_CATEGORY_NAME_LENGTH) or ""
+        if not category:
+            connection.send_error(
+                msg["id"], "invalid_category", "Category is required"
+            )
+            return
 
     title = sanitize_for_storage(msg["title"], MAX_MIGRATION_TITLE_LENGTH) or ""
     message = sanitize_for_storage(msg["message"], MAX_MIGRATION_MESSAGE_LENGTH) or ""
@@ -143,6 +164,12 @@ async def ws_automations_update(
     # Use a sentinel to distinguish "navigate_to absent" from "navigate_to: null".
     _NAV_ABSENT = object()
     nav_value = msg.get("navigate_to", _NAV_ABSENT)
+    # BUG-100: enforce relative HA path on any explicitly provided value.
+    if nav_value is not _NAV_ABSENT:
+        is_valid, error = validate_navigate_to(nav_value)
+        if not is_valid:
+            connection.send_error(msg["id"], "invalid_navigate_to", error)
+            return
     new_action = _build_updated_action(
         finding, category, title, message, msg.get("data"), nav_value
     )
@@ -169,7 +196,7 @@ async def ws_automations_update(
 
 def _build_updated_action(
     finding: dict[str, Any],
-    category: str,
+    category: str | list[str],
     title: str,
     message: str,
     extra_data: dict[str, Any] | None,
@@ -182,7 +209,7 @@ def _build_updated_action(
 
     Args:
         finding: The original scanner finding.
-        category: New category name.
+        category: New category name, or list of category names/IDs (F-27).
         title: New title.
         message: New message.
         extra_data: Optional dict with keys like 'image' from the frontend.

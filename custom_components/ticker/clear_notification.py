@@ -204,6 +204,33 @@ async def _async_send_clear_to_services(
     return cleared
 
 
+async def async_dispatch_clear(
+    hass: HomeAssistant,
+    services: list[str],
+    tag: str,
+    context_label: str,
+) -> list[str]:
+    """Public helper: dispatch a clear_notification to a flat list of services.
+
+    F-30: Used by auto_clear.py to fire a clear against the exact notify
+    services that received the original delivery. Wraps
+    _async_send_clear_to_services which expects a list of dicts with a
+    'service' key.
+
+    Args:
+        hass: Home Assistant instance.
+        services: Flat list of notify service ids (e.g.,
+            ['notify.mobile_app_phone']).
+        tag: The notification tag to clear.
+        context_label: Human-readable label for log messages.
+
+    Returns:
+        List of service ids successfully cleared.
+    """
+    svc_entries = [{"service": s} for s in services]
+    return await _async_send_clear_to_services(hass, svc_entries, tag, context_label)
+
+
 async def _async_clear_for_person(
     hass: HomeAssistant,
     person_id: str,
@@ -306,6 +333,23 @@ async def async_handle_clear_notification(
         "Clearing notifications for category '%s' with tag '%s'",
         category_id, tag,
     )
+
+    # F-30: drop any pending auto-clear listeners targeting this tag so they
+    # cannot later fire against an already-dismissed notification.
+    try:
+        entries = hass.config_entries.async_entries(DOMAIN)
+        if entries:
+            runtime_data = getattr(entries[0], "runtime_data", None)
+            registry = getattr(runtime_data, "auto_clear", None) if runtime_data else None
+            if registry is not None:
+                dropped = registry.unregister_by_tag(tag)
+                if dropped:
+                    _LOGGER.debug(
+                        "auto_clear: dropped %d pending listener(s) for tag %s",
+                        dropped, tag,
+                    )
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("auto_clear unregister_by_tag failed", exc_info=True)
 
     all_cleared: list[str] = []
 

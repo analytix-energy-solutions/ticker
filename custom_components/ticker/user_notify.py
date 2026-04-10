@@ -73,6 +73,7 @@ async def async_handle_conditional_notification(
         should_deliver_now,
         should_queue,
         convert_legacy_zones_to_rules,
+        has_any_conditions,
     )
 
     image_url = data.get("image") if data else None
@@ -92,26 +93,31 @@ async def async_handle_conditional_notification(
             action_set_id=action_set_id, navigate_to=navigate_to,
         )
 
-    # Convert legacy zones format to rules if needed
-    rules = conditions.get("rules", [])
-    if not rules:
-        zones = conditions.get("zones", {})
-        if zones:
-            converted = convert_legacy_zones_to_rules(zones)
-            conditions.update(converted)
-            rules = conditions["rules"]
-        else:
-            # No valid rules - fallback to always
-            _LOGGER.warning(
-                "Conditional mode for %s/%s has no valid rules, sending immediately",
-                person_id,
-                category_id,
-            )
-            return await async_send_notification(
-                hass, store, person_id, person_name, category_id, title, message, data,
-                notification_id=notification_id, suppress_actions=suppress_actions,
-                action_set_id=action_set_id, navigate_to=navigate_to,
-            )
+    # Self-heal legacy zones format: if only zones exist (no tree, no
+    # rules), convert them in-place to the modern rules[] shape.
+    if (
+        not conditions.get("condition_tree")
+        and not conditions.get("rules")
+        and conditions.get("zones")
+    ):
+        converted = convert_legacy_zones_to_rules(conditions["zones"])
+        conditions.update(converted)
+
+    # Gate on any evaluable conditions (tree, flat rules, or zones).
+    # BUG-084: previously this only checked rules[], so F-2b migrated
+    # subscriptions (which have condition_tree and no rules) fell
+    # through to unconditional delivery.
+    if not has_any_conditions(conditions):
+        _LOGGER.warning(
+            "Conditional mode for %s/%s has no valid rules, sending immediately",
+            person_id,
+            category_id,
+        )
+        return await async_send_notification(
+            hass, store, person_id, person_name, category_id, title, message, data,
+            notification_id=notification_id, suppress_actions=suppress_actions,
+            action_set_id=action_set_id, navigate_to=navigate_to,
+        )
 
     # Check if we should deliver now (all conditions met + deliver_when_met)
     deliver, deliver_reason = should_deliver_now(hass, conditions, person_state)
@@ -141,6 +147,7 @@ async def async_handle_conditional_notification(
             message=message,
             data=data,
             expiration_hours=expiration,
+            notification_id=notification_id,
         )
         await store.async_add_log(
             category_id=category_id,

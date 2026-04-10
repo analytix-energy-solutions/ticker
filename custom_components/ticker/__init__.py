@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -12,6 +13,9 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.start import async_at_start
@@ -20,6 +24,10 @@ from homeassistant.helpers.typing import ConfigType
 from .const import (
     DOMAIN,
     VERSION,
+    DEVICE_MANUFACTURER,
+    DEVICE_MODEL,
+    DEVICE_NAME,
+    DEVICE_IDENTIFIER,
     STORAGE_VERSION,
     STORAGE_KEY_CATEGORIES,
     STORAGE_KEY_SUBSCRIPTIONS,
@@ -29,6 +37,7 @@ from .const import (
     STORAGE_KEY_SNOOZES,
     STORAGE_KEY_RECIPIENTS,
     STORAGE_KEY_ACTION_SETS,
+    EXPIRED_QUEUE_SWEEP_INTERVAL,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
@@ -37,8 +46,13 @@ from .const import (
 from .store import TickerStore
 from .actions import async_setup_action_listener
 from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
+from .auto_clear import AutoClearRegistry
 from .condition_listeners import ConditionListenerManager
 from .discovery import async_discover_notify_services, invalidate_discovery_cache
+from .clear_notification import (
+    async_setup_clear_service,
+    register_clear_schema_updater,
+)
 from .services import async_setup_services, register_schema_updater
 from .websocket import async_setup_websocket_api
 
@@ -60,10 +74,14 @@ class TickerData:
     store: TickerStore
     category_listener: Callable[[], None] | None = None
     action_set_listener: Callable[[], None] | None = None
+    subscription_listener: Callable[[], None] | None = None
     unsub_arrival: Callable[[], None] | None = None
     unsub_actions: Callable[[], None] | None = None
+    unsub_expired_sweep: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
     condition_listener_manager: ConditionListenerManager | None = None
+    # F-30: auto-clear trigger registry (in-memory, does not survive restart).
+    auto_clear: AutoClearRegistry | None = None
 
 
 type TickerConfigEntry = ConfigEntry[TickerData]
@@ -77,6 +95,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """
     # Register services in async_setup per IQS action-setup rule
     await async_setup_services(hass)
+    await async_setup_clear_service(hass)
 
     # Set up WebSocket API
     await async_setup_websocket_api(hass)
@@ -104,7 +123,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
 
     # Create runtime data
     runtime_data = TickerData(store=store)
+    # F-30: instantiate the auto-clear registry before services fire so the
+    # ticker.notify handler can always resolve it via runtime_data.
+    runtime_data.auto_clear = AutoClearRegistry(hass)
     entry.runtime_data = runtime_data
+
+    # F-31: Register Ticker as a virtual device so it shows up in HA device
+    # pickers and is discoverable to community blueprints. Phase 1 is
+    # visibility only — device actions for ticker.notify are deferred.
+    # async_get_or_create is idempotent on reload; HA prunes devices linked
+    # to removed config entries automatically, so no explicit cleanup.
+    dev_reg = dr.async_get(hass)
+    dev_reg.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, DEVICE_IDENTIFIER)},
+        manufacturer=DEVICE_MANUFACTURER,
+        model=DEVICE_MODEL,
+        name=DEVICE_NAME,
+        entry_type=DeviceEntryType.SERVICE,
+    )
 
     # Initialize hass.data for sensor storage
     hass.data.setdefault(DOMAIN, {})
@@ -123,6 +160,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
 
     # Register schema updater for service descriptions
     register_schema_updater(hass, entry)
+    register_clear_schema_updater(hass, runtime_data.store)
 
     # Register category change listener to update service schema
     @callback
@@ -151,9 +189,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     await condition_manager.async_setup()
     runtime_data.condition_listener_manager = condition_manager
 
+    # Refresh condition listeners whenever subscriptions change so newly
+    # created conditional subscriptions receive their state/time listeners
+    # without requiring an HA restart (BUG-086). Register AFTER async_setup
+    # so the initial load is not duplicated.
+    store.register_subscription_listener(condition_manager.schedule_refresh)
+    runtime_data.subscription_listener = condition_manager.schedule_refresh
+
     # Set up notification action listener (F-5)
     unsub_actions = await async_setup_action_listener(hass, store)
     runtime_data.unsub_actions = unsub_actions
+
+    # F-25: Periodic sweep of expired queue entries so they surface in logs
+    # even when no new notification traffic triggers lazy cleanup.
+    async def _sweep_expired(_now) -> None:
+        """Run expired queue cleanup on a fixed interval."""
+        try:
+            await store._async_cleanup_expired_queue()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Expired queue sweep failed")
+
+    runtime_data.unsub_expired_sweep = async_track_time_interval(
+        hass,
+        _sweep_expired,
+        timedelta(seconds=EXPIRED_QUEUE_SWEEP_INTERVAL),
+    )
 
     # Register cleanup via async_on_unload
     entry.async_on_unload(
@@ -176,6 +236,12 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     if runtime_data.action_set_listener:
         runtime_data.store.unregister_action_set_listener(runtime_data.action_set_listener)
 
+    # Unregister subscription listener (BUG-086)
+    if runtime_data.subscription_listener:
+        runtime_data.store.unregister_subscription_listener(
+            runtime_data.subscription_listener
+        )
+
     # Unregister arrival listener
     if runtime_data.unsub_arrival:
         runtime_data.unsub_arrival()
@@ -183,6 +249,15 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     # Unregister action listener
     if runtime_data.unsub_actions:
         runtime_data.unsub_actions()
+
+    # F-25: Cancel expired queue sweep interval
+    if runtime_data.unsub_expired_sweep:
+        runtime_data.unsub_expired_sweep()
+        runtime_data.unsub_expired_sweep = None
+
+    # F-30: tear down any still-pending auto-clear listeners.
+    if runtime_data.auto_clear is not None:
+        runtime_data.auto_clear.unregister_all()
 
     # Note: condition_listener_manager cleanup is handled by
     # async_unload() in async_unload_entry — no sync cleanup here.

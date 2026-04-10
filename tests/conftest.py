@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -150,9 +150,16 @@ _data_entry_flow = sys.modules["homeassistant.data_entry_flow"]
 _data_entry_flow.FlowResult = MagicMock
 
 _exceptions = sys.modules["homeassistant.exceptions"]
-_exceptions.HomeAssistantError = type("HomeAssistantError", (Exception,), {})
-_exceptions.ServiceValidationError = type("ServiceValidationError", (Exception,), {})
-_exceptions.ServiceNotFound = type("ServiceNotFound", (Exception,), {})
+
+class _HAStubException(Exception):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args)
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+_exceptions.HomeAssistantError = _HAStubException
+_exceptions.ServiceValidationError = _HAStubException
+_exceptions.ServiceNotFound = _HAStubException
 
 _storage = sys.modules["homeassistant.helpers.storage"]
 _storage.Store = MagicMock

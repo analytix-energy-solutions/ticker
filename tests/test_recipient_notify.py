@@ -8,7 +8,6 @@ and async_handle_conditional_recipient (deliver/queue/skip paths).
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -19,7 +18,6 @@ from custom_components.ticker.recipient_notify import (
     _async_send_push,
 )
 from custom_components.ticker.const import (
-    DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_RICH,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
@@ -367,7 +365,7 @@ class TestAsyncHandleConditionalRecipient:
             new_callable=AsyncMock,
             return_value={"delivered": ["svc"], "queued": [], "dropped": []},
         ) as mock_send:
-            result = await async_handle_conditional_recipient(
+            await async_handle_conditional_recipient(
                 hass, store, recipient, "cat1", "Title", "Msg",
             )
 
@@ -384,7 +382,7 @@ class TestAsyncHandleConditionalRecipient:
             new_callable=AsyncMock,
             return_value={"delivered": ["svc"], "queued": [], "dropped": []},
         ) as mock_send:
-            result = await async_handle_conditional_recipient(
+            await async_handle_conditional_recipient(
                 hass, store, recipient, "cat1", "Title", "Msg",
             )
 

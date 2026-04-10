@@ -6,7 +6,6 @@ runtime behavior in async_send_tts all work correctly.
 
 from __future__ import annotations
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -15,7 +14,6 @@ import pytest
 from custom_components.ticker.const import (
     DELIVERY_FORMAT_PATTERNS,
     DELIVERY_FORMAT_PERSISTENT,
-    DELIVERY_FORMAT_RICH,
     DELIVERY_FORMAT_TTS,
     DELIVERY_FORMATS,
     DEVICE_TYPE_PUSH,

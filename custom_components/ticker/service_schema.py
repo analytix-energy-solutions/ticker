@@ -18,21 +18,40 @@ from .const import (
     ATTR_ACTIONS,
     ATTR_CRITICAL,
     ATTR_NAVIGATE_TO,
+    ATTR_CLEAR_WHEN,
     DEFAULT_EXPIRATION_HOURS,
     MAX_EXPIRATION_HOURS,
     MAX_NAVIGATE_TO_LENGTH,
     CATEGORY_DEFAULT_NAME,
 )
+from .websocket.validation import validate_navigate_to_vol
 
 if TYPE_CHECKING:
     from .store import TickerStore
+
+
+# F-30: clear_when sub-schemas — either a state-change trigger or an event trigger.
+_clear_when_state_schema = vol.Schema(
+    {
+        vol.Required("entity_id"): cv.entity_id,
+        vol.Required("state"): cv.string,
+    }
+)
+
+_clear_when_event_schema = vol.Schema(
+    {
+        vol.Required("event_type"): cv.string,
+    }
+)
 
 
 def _build_service_schema() -> vol.Schema:
     """Build basic service schema (categories validated at runtime)."""
     return vol.Schema(
         {
-            vol.Required(ATTR_CATEGORY): cv.string,
+            # F-27: accept single category ID/name or list for fan-out.
+            # The UI selector stays single-dropdown; multi only via YAML.
+            vol.Required(ATTR_CATEGORY): vol.Any(cv.string, [cv.string]),
             vol.Required(ATTR_TITLE): cv.string,
             vol.Required(ATTR_MESSAGE): cv.string,
             vol.Optional(ATTR_EXPIRATION, default=DEFAULT_EXPIRATION_HOURS): vol.All(
@@ -41,8 +60,16 @@ def _build_service_schema() -> vol.Schema:
             vol.Optional(ATTR_DATA, default={}): dict,
             vol.Optional(ATTR_ACTIONS): vol.In(["category_default", "none"]),
             vol.Optional(ATTR_CRITICAL): bool,
+            # BUG-100: enforce relative HA path; blocks javascript:/http(s)://
             vol.Optional(ATTR_NAVIGATE_TO): vol.All(
-                cv.string, vol.Length(max=MAX_NAVIGATE_TO_LENGTH)
+                cv.string,
+                vol.Length(max=MAX_NAVIGATE_TO_LENGTH),
+                validate_navigate_to_vol,
+            ),
+            # F-30: auto-clear trigger (YAML-only). Either a state trigger
+            # ({entity_id, state}) or an event trigger ({event_type}).
+            vol.Optional(ATTR_CLEAR_WHEN): vol.Any(
+                _clear_when_state_schema, _clear_when_event_schema
             ),
         }
     )
@@ -181,6 +208,18 @@ def _build_service_description(
                         "mode": "dropdown",
                     }
                 },
+            },
+            ATTR_CLEAR_WHEN: {
+                "name": "Clear when",
+                "description": (
+                    "F-30 Auto-Clear Trigger (YAML only). Auto-dismiss this "
+                    "notification when a trigger fires. Either "
+                    "{entity_id: ..., state: ...} for a state trigger, or "
+                    "{event_type: ...} for an event trigger. Listeners do "
+                    "not survive HA restarts."
+                ),
+                "required": False,
+                "selector": {"object": {}},
             },
         },
     }

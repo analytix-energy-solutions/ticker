@@ -39,6 +39,11 @@ class TickerPanel extends HTMLElement {
     // BUG-040: Scroll/focus preservation
     this._scrollPositions = {};
     this._pendingScrollRestore = null;
+    // F-26: Notification History Search filters (client-side only)
+    this._historySearch = '';
+    this._historyCategory = '';
+    this._historyDateFrom = '';
+    this._historyDateTo = '';
   }
 
   set hass(hass) {
@@ -76,6 +81,11 @@ class TickerPanel extends HTMLElement {
       this._hass.connection.removeEventListener('ready', this._connectionReadyHandler);
       this._connectionReadyHandler = null;
     }
+    // F-26: reset history search filters on disconnect
+    this._historySearch = '';
+    this._historyCategory = '';
+    this._historyDateFrom = '';
+    this._historyDateTo = '';
     this._initialized = false;
   }
 
@@ -125,12 +135,13 @@ class TickerPanel extends HTMLElement {
   _createStructure() {
     const { variables, base, header, tabs, cards, buttons, badges, messages,
             states, toggles, notifyServices, queueItems, warningBanner,
-            forms, listItems, sections, colorIndicator, logoSvg } = window.Ticker.styles;
+            forms, listItems, sections, colorIndicator, logoSvg,
+            historyFilterBar } = window.Ticker.styles;
     const panelStyles = window.Ticker.userPanelStyles;
 
     const allStyles = [variables, base, header, tabs, cards, buttons, badges, messages,
       states, toggles, notifyServices, queueItems, warningBanner, forms, listItems,
-      sections, colorIndicator, panelStyles].join('\n');
+      sections, colorIndicator, historyFilterBar, panelStyles].join('\n');
 
     this.shadowRoot.innerHTML = `
       <style>${allStyles}</style>
@@ -301,7 +312,55 @@ class TickerPanel extends HTMLElement {
       devicePrefMode: this._devicePrefMode,
       devicePrefDevices: this._devicePrefDevices,
       devicePrefDirty: this._devicePrefDirty,
+      // F-26: history search filter state
+      historySearch: this._historySearch,
+      historyCategory: this._historyCategory,
+      historyDateFrom: this._historyDateFrom,
+      historyDateTo: this._historyDateTo,
     };
+  }
+
+  /**
+   * F-26: Update a history filter field and re-render the history tab
+   * without losing scroll position. Captures the currently focused input
+   * (id + selection range) before re-render and restores it afterwards
+   * so the search box keeps focus across keystrokes.
+   * @param {string} field - One of historySearch, historyCategory, historyDateFrom, historyDateTo
+   * @param {string} value - New value
+   */
+  _setHistoryFilter(field, value) {
+    const allowed = ['historySearch', 'historyCategory', 'historyDateFrom', 'historyDateTo'];
+    if (!allowed.includes(field)) return;
+    const key = '_' + field;
+    this[key] = value || '';
+
+    // Save focus state from the shadow root's active element.
+    const active = this.shadowRoot?.activeElement;
+    let focusInfo = null;
+    if (active && active.id && active.id.startsWith('ticker-history-')) {
+      focusInfo = { id: active.id };
+      // Only text-like inputs expose selection range
+      if (active.tagName === 'INPUT' && (active.type === 'search' || active.type === 'text')) {
+        focusInfo.selStart = active.selectionStart;
+        focusInfo.selEnd = active.selectionEnd;
+      }
+    }
+
+    this._renderTabContentPreserveScroll();
+
+    if (focusInfo) {
+      const restored = this.shadowRoot?.getElementById(focusInfo.id);
+      if (restored) {
+        restored.focus();
+        if (focusInfo.selStart != null && typeof restored.setSelectionRange === 'function') {
+          try {
+            restored.setSelectionRange(focusInfo.selStart, focusInfo.selEnd);
+          } catch {
+            // setSelectionRange throws on some input types — safe to ignore
+          }
+        }
+      }
+    }
   }
 
   _renderTabContent() {
@@ -381,6 +440,13 @@ class TickerPanel extends HTMLElement {
     // BUG-040: Save scroll position of current tab before switching
     if (this._els && this._els.tabContent) {
       this._scrollPositions[this._activeTab] = this._els.tabContent.scrollTop;
+    }
+    // F-26: reset history filters when switching away from history tab
+    if (this._activeTab === 'history' && tab !== 'history') {
+      this._historySearch = '';
+      this._historyCategory = '';
+      this._historyDateFrom = '';
+      this._historyDateTo = '';
     }
     this._activeTab = tab;
     this._pendingScrollRestore = this._scrollPositions[tab] || 0;

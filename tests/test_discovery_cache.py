@@ -6,7 +6,6 @@ preventing stale empty caches from locking in bad data during HA startup.
 
 from __future__ import annotations
 
-import pytest
 
 from custom_components.ticker.discovery import _should_cache_result
 

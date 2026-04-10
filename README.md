@@ -66,6 +66,12 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Action Sets Library** - Reusable action button sets managed from a central library tab, referenced by ID from any category *(v1.5.0)*
 - **Smart notification management** - Auto-grouping, auto-tagging, sticky/persistent flags, and `ticker.clear_notification` service injected automatically at delivery time *(v1.5.0)*
 - **Notification navigation target** - `navigate_to` parameter on `ticker.notify` deep-links to any HA panel on notification tap, with a live navigation picker in the admin panel *(v1.5.0)*
+- **Multi-category fan-out** - `category` field accepts a list of category IDs so a single `ticker.notify` call can target multiple categories at once *(v1.6.0)*
+- **Auto-clear triggers** - `clear_when` parameter on `ticker.notify` auto-dismisses persistent notifications when an entity state or event trigger fires *(v1.6.0)*
+- **History search and filters** - full-text search with category and date-range filters in the user History tab, plus clickable status filters on the admin Logs tab *(v1.6.0)*
+- **Expired notification visibility** - queued notifications that expire before delivery now appear in History as faded entries so users know what they missed *(v1.6.0)*
+- **History management** - delete individual entries or clear your own history from the user panel, per-row deletion for admins *(v1.6.0)*
+- **Blueprint device target** - Ticker registers as a Home Assistant device so it shows up in blueprint device pickers *(v1.6.0)*
 - **Device routing** - global device preference plus per-category overrides
 - **Notification history** - grouped by notification call, with deep-link from phone notifications
 - **Dashboard sensors** - `sensor.ticker_<category>` entities for Lovelace integration *(v1.2.0)*
@@ -77,6 +83,19 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 This integration is being developed with AI assistance. 
 
 ## Version history
+
+### v1.6.0
+
+- **Notification history search** — full-text search bar in the user History tab, plus category dropdown and date-range filters. Filter state resets on tab switch or panel close.
+- **Log Filter by Status** — stat counters on the admin Logs tab (Total, Sent, Queued, Skipped, Failed, Snoozed, Expired) are now clickable and filter the log list to the selected outcome.
+- **Expired notification visibility** — notifications that expire in the queue before delivery are logged with a dedicated "expired" outcome and shown as faded entries in user History and admin Logs. A periodic sweep checks for expired entries every 15 minutes.
+- **Multi-category fan-out** — `ticker.notify` `category` field now accepts either a single category ID or a list. Each listed category gets its own notification_id and goes through the full per-category delivery pipeline.
+- **Auto-clear triggers** — new `clear_when` parameter on `ticker.notify` accepts an entity-state or event trigger. Ticker registers a one-shot listener per delivered notification and calls `ticker.clear_notification` automatically when the trigger fires. (Listeners do not survive HA restart.)
+- **History management** — per-entry delete buttons on the admin Logs tab and per-group delete on the user History tab, plus a user-scoped "Clear History" button. Legacy entries without a notification_id are gracefully skipped.
+- **Blueprint-friendly device** — Ticker now registers itself as a Home Assistant device with `entry_type=service`, so it shows up in blueprint device pickers. Blueprints still call `notify.ticker` as the service; device-action support is deferred to a later release.
+- **Per-category sensor privacy flag** — new `expose_in_sensor` category flag (default on) controls whether raw notification title and body are included in the category sensor's extra attributes. Turn off for sensitive categories such as 2FA codes or medical reminders.
+- **Improved security** — `navigate_to` is now validated as a relative HA path (rejects `https://`, `javascript:`, `//`-protocol-relative, and paths containing control characters), condition trees validate leaf semantics against the HA state machine, and notification titles are no longer logged at INFO level.
+- 19 bug fixes across conditional notification gating (post F-2b migration), zone rule evaluation, condition listener lifecycle, queue retry expiration, bundled log correlation, and the Persistent toggle in the category Smart sub-tab (GitHub #25).
 
 ### v1.5.2
 

@@ -20,7 +20,8 @@ from ..const import (
     STORAGE_KEY_RECIPIENTS,
     STORAGE_KEY_ACTION_SETS,
 )
-from ..store_queue_log import QueueLogMixin
+from ..store_queue import QueueMixin
+from ..store_log import LogMixin
 from .categories import CategoryMixin
 from .users import UserMixin
 from .subscriptions import SubscriptionMixin
@@ -36,7 +37,8 @@ __all__ = ["TickerStore"]
 
 
 class TickerStore(
-    QueueLogMixin,
+    QueueMixin,
+    LogMixin,
     CategoryMixin,
     UserMixin,
     SubscriptionMixin,
@@ -48,7 +50,8 @@ class TickerStore(
     """Manage Ticker data storage.
 
     This class combines multiple mixins to provide complete storage functionality:
-    - QueueLogMixin: Queue and log management
+    - QueueMixin: Queue management
+    - LogMixin: Log management
     - CategoryMixin: Category CRUD operations
     - UserMixin: User management and device preferences
     - SubscriptionMixin: Subscription management
@@ -98,8 +101,9 @@ class TickerStore(
         self._action_sets: dict[str, dict[str, Any]] = {}
         self._category_listeners: list[Callable[[], None]] = []
         self._action_set_listeners: list[Callable[[], None]] = []
+        self._subscription_listeners: list[Callable[[], None]] = []
 
-        # Debounced log saving state (used by QueueLogMixin)
+        # Debounced log saving state (used by LogMixin)
         self._logs_dirty: bool = False
         self._logs_save_unsub: Callable[[], None] | None = None
         self._logs_first_dirty_time: datetime | None = None

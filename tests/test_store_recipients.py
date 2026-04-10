@@ -5,15 +5,13 @@ Verifies CRUD operations, enabled toggling, and subscription cleanup on delete.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from custom_components.ticker.store.recipients import RecipientMixin
 from custom_components.ticker.const import (
     DELIVERY_FORMAT_RICH,
-    DELIVERY_FORMAT_TTS,
-    DELIVERY_FORMATS,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
 )
@@ -33,6 +31,16 @@ class FakeStore(RecipientMixin):
         self._recipients_store.async_save = AsyncMock()
         self._subscriptions: dict = subscriptions if subscriptions is not None else {}
         self.async_save_subscriptions = AsyncMock()
+        # BUG-086: SubscriptionMixin provides _notify_subscription_change;
+        # RecipientMixin.async_delete_recipient calls it after cascade deletes.
+        self._subscription_listeners: list = []
+
+    def _notify_subscription_change(self) -> None:
+        for cb in list(self._subscription_listeners):
+            try:
+                cb()
+            except Exception:
+                pass
 
 
 @pytest.fixture

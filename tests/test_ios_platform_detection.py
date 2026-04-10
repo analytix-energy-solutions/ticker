@@ -537,9 +537,8 @@ class TestIntegrationFormatWithIosDetection:
         the caller should not override it. This test documents the
         expected pattern (caller responsibility)."""
         admin_format = DELIVERY_FORMAT_RICH  # explicitly set by admin
-        service_id = "notify.mobile_app_hans_iphone"
 
-        # Even if this is an iOS device, an explicit admin format
+        # Even if the device is iOS, an explicit admin format
         # should be preserved. The override logic in callers checks
         # `if not explicit_format:` before applying iOS override.
         # This test just verifies the contract.

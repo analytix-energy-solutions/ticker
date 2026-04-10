@@ -114,6 +114,13 @@
       border-radius: 6px;
       padding: 12px;
       text-align: center;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: border-color 120ms ease, background 120ms ease;
+    }
+    .stat-card.active {
+      border-color: var(--ticker-500);
+      background: var(--ticker-500-alpha-10);
     }
     .stat-value {
       font-size: 24px;
@@ -408,6 +415,30 @@
       gap: 4px;
       flex-wrap: wrap;
     }
+    /* F-25: faded row for expired notifications */
+    .history-item.expired {
+      opacity: 0.6;
+    }
+    /* F-25: muted badge used for "expired" outcome in logs and history */
+    .badge-muted {
+      background: var(--divider);
+      color: var(--text-secondary);
+    }
+    /* F-25: stat card variant for expired count in admin logs tab */
+    .stat-card.stat-expired .stat-value {
+      color: var(--text-secondary);
+    }
+  `;
+
+  /** F-26: History filter bar (user History tab) */
+  s.historyFilterBar = `
+    .history-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; padding: 10px 12px; background: var(--bg-primary); border-radius: 6px; border: 1px solid var(--divider); }
+    .history-filter-bar .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    .history-filter-bar input[type="search"], .history-filter-bar input[type="date"], .history-filter-bar select { padding: 6px 10px; border: 1px solid var(--divider); border-radius: 4px; font-size: 13px; background: var(--bg-card); color: var(--text-primary); font-family: inherit; }
+    .history-filter-bar input[type="search"] { flex: 1 1 200px; min-width: 160px; }
+    .history-filter-bar select { min-width: 140px; cursor: pointer; }
+    .history-filter-bar input[type="search"]:focus, .history-filter-bar input[type="date"]:focus, .history-filter-bar select:focus { outline: none; border-color: var(--ticker-500); box-shadow: 0 0 0 2px var(--ticker-500-alpha-20); }
+    .history-filter-empty { padding: 16px; text-align: center; color: var(--text-secondary); font-size: 13px; font-style: italic; }
   `;
 
   /** Brand alpha tokens */
@@ -448,6 +479,7 @@
       this.spinner,
       this.notifyServiceOverflow,
       this.history,
+      this.historyFilterBar,
     ].join('\n');
   };
 })();

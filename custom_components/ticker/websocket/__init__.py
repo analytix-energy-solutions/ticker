@@ -33,6 +33,11 @@ from .queue_log import (
     ws_get_log_stats,
     ws_clear_logs,
 )
+from .logs_delete import (
+    ws_remove_log_entry,
+    ws_remove_log_group,
+    ws_clear_logs_for_person,
+)
 from .operations import (
     ws_test_notification,
     ws_migrate_scan,
@@ -101,6 +106,11 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_logs)
     websocket_api.async_register_command(hass, ws_get_log_stats)
     websocket_api.async_register_command(hass, ws_clear_logs)
+
+    # Log deletion commands (F-32)
+    websocket_api.async_register_command(hass, ws_remove_log_entry)
+    websocket_api.async_register_command(hass, ws_remove_log_group)
+    websocket_api.async_register_command(hass, ws_clear_logs_for_person)
 
     # Test and migration commands
     websocket_api.async_register_command(hass, ws_test_notification)

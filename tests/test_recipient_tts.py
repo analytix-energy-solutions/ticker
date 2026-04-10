@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -25,7 +25,6 @@ from custom_components.ticker.const import (
     LOG_OUTCOME_FAILED,
     LOG_OUTCOME_SENT,
     MEDIA_ANNOUNCE_FEATURE,
-    NOTIFY_SERVICE_TIMEOUT,
 )
 
 

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_change,
 )
@@ -71,7 +72,12 @@ def _leaf_matches_filter(
     if filter_type == RULE_TYPE_STATE:
         return leaf.get("entity_id") == filter_value
     if filter_type == RULE_TYPE_TIME:
-        return leaf.get("after") == filter_value
+        # BUG-096: match either edge of the time window so `before`
+        # triggers re-evaluate subscriptions too.
+        return (
+            leaf.get("after") == filter_value
+            or leaf.get("before") == filter_value
+        )
     return True
 
 
@@ -109,6 +115,9 @@ class ConditionListenerManager:
         # Track which entities we're listening to
         self._tracked_entities: set[str] = set()
         self._tracked_times: set[str] = set()  # "HH:MM" format
+
+        # Debounced refresh state (BUG-086)
+        self._pending_refresh_unsub: Callable[[], None] | None = None
 
     async def async_setup(self) -> None:
         """Set up initial listeners based on current subscriptions."""
@@ -163,11 +172,16 @@ class ConditionListenerManager:
             for entity_id in triggers.get("entities", []):
                 all_entities.add(entity_id)
 
-            # Collect time triggers
+            # Collect time triggers (BUG-096: track both edges of the
+            # window so `before` fires listeners too). Empty strings
+            # mean open-ended and are skipped.
             for time_window in triggers.get("time_windows", []):
                 after = time_window.get("after", "")
+                before = time_window.get("before", "")
                 if after:
                     all_times.add(after)
+                if before:
+                    all_times.add(before)
 
         # Set up entity listeners
         if all_entities:
@@ -346,6 +360,11 @@ class ConditionListenerManager:
 
             is_recipient = key.startswith("recipient:")
 
+            # BUG-044: disabled users must not have queued notifications
+            # re-evaluated or released. Recipient subs are not user-gated.
+            if not is_recipient and not self.store.is_user_enabled(person_id):
+                continue
+
             # Check if this subscription has relevant conditions
             conditions = sub.get("conditions", {})
             rules = conditions.get("rules", [])
@@ -409,7 +428,40 @@ class ConditionListenerManager:
                     [reason for met, reason in rule_results if not met],
                 )
 
+    @callback
+    def schedule_refresh(self) -> None:
+        """Schedule a debounced refresh of condition listeners.
+
+        Called from the store subscription listener whenever subscriptions
+        change. Uses async_call_later with a 0.5s delay so cascaded deletes
+        (e.g., removing a recipient with many subscriptions) coalesce into
+        a single refresh instead of thrashing (BUG-086).
+        """
+        # Cancel any previously scheduled refresh so the timer resets
+        if self._pending_refresh_unsub is not None:
+            self._pending_refresh_unsub()
+            self._pending_refresh_unsub = None
+
+        async def _do_refresh(_now) -> None:
+            self._pending_refresh_unsub = None
+            try:
+                await self.async_refresh_listeners()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error(
+                    "Error refreshing condition listeners: %s", err
+                )
+
+        self._pending_refresh_unsub = async_call_later(
+            self.hass, 0.5, _do_refresh
+        )
+
     async def async_unload(self) -> None:
         """Clean up all listeners on unload."""
+        # Cancel any pending debounced refresh so it does not fire
+        # after teardown (BUG-086).
+        if self._pending_refresh_unsub is not None:
+            self._pending_refresh_unsub()
+            self._pending_refresh_unsub = None
+
         self._cleanup_listeners()
         _LOGGER.debug("Condition listeners unloaded")

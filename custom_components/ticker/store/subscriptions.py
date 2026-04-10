@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.helpers.storage import Store
 
@@ -34,6 +34,37 @@ class SubscriptionMixin:
     hass: "HomeAssistant"
     _subscriptions: dict[str, dict[str, Any]]
     _subscriptions_store: "Store[dict[str, dict[str, Any]]]"
+    _subscription_listeners: list[Callable[[], None]]
+
+    def register_subscription_listener(
+        self, callback: Callable[[], None]
+    ) -> None:
+        """Register a callback for subscription changes.
+
+        Called whenever a subscription is created, updated, or deleted —
+        including cascade deletes from recipient/category removal. Used by
+        the condition listener manager to refresh state/time triggers so
+        newly added conditional subscriptions receive listeners without an
+        HA restart (BUG-086).
+        """
+        self._subscription_listeners.append(callback)
+
+    def unregister_subscription_listener(
+        self, callback: Callable[[], None]
+    ) -> None:
+        """Unregister a subscription change callback."""
+        if callback in self._subscription_listeners:
+            self._subscription_listeners.remove(callback)
+
+    def _notify_subscription_change(self) -> None:
+        """Notify listeners that subscriptions have changed."""
+        for callback in self._subscription_listeners:
+            try:
+                callback()
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error(
+                    "Error in subscription change callback: %s", err
+                )
 
     def get_all_subscriptions(self) -> dict[str, dict[str, Any]]:
         """Return all subscriptions (read-only reference)."""
@@ -198,6 +229,7 @@ class SubscriptionMixin:
             "enabled" if subscription.get("device_override", {}).get("enabled")
             else "disabled",
         )
+        self._notify_subscription_change()
         return subscription
 
     async def async_delete_subscription(
@@ -210,6 +242,7 @@ class SubscriptionMixin:
 
         del self._subscriptions[key]
         await self.async_save_subscriptions()
+        self._notify_subscription_change()
         return True
 
     def get_subscriptions_for_recipient(

@@ -17,13 +17,9 @@ from custom_components.ticker.user_notify import (
     async_send_notification,
 )
 from custom_components.ticker.const import (
-    DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_RICH,
     DEVICE_MODE_ALL,
     DEVICE_MODE_SELECTED,
-    LOG_OUTCOME_FAILED,
-    LOG_OUTCOME_QUEUED,
-    LOG_OUTCOME_SENT,
     LOG_OUTCOME_SKIPPED,
     LOG_OUTCOME_SNOOZED,
 )
@@ -304,7 +300,7 @@ class TestAsyncHandleConditionalNotification:
         hass = _make_hass()
         store = _make_store(conditions=None)
 
-        result = await async_handle_conditional_notification(
+        await async_handle_conditional_notification(
             hass, store, "person.alice", "Alice", "home", "cat1",
             "Title", "Msg", {}, 48,
         )
@@ -385,7 +381,7 @@ class TestAsyncHandleConditionalNotification:
         hass = _make_hass()
         store = _make_store(conditions={"rules": []})
 
-        result = await async_handle_conditional_notification(
+        await async_handle_conditional_notification(
             hass, store, "person.alice", "Alice", "home", "cat1",
             "Title", "Msg", {}, 48,
         )

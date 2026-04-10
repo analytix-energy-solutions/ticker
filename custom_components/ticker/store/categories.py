@@ -100,6 +100,7 @@ class CategoryMixin:
         smart_notification: dict[str, Any] | None = None,
         action_set_id: str | None = None,
         navigate_to: str | None = None,
+        expose_in_sensor: bool | None = None,
     ) -> dict[str, Any]:
         """Create a new category.
 
@@ -124,6 +125,10 @@ class CategoryMixin:
             navigate_to: Optional URL or HA path for tap-to-navigate on notification
                 click (e.g., "/lovelace/cameras"). Omitted when None (sparse storage);
                 the global default is applied at send time by formatting.py.
+            expose_in_sensor: If False, the category sensor will record counts and
+                last_triggered but omit notification header/body content from its
+                attributes (BUG-099). Sparse storage — only persisted when False;
+                read-time default is True via category.get("expose_in_sensor", True).
         """
         category: dict[str, Any] = {
             "id": category_id,
@@ -144,6 +149,11 @@ class CategoryMixin:
             category["action_set_id"] = action_set_id
         if navigate_to:
             category["navigate_to"] = navigate_to
+        # Sparse storage: only persist expose_in_sensor when explicitly False
+        # (matches critical/smart_notification pattern). Default at read time
+        # is True via category.get("expose_in_sensor", True).
+        if expose_in_sensor is False:
+            category["expose_in_sensor"] = False
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -163,6 +173,7 @@ class CategoryMixin:
         clear_smart_notification: bool = False,
         action_set_id: str | None = None,
         navigate_to: str | None = None,
+        expose_in_sensor: bool | None = None,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
@@ -176,6 +187,10 @@ class CategoryMixin:
                 from the category dict. Takes precedence over smart_notification arg.
             navigate_to: If provided, set the tap-to-navigate URL on the category.
                 A non-empty string is stored; an empty string clears the key (sparse).
+            expose_in_sensor: If provided, control whether the category sensor
+                exposes notification header/body (BUG-099). None leaves the current
+                value unchanged. True removes the key (default behavior, sparse).
+                False persists the key so the sensor blanks content.
         """
         if category_id not in self._categories:
             return None
@@ -215,6 +230,13 @@ class CategoryMixin:
                 category["navigate_to"] = navigate_to
             else:
                 category.pop("navigate_to", None)
+
+        # expose_in_sensor: sparse — store key only when False (BUG-099)
+        if expose_in_sensor is not None:
+            if expose_in_sensor is False:
+                category["expose_in_sensor"] = False
+            else:
+                category.pop("expose_in_sensor", None)
 
         if clear_defaults:
             category.pop("default_mode", None)
@@ -258,6 +280,9 @@ class CategoryMixin:
 
         if keys_to_remove:
             await self.async_save_subscriptions()
+            # Fire once after the cascade so condition listeners refresh
+            # a single time instead of per-key (BUG-086).
+            self._notify_subscription_change()  # type: ignore[attr-defined]
 
         _LOGGER.info("Deleted category: %s", category_id)
         return True
