@@ -274,6 +274,7 @@ async def async_send_bundled_notification(
                 outcome=LOG_OUTCOME_SENT,
                 notify_service=services_str,
                 reason="Delivered on arrival (bundled)",
+                notification_id=entry.get("notification_id"),
                 image_url=entry_image_url,
             )
 

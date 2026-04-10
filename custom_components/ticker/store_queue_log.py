@@ -52,10 +52,6 @@ class QueueLogMixin:
     _logs_save_unsub: Callable[[], None] | None
     _logs_first_dirty_time: datetime | None
 
-    # =========================================================================
-    # Queue methods
-    # =========================================================================
-
     async def async_save_queue(self) -> None:
         """Save queue to storage."""
         await self._queue_store.async_save(self._queue)
@@ -100,6 +96,7 @@ class QueueLogMixin:
         data: dict[str, Any] | None = None,
         expiration_hours: float = DEFAULT_EXPIRATION_HOURS,
         retry_count: int = 0,
+        notification_id: str | None = None,
     ) -> dict[str, Any]:
         """Add a notification to the queue."""
         now = datetime.now(timezone.utc)
@@ -115,6 +112,7 @@ class QueueLogMixin:
             "created_at": now.isoformat(),
             "expires_at": (now + timedelta(hours=expiration_hours)).isoformat(),
             "retry_count": retry_count,
+            "notification_id": notification_id,
         }
 
         self._queue[queue_id] = entry
@@ -242,6 +240,7 @@ class QueueLogMixin:
                 data=entry.get("data"),
                 expiration_hours=remaining_hours,
                 retry_count=retry_count,
+                notification_id=entry.get("notification_id"),
             )
             requeued += 1
             _LOGGER.debug(
@@ -253,10 +252,6 @@ class QueueLogMixin:
             )
 
         return requeued, discarded
-
-    # =========================================================================
-    # Log methods (with debounced saving)
-    # =========================================================================
 
     async def _async_save_logs_immediate(self) -> None:
         """Save logs to storage immediately."""

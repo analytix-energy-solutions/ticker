@@ -368,6 +368,7 @@ async def async_handle_conditional_recipient(
             message=message,
             data=data,
             expiration_hours=expiration,
+            notification_id=notification_id,
         )
         await store.async_add_log(
             category_id=category_id,
