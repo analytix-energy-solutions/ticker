@@ -193,21 +193,12 @@ async def async_discover_notify_services(
                         if not any(s["service"] == service_entry["service"] for s in notify_services):
                             notify_services.append(service_entry)
         
-        # Also check for mobile_app notify services by name matching
-        if not notify_services:
-            # Try to find by person name
-            normalized_name = person_name.lower().replace(" ", "_")
-            if "notify" in hass.services.async_services():
-                for service_name in hass.services.async_services()["notify"]:
-                    if normalized_name in service_name.lower():
-                        full_service = f"notify.{service_name}"
-                        if not any(s["service"] == full_service for s in notify_services):
-                            # No device_id available for name-matched services
-                            notify_services.append({
-                                "service": full_service,
-                                "name": full_service.replace("notify.", "").replace("_", " ").title(),
-                                "device_id": None,
-                            })
+        # Note: A name-matching fallback previously existed here but was removed
+        # in BUG-094. It used substring containment (`normalized_name in service_name`)
+        # which cross-linked persons whose names were substrings of other names
+        # (e.g. "John" matching notify.mobile_app_johnnys_phone). The registry-based
+        # paths above (entity platform + legacy mobile_app via config entries,
+        # added in BUG-043) are authoritative.
 
         result[person_id] = {
             "person_id": person_id,
