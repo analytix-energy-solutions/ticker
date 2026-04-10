@@ -63,6 +63,13 @@ class TickerAdminPanel extends HTMLElement {
     // F-24: Logs tab status filter (null = show all)
     this._statusFilter = null;
 
+    // F-26 (admin): Logs tab filter bar state
+    this._logsSearch = '';
+    this._logsCategory = '';
+    this._logsPerson = '';
+    this._logsDateFrom = '';
+    this._logsDateTo = '';
+
     // DOM cache
     this._els = {};
     this._dependenciesLoaded = false;
@@ -113,6 +120,12 @@ class TickerAdminPanel extends HTMLElement {
     this._initialized = false;
     // F-24: Reset logs status filter when panel closes
     this._statusFilter = null;
+    // F-26 (admin): Reset logs filter bar state on panel close
+    this._logsSearch = '';
+    this._logsCategory = '';
+    this._logsPerson = '';
+    this._logsDateFrom = '';
+    this._logsDateTo = '';
   }
 
   async _init() {
@@ -378,7 +391,52 @@ class TickerAdminPanel extends HTMLElement {
       hasPanels: this._hasPanels || [],
       lovelaceViews: this._lovelaceViews || {},
       statusFilter: this._statusFilter,
+      logsSearch: this._logsSearch,
+      logsCategory: this._logsCategory,
+      logsPerson: this._logsPerson,
+      logsDateFrom: this._logsDateFrom,
+      logsDateTo: this._logsDateTo,
     };
+  }
+
+  /**
+   * F-26 (admin): Update a Logs tab filter field and re-render. Preserves
+   * focus on the search input across keystrokes by capturing the active
+   * element's id and selection range, then restoring them after the
+   * shadow-DOM re-render replaces the input.
+   * @param {string} field - One of logsSearch, logsCategory, logsPerson, logsDateFrom, logsDateTo
+   * @param {string} value - New value
+   */
+  _setLogsFilter(field, value) {
+    const allowed = ['logsSearch', 'logsCategory', 'logsPerson', 'logsDateFrom', 'logsDateTo'];
+    if (!allowed.includes(field)) return;
+    this['_' + field] = value || '';
+
+    const active = this.shadowRoot?.activeElement;
+    let focusInfo = null;
+    if (active && active.id && active.id.startsWith('ticker-logs-')) {
+      focusInfo = { id: active.id };
+      if (active.tagName === 'INPUT' && (active.type === 'search' || active.type === 'text')) {
+        focusInfo.selStart = active.selectionStart;
+        focusInfo.selEnd = active.selectionEnd;
+      }
+    }
+
+    this._renderTabContentPreserveScroll();
+
+    if (focusInfo) {
+      const restored = this.shadowRoot?.getElementById(focusInfo.id);
+      if (restored) {
+        restored.focus();
+        if (focusInfo.selStart != null && typeof restored.setSelectionRange === 'function') {
+          try {
+            restored.setSelectionRange(focusInfo.selStart, focusInfo.selEnd);
+          } catch {
+            // setSelectionRange throws on some input types — safe to ignore
+          }
+        }
+      }
+    }
   }
 
   // ─── Data Loading (delegated to AdminDataLoader) ─────────────────────────

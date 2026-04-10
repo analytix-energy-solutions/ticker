@@ -14,15 +14,56 @@ window.Ticker.AdminLogsTab = {
    */
   render(state) {
     const { esc, escAttr, formatTime, getCategoryName } = window.Ticker.utils;
-    const { logs, logStats, users, categories, statusFilter } = state;
+    const {
+      logs, logStats, users, categories, statusFilter,
+      logsSearch, logsCategory, logsPerson, logsDateFrom, logsDateTo,
+    } = state;
 
     const byOutcome = logStats.by_outcome || {};
 
-    // F-24: Filter logs by selected status (client-side). Counters below
-    // always show UNFILTERED totals from logStats.
-    const filteredLogs = statusFilter
-      ? logs.filter(l => l.outcome === statusFilter)
-      : logs;
+    // F-26 (admin): build the filter chain. F-24 status filter composes with
+    // F-26 text/category/person/date filters via AND logic. Counters below
+    // always show UNFILTERED totals from logStats so users see what clicking
+    // would restore.
+    const searchRaw = (logsSearch || '').trim();
+    const searchLower = searchRaw.toLowerCase();
+    const catFilter = (logsCategory || '').trim();
+    const personFilter = (logsPerson || '').trim();
+    const dateFromKey = (logsDateFrom || '').trim();
+    const dateToKey = (logsDateTo || '').trim();
+
+    function toLocalDateKey(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dd}`;
+    }
+
+    const filteredLogs = logs.filter(log => {
+      if (statusFilter && log.outcome !== statusFilter) return false;
+      if (catFilter && log.category_id !== catFilter) return false;
+      if (personFilter && log.person_id !== personFilter) return false;
+      if (dateFromKey || dateToKey) {
+        const k = toLocalDateKey(log.timestamp);
+        if (!k) return false;
+        if (dateFromKey && k < dateFromKey) return false;
+        if (dateToKey && k > dateToKey) return false;
+      }
+      if (searchLower) {
+        const hay = [
+          log.title || '',
+          log.message || '',
+          (log.data && log.data.image) || '',
+          log.notify_service || '',
+          log.reason || '',
+        ].join(' ').toLowerCase();
+        if (!hay.includes(searchLower)) return false;
+      }
+      return true;
+    });
 
     // F-24: Build stat-card classes with active marker
     const totalActive = !statusFilter ? ' active' : '';
@@ -67,6 +108,74 @@ window.Ticker.AdminLogsTab = {
           <div class="stat-label">Expired</div>
         </div>
         ` : ''}
+      </div>
+    `;
+
+    // F-26 (admin): category + person dropdown options, built from the
+    // distinct ids present in the currently loaded log list so users only
+    // see options that could actually match a row.
+    const catIds = [...new Set(logs.map(l => l.category_id).filter(Boolean))];
+    catIds.sort((a, b) => {
+      const an = getCategoryName(categories, a).toLowerCase();
+      const bn = getCategoryName(categories, b).toLowerCase();
+      return an.localeCompare(bn);
+    });
+    const categoryOptionsHtml = [
+      `<option value="">All categories</option>`,
+      ...catIds.map(cid => {
+        const selected = catFilter === cid ? ' selected' : '';
+        return `<option value="${escAttr(cid)}"${selected}>${esc(getCategoryName(categories, cid))}</option>`;
+      }),
+    ].join('');
+
+    const personIds = [...new Set(logs.map(l => l.person_id).filter(Boolean))];
+    personIds.sort((a, b) => {
+      const an = this._getPersonName(users, a).toLowerCase();
+      const bn = this._getPersonName(users, b).toLowerCase();
+      return an.localeCompare(bn);
+    });
+    const personOptionsHtml = [
+      `<option value="">All users</option>`,
+      ...personIds.map(pid => {
+        const selected = personFilter === pid ? ' selected' : '';
+        return `<option value="${escAttr(pid)}"${selected}>${esc(this._getPersonName(users, pid))}</option>`;
+      }),
+    ].join('');
+
+    const filterBar = `
+      <div class="history-filter-bar" role="search">
+        <label class="visually-hidden" for="ticker-logs-search">Search logs</label>
+        <input
+          id="ticker-logs-search"
+          type="search"
+          placeholder="Search title, message, service, reason..."
+          value="${escAttr(searchRaw)}"
+          oninput="window.Ticker._adminPanel._setLogsFilter('logsSearch', this.value)"
+        >
+        <label class="visually-hidden" for="ticker-logs-category">Filter by category</label>
+        <select
+          id="ticker-logs-category"
+          onchange="window.Ticker._adminPanel._setLogsFilter('logsCategory', this.value)"
+        >${categoryOptionsHtml}</select>
+        <label class="visually-hidden" for="ticker-logs-person">Filter by user</label>
+        <select
+          id="ticker-logs-person"
+          onchange="window.Ticker._adminPanel._setLogsFilter('logsPerson', this.value)"
+        >${personOptionsHtml}</select>
+        <label class="visually-hidden" for="ticker-logs-date-from">From date</label>
+        <input
+          id="ticker-logs-date-from"
+          type="date"
+          value="${escAttr(dateFromKey)}"
+          onchange="window.Ticker._adminPanel._setLogsFilter('logsDateFrom', this.value)"
+        >
+        <label class="visually-hidden" for="ticker-logs-date-to">To date</label>
+        <input
+          id="ticker-logs-date-to"
+          type="date"
+          value="${escAttr(dateToKey)}"
+          onchange="window.Ticker._adminPanel._setLogsFilter('logsDateTo', this.value)"
+        >
       </div>
     `;
 
@@ -118,10 +227,14 @@ window.Ticker.AdminLogsTab = {
       `;
     }).join('');
 
-    // F-24: Show empty-state message when filter hides all rows
+    // F-26 (admin): when filters reduce the list to zero, keep the filter
+    // bar visible and explain why.
+    const anyFilterActive = !!(statusFilter || searchRaw || catFilter || personFilter || dateFromKey || dateToKey);
     const rowsOrEmpty = filteredLogs.length
       ? rows
-      : `<div class="empty-state">No ${esc(statusFilter)} logs.</div>`;
+      : anyFilterActive
+        ? `<div class="empty-state history-filter-empty">No matches. Clear filters to see all.</div>`
+        : `<div class="empty-state">No logs.</div>`;
 
     return `
       <div class="card">
@@ -131,6 +244,7 @@ window.Ticker.AdminLogsTab = {
         </div>
         <p class="card-description">Notification log — last 7 days, up to 500 entries.</p>
         ${statsGrid}
+        ${filterBar}
         ${rowsOrEmpty}
       </div>
     `;
