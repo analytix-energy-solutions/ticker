@@ -407,7 +407,9 @@ def _check_device_ios(
         return False
     for entry_id in device.config_entries:
         entry = hass.config_entries.async_get_entry(entry_id)
-        if entry and entry.domain == "mobile_app":
-            os_name = entry.data.get("os_name", "")
-            return os_name.lower() == "ios"
+        if not entry or entry.domain != "mobile_app":
+            continue
+        os_name = entry.data.get("os_name", "")
+        if os_name.lower() == "ios":
+            return True
     return False
