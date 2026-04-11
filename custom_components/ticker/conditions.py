@@ -28,14 +28,21 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def resolve_zone_name(hass: HomeAssistant, zone_id: str) -> str:
-    """Resolve zone_id to the friendly name that HA reports on person.state.
+    """Resolve a zone_id to its human-readable display name.
 
-    Home Assistant populates ``person.state`` with a zone's ``friendly_name``
-    (e.g. "Main House"), not the entity_id slug. Comparing a subscription's
-    stored ``zone.main_house`` against ``person.state`` therefore requires
-    looking up the friendly_name from the zone entity state. If the zone no
-    longer exists, fall back to the slug portion of the entity_id so legacy
-    comparisons still work (and log the fallback for diagnostics).
+    DISPLAY-ONLY HELPER. Used to build log messages and UI reason strings
+    like "In Main House" or "Not in Home". This function MUST NOT be used
+    for zone-membership matching — see BUG-102.
+
+    Correct membership matching uses the zone entity's ``persons`` attribute
+    (a list of person entity IDs currently inside the zone). Comparing
+    ``person.state`` (lowercase, e.g. "home") against a zone's
+    ``friendly_name`` (e.g. "Home") is unreliable because Home Assistant
+    lowercases zone-derived person states, so string equality silently
+    fails for any zone whose friendly_name contains uppercase characters.
+
+    If the zone entity no longer exists, fall back to the slug portion of
+    the entity_id so log messages still render something meaningful.
     """
     zone_state = hass.states.get(zone_id)
     if zone_state:
@@ -55,19 +62,26 @@ def evaluate_zone_rule(
     rule: dict[str, Any],
     person_state: "State",
 ) -> tuple[bool, str]:
-    """Evaluate a zone rule. Returns (is_met, reason)."""
+    """Evaluate a zone rule against the person's current zone membership.
+
+    Matching is based on the zone entity's ``persons`` attribute (list of
+    person entity IDs currently inside), NOT on comparing person.state
+    against the zone's friendly_name. See BUG-102.
+    """
     zone_id = rule.get("zone_id", "")
     if not zone_id:
         return False, "No zone_id specified"
 
-    # person.state holds the zone's friendly_name, so resolve zone_id -> name
-    zone_name = resolve_zone_name(hass, zone_id)
-    person_zone = person_state.state
+    zone_entity = hass.states.get(zone_id)
+    if zone_entity is None:
+        return False, f"Zone {zone_id} not found"
 
-    is_met = person_zone == zone_name
-    if is_met:
-        return True, f"In zone {zone_name}"
-    return False, f"Not in zone {zone_name} (currently in {person_zone})"
+    persons_in_zone = zone_entity.attributes.get("persons", [])
+    display_name = zone_entity.attributes.get("friendly_name", zone_id)
+
+    if person_state.entity_id in persons_in_zone:
+        return True, f"In {display_name}"
+    return False, f"Not in {display_name}"
 
 
 def evaluate_time_rule(

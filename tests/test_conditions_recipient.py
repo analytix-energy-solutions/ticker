@@ -26,20 +26,41 @@ from custom_components.ticker.const import (
 
 @pytest.fixture
 def mock_hass():
+    """Local mock_hass with per-test zone registration.
+
+    BUG-102: Zone matching uses ``zone_entity.attributes['persons']`` (list of
+    person entity IDs in the zone). Tests register zones via
+    ``hass.register_zone(zone_id, friendly_name, persons)``. Unregistered
+    ``zone.*`` lookups return ``None``.
+    """
     hass = MagicMock()
     hass.states = MagicMock()
-    # BUG-087: resolve_zone_name calls hass.states.get(zone_id); default
-    # MagicMock returns a truthy mock with a mock friendly_name. Return None
-    # for zone lookups so the helper falls back to slug.
     _state_store: dict[str, object] = {}
+    _zone_store: dict[str, MagicMock] = {}
 
     def _states_get(entity_id: str):
+        if entity_id in _zone_store:
+            return _zone_store[entity_id]
         if entity_id in _state_store:
             return _state_store[entity_id]
+        if entity_id.startswith("zone."):
+            return None
         return None
 
     hass.states.get.side_effect = _states_get
     hass.states._test_store = _state_store  # type: ignore[attr-defined]
+
+    def _register_zone(zone_id: str, friendly_name: str, persons: list[str]):
+        state = MagicMock()
+        state.entity_id = zone_id
+        state.attributes = {
+            "friendly_name": friendly_name,
+            "persons": list(persons),
+        }
+        _zone_store[zone_id] = state
+        return state
+
+    hass.register_zone = _register_zone
     return hass
 
 
@@ -99,12 +120,14 @@ class TestEvaluateRuleNoPerson:
 
 class TestEvaluateRuleWithPerson:
     def test_zone_rule_met(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", ["person.alice"])
         person = fake_state("person.alice", "home")
         rule = {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"}
         is_met, _ = evaluate_rule(mock_hass, rule, person_state=person)
         assert is_met is True
 
     def test_zone_rule_not_met(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", [])
         person = fake_state("person.alice", "not_home")
         rule = {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"}
         is_met, _ = evaluate_rule(mock_hass, rule, person_state=person)
