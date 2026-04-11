@@ -209,7 +209,56 @@ def fake_state():
 
 @pytest.fixture
 def mock_hass():
-    """Return a minimal mocked HomeAssistant instance."""
+    """Return a minimal mocked HomeAssistant instance.
+
+    Supports registering zone entities via ``hass.register_zone(zone_id,
+    friendly_name, persons)``. Registered zones are returned by
+    ``hass.states.get(zone_id)``; unregistered lookups fall through to a
+    MagicMock default so existing tests keep working.
+    """
     hass = MagicMock()
+
+    zone_store: dict[str, MagicMock] = {}
+    hass._zone_store = zone_store
+
+    # Preserve MagicMock auto-attr behavior for .states while overriding .get
     hass.states = MagicMock()
+    default_get = hass.states.get
+
+    def _states_get(entity_id, *args, **kwargs):
+        if entity_id in zone_store:
+            return zone_store[entity_id]
+        # Unregistered zone.* lookups must return None so tests fail loudly
+        # when they forget to register a zone via hass.register_zone(...).
+        # See BUG-102 chunk 1 reviewer FIX-002.
+        if isinstance(entity_id, str) and entity_id.startswith("zone."):
+            return None
+        return default_get(entity_id, *args, **kwargs)
+
+    hass.states.get = _states_get
+
+    def _register_zone(zone_id: str, friendly_name: str, persons: list[str]):
+        state = MagicMock()
+        state.entity_id = zone_id
+        state.attributes = {
+            "friendly_name": friendly_name,
+            "persons": list(persons),
+        }
+        zone_store[zone_id] = state
+        return state
+
+    hass.register_zone = _register_zone
     return hass
+
+
+@pytest.fixture
+def zone_state_factory():
+    """Create a mock zone state with friendly_name and persons membership."""
+    def _make(friendly_name: str, persons: list[str]):
+        state = MagicMock()
+        state.attributes = {
+            "friendly_name": friendly_name,
+            "persons": list(persons),
+        }
+        return state
+    return _make

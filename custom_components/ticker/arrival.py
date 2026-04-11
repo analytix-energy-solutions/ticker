@@ -132,13 +132,21 @@ async def async_setup_arrival_listener(
                 zones = conditions.get("zones", {})
                 if zones:
                     # Legacy: check if arrived at any queue_until_arrival zone.
-                    # person.state holds the zone's friendly_name, so resolve
-                    # zone_id -> friendly_name before comparing.
+                    # Match on the zone entity's ``persons`` attribute
+                    # (list of person entity IDs currently inside) rather
+                    # than comparing person.state against friendly_name.
+                    # See BUG-102. resolve_zone_name remains in use below
+                    # only for building log/reason strings.
                     arrived = False
                     for zone_id, zone_config in zones.items():
                         if zone_config.get("queue_until_arrival"):
-                            zone_name = resolve_zone_name(hass, zone_id)
-                            if new_zone == zone_name:
+                            zone_entity = hass.states.get(zone_id)
+                            if zone_entity and entity_id in zone_entity.attributes.get("persons", []):
+                                _LOGGER.debug(
+                                    "Legacy arrival matched: %s now in %s",
+                                    entity_id,
+                                    resolve_zone_name(hass, zone_id),
+                                )
                                 arrived = True
                                 break
 

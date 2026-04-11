@@ -32,16 +32,22 @@ from custom_components.ticker.const import (
 
 @pytest.fixture
 def mock_hass():
+    """Local mock_hass with per-test zone registration.
+
+    BUG-102: Zone matching uses ``zone_entity.attributes['persons']`` (list of
+    person entity IDs in the zone), not friendly_name string comparison. Tests
+    register zones via ``hass.register_zone(zone_id, friendly_name, persons)``.
+    Unregistered ``zone.*`` lookups return ``None`` so the new contract fails
+    loudly when a test forgets to register a zone.
+    """
     hass = MagicMock()
     hass.states = MagicMock()
-    # BUG-087: resolve_zone_name calls hass.states.get(zone_id). Default
-    # MagicMock returns a truthy MagicMock with a MagicMock friendly_name,
-    # which breaks slug fallback. Return None for zone.* lookups so the
-    # helper falls back to the slug; tests that need a stored entity
-    # state override via side_effect below.
     _state_store: dict[str, object] = {}
+    _zone_store: dict[str, MagicMock] = {}
 
     def _states_get(entity_id: str):
+        if entity_id in _zone_store:
+            return _zone_store[entity_id]
         if entity_id in _state_store:
             return _state_store[entity_id]
         if entity_id.startswith("zone."):
@@ -50,6 +56,18 @@ def mock_hass():
 
     hass.states.get.side_effect = _states_get
     hass.states._test_store = _state_store  # type: ignore[attr-defined]
+
+    def _register_zone(zone_id: str, friendly_name: str, persons: list[str]):
+        state = MagicMock()
+        state.entity_id = zone_id
+        state.attributes = {
+            "friendly_name": friendly_name,
+            "persons": list(persons),
+        }
+        _zone_store[zone_id] = state
+        return state
+
+    hass.register_zone = _register_zone
     return hass
 
 
@@ -70,6 +88,7 @@ class TestEvaluateRulesReturnType:
         assert isinstance(reason, str)
 
     def test_single_met_rule_returns_correct_shape(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", ["person.alice"])
         person = fake_state("person.alice", "home")
         rules = [{"type": RULE_TYPE_ZONE, "zone_id": "zone.home"}]
 
@@ -81,6 +100,7 @@ class TestEvaluateRulesReturnType:
         assert "home" in results[0][1].lower()
 
     def test_single_unmet_rule_returns_false(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", [])
         person = fake_state("person.alice", "not_home")
         rules = [{"type": RULE_TYPE_ZONE, "zone_id": "zone.home"}]
 
@@ -92,6 +112,7 @@ class TestEvaluateRulesReturnType:
 
     def test_mixed_rules_collects_all_results(self, mock_hass, fake_state):
         """Even when one rule fails, all rules are evaluated and returned."""
+        mock_hass.register_zone("zone.home", "Home", ["person.alice"])
         person = fake_state("person.alice", "home")
         state_obj = MagicMock()
         state_obj.state = "off"
@@ -117,6 +138,7 @@ class TestEvaluateRulesReturnType:
 
     def test_per_rule_results_match_individual_evaluate_rule(self, mock_hass, fake_state):
         """Per-rule results from evaluate_rules match calling evaluate_rule individually."""
+        mock_hass.register_zone("zone.home", "Home", [])
         person = fake_state("person.alice", "not_home")
         state_obj = MagicMock()
         state_obj.state = "on"
@@ -138,6 +160,7 @@ class TestEvaluateRulesReturnType:
             assert results[i][1] == individual_reason
 
     def test_all_met_true_when_all_rules_pass(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", ["person.alice"])
         person = fake_state("person.alice", "home")
         rules = [
             {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"},
@@ -153,6 +176,7 @@ class TestEvaluateRulesReturnType:
         assert all(r[0] for r in results)
 
     def test_all_met_false_when_any_rule_fails(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", [])
         person = fake_state("person.alice", "not_home")
         rules = [
             {"type": RULE_TYPE_ZONE, "zone_id": "zone.home"},
@@ -175,6 +199,7 @@ class TestShouldDeliverNowUsesRuleResults:
     """should_deliver_now returns first unmet reason from rule_results."""
 
     def test_deliver_when_all_met(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", ["person.alice"])
         person = fake_state("person.alice", "home")
         conditions = {
             "deliver_when_met": True,
@@ -186,6 +211,7 @@ class TestShouldDeliverNowUsesRuleResults:
         assert "met" in reason.lower()
 
     def test_no_deliver_returns_first_unmet_reason(self, mock_hass, fake_state):
+        mock_hass.register_zone("zone.home", "Home", [])
         person = fake_state("person.alice", "not_home")
         conditions = {
             "deliver_when_met": True,
