@@ -69,6 +69,7 @@ async def ws_get_categories(
             None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("android_channel"): vol.Any(None, str),
     }
 )
 @websocket_api.async_response
@@ -128,6 +129,7 @@ async def ws_create_category(
         connection.send_error(msg["id"], "invalid_navigate_to", error)
         return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
+    android_channel = msg.get("android_channel")
 
     category = await store.async_create_category(
         category_id=category_id,
@@ -141,6 +143,7 @@ async def ws_create_category(
         action_set_id=action_set_id,
         navigate_to=navigate_to,
         expose_in_sensor=expose_in_sensor,
+        android_channel=android_channel,
     )
 
     connection.send_result(msg["id"], {"category": category})
@@ -170,6 +173,7 @@ async def ws_create_category(
             None, vol.All(str, vol.Length(max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("android_channel"): vol.Any(None, str),
     }
 )
 @websocket_api.async_response
@@ -243,6 +247,7 @@ async def ws_update_category(
             connection.send_error(msg["id"], "invalid_navigate_to", error)
             return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
+    android_channel = msg.get("android_channel") if "android_channel" in msg else None
 
     category = await store.async_update_category(
         category_id=category_id,
@@ -258,6 +263,7 @@ async def ws_update_category(
         action_set_id=action_set_id,
         navigate_to=navigate_to,
         expose_in_sensor=expose_in_sensor,
+        android_channel=android_channel,
     )
 
     # Update service schema if name changed

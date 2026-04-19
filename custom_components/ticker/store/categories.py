@@ -101,6 +101,7 @@ class CategoryMixin:
         action_set_id: str | None = None,
         navigate_to: str | None = None,
         expose_in_sensor: bool | None = None,
+        android_channel: str | None = None,
     ) -> dict[str, Any]:
         """Create a new category.
 
@@ -129,6 +130,11 @@ class CategoryMixin:
                 last_triggered but omit notification header/body content from its
                 attributes (BUG-099). Sparse storage — only persisted when False;
                 read-time default is True via category.get("expose_in_sensor", True).
+            android_channel: Optional Android notification channel ID for per-category
+                routing on Android devices (e.g., "security_alerts"). When set, this
+                value is injected as `channel` in the push data payload for Android
+                recipients only. Omitted when None (sparse storage); an empty string
+                clears any existing value. Not injected for iOS (plain format).
         """
         category: dict[str, Any] = {
             "id": category_id,
@@ -154,6 +160,8 @@ class CategoryMixin:
         # is True via category.get("expose_in_sensor", True).
         if expose_in_sensor is False:
             category["expose_in_sensor"] = False
+        if android_channel:
+            category["android_channel"] = android_channel
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -174,6 +182,7 @@ class CategoryMixin:
         action_set_id: str | None = None,
         navigate_to: str | None = None,
         expose_in_sensor: bool | None = None,
+        android_channel: str | None = None,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
@@ -191,6 +200,9 @@ class CategoryMixin:
                 exposes notification header/body (BUG-099). None leaves the current
                 value unchanged. True removes the key (default behavior, sparse).
                 False persists the key so the sensor blanks content.
+            android_channel: If provided, set the Android notification channel ID.
+                A non-empty string is stored; an empty string clears the key
+                (sparse storage). None leaves the current value unchanged.
         """
         if category_id not in self._categories:
             return None
@@ -237,6 +249,13 @@ class CategoryMixin:
                 category["expose_in_sensor"] = False
             else:
                 category.pop("expose_in_sensor", None)
+
+        # android_channel: non-empty string sets, empty string clears (sparse)
+        if android_channel is not None:
+            if android_channel:
+                category["android_channel"] = android_channel
+            else:
+                category.pop("android_channel", None)
 
         if clear_defaults:
             category.pop("default_mode", None)
