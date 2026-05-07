@@ -685,10 +685,13 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 - Condition rules with `after: HH:MM` and `before: HH:MM` only tracked the opening edge. The closing edge is now also tracked so deliver-when-met windows correctly close. (BUG-096)
 - `conditions={}` on `ticker/create_recipient` and `ticker/update_recipient` was rejected; empty dict is now normalized to `None`. Malformed conditions dicts with unknown keys are still rejected. (BUG-093)
 - The Persistent toggle on the category Smart sub-tab did not stay on when clicked and reset the replacement dropdown as a side effect. The in-flight Smart sub-tab state is now buffered in `_pendingSmart[categoryId]` before re-render, matching the existing `_pendingDefaultConditions` pattern. (BUG-083, GitHub #25, reported by kurdt1994)
-- `ticker.clear_notification` was defined but never registered as a service. It is now wired into `async_setup` alongside `ticker.notify`. (BUG-103)
-- Admin Navigation Picker dashboard list was always empty because the loader called `lovelace/dashboards` instead of `lovelace/dashboards/list`. (BUG-102)
+- `ticker.clear_notification` was defined but never registered as a service. It is now wired into `async_setup` alongside `ticker.notify`.
+- Admin Navigation Picker dashboard list was always empty because the loader called `lovelace/dashboards` instead of `lovelace/dashboards/list`.
 - Notification titles were logged at INFO level; now at DEBUG. (BUG-101)
-- 19 bugs fixed in total. See BUGS.md and CHANGELOG.md for the complete list.
+- **BUG-102**: Conditional subscriptions gated on `zone.home` (or any zone) never evaluated correctly. Zone matching compared the zone friendly name against `person.state`, which HA sets to the constant "home" (lowercase) — not the friendly name. Fix: zone evaluation now uses entity-ID membership in `zone.attributes["persons"]`, which is HA's authoritative list. Immune to zone renames, locale differences, and case sensitivity.
+- **BUG-103**: Migration wizard dropped picture/image links from converted automations. The converter was wrapping the source `data:` block one level too many, producing `data.data.data.image` instead of `data.data.image`. At runtime `ticker.notify` reads `data.image` one level under the call, finds nothing, and the picture is silently dropped. Fix: the converter now reads `old_service_data["data"]` directly as the inner data block, matching the model used by the Automations tab editor. Top-level mobile_app keys other than `title`/`message`/`data` (e.g. `target:`) are dropped with a debug log entry. (GitHub #29, vordenken)
+- **Note:** Automations that were already converted before v1.6.0 with image/picture fields are still broken on disk. Re-run the migration wizard against those automations, or edit the YAML/storage entry by hand to remove the extra `data:` wrapper.
+- 21 bugs fixed in total. See BUGS.md and CHANGELOG.md for the complete list.
 
 ### v1.5.2
 

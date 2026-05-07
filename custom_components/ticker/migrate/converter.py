@@ -28,8 +28,31 @@ async def async_convert_notification(
     """
     Convert a notification finding to use ticker.notify.
 
+    Reads the inner ``data:`` sub-block from the original service call
+    (``finding["service_data"]["data"]``) and places it verbatim as
+    ``new_action["data"]["data"]``.  This mirrors the model used by
+    ``websocket/automations.py::_build_updated_action``.
+
+    Top-level mobile_app keys other than ``title``, ``message``, and
+    ``data`` (e.g. ``target:``) have no mapping in the ``ticker.notify``
+    schema and are silently dropped with a ``DEBUG``-level log entry
+    naming the source automation and the dropped key set.
+
+    Args:
+        hass: Home Assistant instance.
+        finding: Scanner finding dict (source_id, service_data, …).
+        category_id: Target Ticker category ID (unused in output; kept for
+            callers that resolve ID before name).
+        category_name: Human-readable category name written into the
+            converted action.
+        apply_directly: When True, write the replacement action back to its
+            source automation or script and reload it.
+        title: Override title; falls back to ``service_data.title``.
+        message: Override message; falls back to ``service_data.message``.
+
     Returns:
-        Dict with success, yaml, applied, error
+        Dict with keys: ``success`` (bool), ``yaml`` (str),
+        ``new_action`` (dict), ``applied`` (bool), ``error`` (str | None).
     """
     old_service_data = finding.get("service_data", {})
 
@@ -51,10 +74,35 @@ async def async_convert_notification(
     if finding.get("action_alias"):
         new_action["alias"] = finding["action_alias"]
 
-    # Preserve extra data fields
-    extra_data = {k: v for k, v in old_service_data.items() if k not in ("title", "message")}
-    if extra_data:
-        new_action["data"]["data"] = extra_data
+    # Preserve the inner data block as-is.
+    #
+    # BUG-103 / GH #29: Previously this branch took every key in
+    # old_service_data except title/message and stuffed it under
+    # new_action["data"]["data"]. Because the source `data:` block was
+    # itself one of those keys, the result was triple-nested — the migrated
+    # automation produced data.data.data.image instead of data.data.image,
+    # and runtime ticker.notify (which reads data.image one level under the
+    # call) silently dropped the picture link.
+    #
+    # The correct shape mirrors websocket/automations.py::_build_updated_action:
+    # the inner `data:` block from the original service call is the base for
+    # new_action["data"]["data"]. Top-level mobile_app keys other than
+    # title/message/data (e.g. `target:`) are silently dropped — they have no
+    # place inside ticker.notify's schema and were never functional in the
+    # migrated form anyway.
+    inner_data = old_service_data.get("data", {})
+    if isinstance(inner_data, dict) and inner_data:
+        new_action["data"]["data"] = inner_data
+
+    dropped = {
+        k for k in old_service_data if k not in ("title", "message", "data")
+    }
+    if dropped:
+        _LOGGER.debug(
+            "Migrator dropped non-data top-level keys from %s: %s",
+            finding.get("source_id", "<unknown>"),
+            sorted(dropped),
+        )
 
     # Generate YAML
     yaml_str = yaml.dump(new_action, default_flow_style=False, allow_unicode=True, sort_keys=False)
