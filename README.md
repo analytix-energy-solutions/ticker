@@ -95,7 +95,7 @@ This integration is being developed with AI assistance.
 - **Blueprint-friendly device** — Ticker now registers itself as a Home Assistant device with `entry_type=service`, so it shows up in blueprint device pickers. Blueprints still call `notify.ticker` as the service; device-action support is deferred to a later release.
 - **Per-category sensor privacy flag** — new `expose_in_sensor` category flag (default on) controls whether raw notification title and body are included in the category sensor's extra attributes. Turn off for sensitive categories such as 2FA codes or medical reminders.
 - **Improved security** — `navigate_to` is now validated as a relative HA path (rejects `https://`, `javascript:`, `//`-protocol-relative, and paths containing control characters), condition trees validate leaf semantics against the HA state machine, and notification titles are no longer logged at INFO level.
-- 19 bug fixes across conditional notification gating (post F-2b migration), zone rule evaluation, condition listener lifecycle, queue retry expiration, bundled log correlation, and the Persistent toggle in the category Smart sub-tab (GitHub #25).
+- 21 bug fixes across conditional notification gating (post F-2b migration), zone rule evaluation, condition listener lifecycle, queue retry expiration, bundled log correlation, and the Persistent toggle in the category Smart sub-tab (GitHub #25). Includes BUG-102 (zone matching now uses entity-ID membership in `zone.attributes["persons"]` instead of fragile friendly-name string comparison) and BUG-103 (migration wizard now correctly preserves picture/image links from converted automations — re-run the wizard against any previously-converted automations that include images, GitHub #29).
 
 ### v1.5.2
 
