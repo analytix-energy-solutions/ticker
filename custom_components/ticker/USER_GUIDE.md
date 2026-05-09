@@ -407,6 +407,57 @@ For TTS devices, Ticker uses a 3-step priority system at delivery time:
 
 The `supports_announce` status is shown as a badge on the recipient card so admins can see at a glance which delivery path will be used.
 
+### Pre-TTS chime
+
+*Added in v1.7.0 (F-35)*
+
+Each TTS recipient can be paired with a chime — a short audio clip that plays through the same media_player just before the spoken announcement. This gives listeners in another room a moment to orient before the message starts. The chime is configured as an HA `media_content_id` (the same picker HA uses for its media browser).
+
+Where it is configured:
+
+- **Recipient dialog** (admin > Devices) — sets the device default. Empty means no chime for this device.
+- **Category dialog** (admin > Categories > General) — optionally overrides the device default. Empty falls back to the device default; empty at both levels = no chime.
+
+Both dialogs include a Test Chime button that plays the chime through the chosen media_player without going through the queue, sending TTS, or producing a History entry.
+
+The chime is fail-soft: if the media_player is offline, the asset is missing, or playback fails for any reason, the failure is logged as a warning and the TTS announcement still delivers normally — the History entry is still marked as Sent. There is a 10-second cap on chime playback before TTS proceeds, so a stuck or silent chime will never block the announcement indefinitely.
+
+**Caveat — Alexa double-chime:** Some TTS engines (notably Amazon Alexa via the Alexa Media Player integration) play their own "earcon" tone before speech. If Ticker also plays a chime, the listener hears two tones in a row. Ticker does not auto-detect this — leave the chime field empty for Alexa-based recipients to avoid the double-chime.
+
+#### Bundled default chimes
+
+*Added in v1.7.0 (F-35.1)*
+
+Ticker ships three CC0-licensed chime assets out of the box so the feature is functional without sourcing a third-party file:
+
+- **Subtle ding** — single soft tone (~0.6s)
+- **Alert tone** — two-tone descending alert (~1.3s)
+- **Doorbell** — classic ding-dong (~1.8s)
+
+Both the recipient and category dialogs render preset chips above the chime URL field. Clicking a chip writes the chime's absolute URL into the field — bundled chimes use the same delivery path as user-supplied `media_content_id` values, so playback behaviour is identical.
+
+**Caveat — host changes stale the URL:** The stored URL includes the HA host (e.g. `http://homeassistant.local:8123/ticker_static/chimes/subtle.wav`). If you later change your HA external URL or move to a different hostname, the stored URL becomes stale and the chime stops playing. Re-pick the chip to refresh — Ticker recomposes the URL from your current HA URL each time the dialog opens.
+
+If Ticker cannot resolve any HA URL (`get_url` returns nothing), the bundled chip row is hidden — you can still paste a chime URL or `media-source://` value manually.
+
+#### Volume override
+
+*Added in v1.7.0 (F-35.2)*
+
+Both the recipient (Devices) dialog and the category (General sub-tab) dialog include a **Volume Override** slider just above the Pre-TTS Chime block. The slider sets the media_player's volume for the chime + TTS pair, then restores the previous level after TTS finishes playing.
+
+- **Range**: 0–100 % on the slider, mapped to HA's standard 0.0–1.0 `volume_level` scale.
+- **Default**: leave the slider on **Default** (button shows "Set", value reads "Default") to inherit the media_player's current volume — current behavior, no `volume_set` is called.
+- **Recipient default**: applied to every category that does not specify its own override.
+- **Category override**: when set, beats the device default for notifications in that category.
+- **Test Chime**: previews at the current slider value. Snapshot/restore happens server-side, so testing does not leave your media at the test volume.
+
+The override is applied via Home Assistant's standard `media_player.volume_set` service. After setting the level, Ticker waits 200 ms before issuing the next service call — Sonos in particular needs a moment to apply a new volume on the cached connector before `play_media` starts. The previous volume is restored after TTS exits the `playing` state, regardless of whether resume-after-TTS reattached previous media.
+
+**Fail-soft**: if `volume_set` fails (offline player, unsupported attribute, etc.), Ticker logs a warning and proceeds with chime + TTS at the device's current volume — the announcement is never blocked by a volume problem.
+
+**Push devices**: the slider is hidden on Push-type recipients. Push notifications use the mobile_app's own volume settings; Ticker does not touch them.
+
 ### Subscriptions and conditions
 
 Device recipients support the same subscription modes as users — Always, Never, and Conditional with time and entity state rules. Zone rules are not available for recipients (they have no location state).

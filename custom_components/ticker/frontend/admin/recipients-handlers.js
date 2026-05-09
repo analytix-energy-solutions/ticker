@@ -162,6 +162,7 @@ window.Ticker.AdminRecipientsTab.handlers = {
     await Promise.all([
       panel._loadAvailableNotifyServices(),
       panel._loadTtsOptions(),
+      this._loadBundledChimes(panel),
     ]);
     const overlay = window.Ticker.AdminRecipientsTab._renderDialog(panel, null);
     const container = document.createElement('div');
@@ -185,6 +186,7 @@ window.Ticker.AdminRecipientsTab.handlers = {
     await Promise.all([
       panel._loadAvailableNotifyServices(recipientId),
       panel._loadTtsOptions(),
+      this._loadBundledChimes(panel),
     ]);
     const overlay = window.Ticker.AdminRecipientsTab._renderDialog(panel, r);
     const container = document.createElement('div');
@@ -300,6 +302,22 @@ window.Ticker.AdminRecipientsTab.handlers = {
       wsMsg.tts_service = container.querySelector('#dlg-tts-service')?.value?.trim() || 'tts.google_translate_say';
       wsMsg.resume_after_tts = !!container.querySelector('#dlg-resume-tts')?.checked;
       wsMsg.tts_buffer_delay = parseFloat(container.querySelector('#dlg-tts-buffer-delay')?.value) || 0;
+      // F-35: Pre-TTS chime — omit when empty (sparse). On edit, send "" to clear.
+      const chimeId = (container.querySelector('#dlg-chime-id')?.value || '').trim();
+      if (chimeId) {
+        wsMsg.chime_media_content_id = chimeId;
+      } else if (isEdit) {
+        // Allow explicit clearing on edit
+        wsMsg.chime_media_content_id = '';
+      }
+      // F-35.2: volume_override — read slider; null = inherit (default).
+      // On create, omit when null. On edit, send null to explicitly clear.
+      const volume = window.Ticker.AdminVolumeOverride.read('dlg');
+      if (volume !== null) {
+        wsMsg.volume_override = volume;
+      } else if (isEdit) {
+        wsMsg.volume_override = null;
+      }
     }
 
     // Read device-level conditions from the conditions UI component
@@ -334,6 +352,56 @@ window.Ticker.AdminRecipientsTab.handlers = {
       panel._renderTabContentPreserveScroll();
     } catch (err) {
       window.Ticker.AdminRecipientsDialog.showDialogError(panel, err.message);
+    }
+  },
+
+  /**
+   * F-35: Play the configured chime through the dialog's selected
+   * media_player. Calls ticker/test_chime, which never touches the
+   * TTS queue or History.
+   */
+  async testChime(panel) {
+    const container = panel.shadowRoot.getElementById('ticker-dialog-container');
+    if (!container) return;
+    const mp = container.querySelector('#dlg-media-player')?.value?.trim();
+    const chimeId = (container.querySelector('#dlg-chime-id')?.value || '').trim();
+    if (!mp || !chimeId) {
+      window.Ticker.AdminRecipientsDialog.showDialogError(
+        panel, 'Media player and chime are required to test',
+      );
+      return;
+    }
+    // F-35.2: include volume_override so the test preview honors the
+    // current slider value (snapshot+restore happens server-side).
+    const wsMsg = {
+      type: 'ticker/test_chime',
+      media_player_entity_id: mp,
+      chime_media_content_id: chimeId,
+    };
+    const volume = window.Ticker.AdminVolumeOverride.read('dlg');
+    if (volume !== null) wsMsg.volume_override = volume;
+    try {
+      await panel._hass.callWS(wsMsg);
+      panel._showSuccess('Chime sent');
+    } catch (err) {
+      window.Ticker.AdminRecipientsDialog.showDialogError(
+        panel, err.message || 'Test chime failed',
+      );
+    }
+  },
+
+  /**
+   * F-35.1: Fetch the bundled chime list once per dialog open and cache it
+   * on the panel. Empty list (no resolvable HA URL) hides the chip row.
+   * Errors are swallowed — the dialog still renders without bundled chips.
+   */
+  async _loadBundledChimes(panel) {
+    if (Array.isArray(panel._bundledChimes)) return; // cached for session
+    try {
+      const result = await panel._hass.callWS({ type: 'ticker/get_bundled_chimes' });
+      panel._bundledChimes = (result && result.chimes) || [];
+    } catch (_err) {
+      panel._bundledChimes = [];
     }
   },
 

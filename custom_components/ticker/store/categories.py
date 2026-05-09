@@ -101,6 +101,8 @@ class CategoryMixin:
         action_set_id: str | None = None,
         navigate_to: str | None = None,
         expose_in_sensor: bool | None = None,
+        chime_media_content_id: str | None = None,
+        volume_override: float | None = None,
     ) -> dict[str, Any]:
         """Create a new category.
 
@@ -154,6 +156,15 @@ class CategoryMixin:
         # is True via category.get("expose_in_sensor", True).
         if expose_in_sensor is False:
             category["expose_in_sensor"] = False
+        # F-35: Pre-TTS chime override (sparse — non-empty string only)
+        if chime_media_content_id and chime_media_content_id.strip():
+            category["chime_media_content_id"] = chime_media_content_id.strip()
+        # F-35.2: Volume override (sparse — in-range float only)
+        if (
+            isinstance(volume_override, (int, float))
+            and 0.0 <= float(volume_override) <= 1.0
+        ):
+            category["volume_override"] = float(volume_override)
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -174,6 +185,9 @@ class CategoryMixin:
         action_set_id: str | None = None,
         navigate_to: str | None = None,
         expose_in_sensor: bool | None = None,
+        chime_media_content_id: str | None = None,
+        volume_override: float | None = None,
+        clear_volume_override: bool = False,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
@@ -237,6 +251,33 @@ class CategoryMixin:
                 category["expose_in_sensor"] = False
             else:
                 category.pop("expose_in_sensor", None)
+
+        # F-35: chime_media_content_id sparse — non-empty string sets,
+        # empty string or explicit None clears the key
+        if chime_media_content_id is not None:
+            cleaned = (
+                chime_media_content_id.strip()
+                if isinstance(chime_media_content_id, str)
+                else ""
+            )
+            if cleaned:
+                category["chime_media_content_id"] = cleaned
+            else:
+                category.pop("chime_media_content_id", None)
+
+        # F-35.2: volume_override sparse — in-range float sets, anything
+        # else (None, out-of-range, non-numeric) plus the explicit
+        # clear_volume_override flag clears the key.
+        if clear_volume_override:
+            category.pop("volume_override", None)
+        elif volume_override is not None:
+            if (
+                isinstance(volume_override, (int, float))
+                and 0.0 <= float(volume_override) <= 1.0
+            ):
+                category["volume_override"] = float(volume_override)
+            else:
+                category.pop("volume_override", None)
 
         if clear_defaults:
             category.pop("default_mode", None)

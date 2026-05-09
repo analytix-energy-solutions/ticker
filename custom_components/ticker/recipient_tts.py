@@ -1,8 +1,12 @@
-"""TTS notification delivery for Ticker recipients.
+"""TTS notification delivery for Ticker recipients (orchestrator).
 
-Handles sending TTS notifications to media_player entities. Extracted from
-recipient_notify.py to enable future announce/restore functionality (F-19)
-without bloating the push notification path.
+The per-mode delivery functions, chime/volume helpers, and state-poll
+helpers live in ``recipient_tts_delivery.py`` to keep both files under
+the 500-line limit. This module owns the public ``async_send_tts``
+orchestrator and the delivery-failure logger, and re-exports the
+delivery helpers under their original names so existing imports
+(``from .recipient_tts import _deliver_tts_announce`` etc.) continue
+to work unchanged.
 """
 
 from __future__ import annotations
@@ -20,16 +24,47 @@ from .const import (
     MEDIA_ANNOUNCE_FEATURE,
     NOTIFY_SERVICE_TIMEOUT,
     TTS_BUFFER_DELAY_DEFAULT,
-    TTS_PLAYBACK_MAX_TIMEOUT,
-    TTS_PLAYBACK_START_TIMEOUT,
-    TTS_POLL_INTERVAL,
 )
 from .formatting import build_tts_payload
+from .recipient_tts_delivery import (
+    _call_tts_service,
+    _deliver_tts_announce,
+    _deliver_tts_plain,
+    _deliver_tts_with_restore,
+    _get_supported_features,
+    _play_chime,
+    _resolve_chime,
+    _resolve_volume,
+    _set_volume,
+    _snapshot_volume,
+    _wait_for_state,
+    _wait_for_state_exit,
+)
 
 if TYPE_CHECKING:
     from .store import TickerStore
 
 _LOGGER = logging.getLogger(__name__)
+
+# Re-exports: tests and recipient_helpers import these names directly
+# from this module. Keep the alias surface stable across the F-35.2
+# split so no test-import churn is required.
+__all__ = [
+    "_call_tts_service",
+    "_deliver_tts_announce",
+    "_deliver_tts_plain",
+    "_deliver_tts_with_restore",
+    "_get_supported_features",
+    "_play_chime",
+    "_resolve_chime",
+    "_resolve_volume",
+    "_set_volume",
+    "_snapshot_volume",
+    "_wait_for_state",
+    "_wait_for_state_exit",
+    "async_send_tts",
+    "log_delivery_failure",
+]
 
 
 async def log_delivery_failure(
@@ -59,234 +94,6 @@ async def log_delivery_failure(
     )
 
 
-def _get_supported_features(hass: HomeAssistant, entity_id: str) -> int:
-    """Read supported_features from a media_player entity state.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The media_player entity ID.
-
-    Returns:
-        Integer bitmask of supported features, or 0 if unavailable.
-    """
-    state = hass.states.get(entity_id)
-    if state is None:
-        return 0
-    return int(state.attributes.get("supported_features", 0))
-
-
-async def _call_tts_service(
-    hass: HomeAssistant,
-    tts_service: str,
-    payload: dict[str, Any],
-) -> None:
-    """Call the TTS service with a timeout.
-
-    Args:
-        hass: Home Assistant instance.
-        tts_service: Service identifier (e.g., 'tts.speak').
-        payload: Service call payload.
-
-    Raises:
-        asyncio.TimeoutError: If the call exceeds NOTIFY_SERVICE_TIMEOUT.
-        HomeAssistantError: If the service call fails.
-    """
-    domain, service_name = tts_service.split(".", 1)
-    await asyncio.wait_for(
-        hass.services.async_call(domain, service_name, payload, blocking=True),
-        timeout=NOTIFY_SERVICE_TIMEOUT,
-    )
-
-
-async def _wait_for_state(
-    hass: HomeAssistant,
-    entity_id: str,
-    target_state: str,
-    timeout: float = TTS_PLAYBACK_START_TIMEOUT,
-    poll_interval: float = TTS_POLL_INTERVAL,
-) -> bool:
-    """Poll until entity reaches target_state or timeout expires.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The entity to monitor.
-        target_state: The state string to wait for.
-        timeout: Maximum seconds to wait.
-        poll_interval: Seconds between polls.
-
-    Returns:
-        True if the target state was reached, False on timeout.
-    """
-    elapsed = 0.0
-    while elapsed < timeout:
-        state = hass.states.get(entity_id)
-        if state and state.state == target_state:
-            return True
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-    _LOGGER.debug("Timeout waiting for %s to reach '%s'", entity_id, target_state)
-    return False
-
-
-async def _wait_for_state_exit(
-    hass: HomeAssistant,
-    entity_id: str,
-    exit_state: str,
-    timeout: float = TTS_PLAYBACK_MAX_TIMEOUT,
-    poll_interval: float = TTS_POLL_INTERVAL,
-) -> bool:
-    """Poll until entity exits exit_state or timeout expires.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The entity to monitor.
-        exit_state: The state string to wait to leave.
-        timeout: Maximum seconds to wait.
-        poll_interval: Seconds between polls.
-
-    Returns:
-        True if the entity exited the state, False on timeout.
-    """
-    elapsed = 0.0
-    while elapsed < timeout:
-        state = hass.states.get(entity_id)
-        if state and state.state != exit_state:
-            return True
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-    _LOGGER.debug("Timeout waiting for %s to exit '%s'", entity_id, exit_state)
-    return False
-
-
-async def _deliver_tts_announce(
-    hass: HomeAssistant,
-    entity_id: str,
-    tts_service: str,
-    payload: dict[str, Any],
-) -> str:
-    """Deliver TTS via announce mode (platform handles pause/resume).
-
-    Announce-capable media players automatically pause current media,
-    play the TTS, and resume. No manual snapshot/restore needed.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The media_player entity ID.
-        tts_service: TTS service identifier.
-        payload: TTS service payload.
-
-    Returns:
-        Delivery method label for logging.
-    """
-    _LOGGER.debug(
-        "TTS announce delivery to %s via %s", entity_id, tts_service,
-    )
-    await _call_tts_service(hass, tts_service, payload)
-    return "announce"
-
-
-async def _deliver_tts_with_restore(
-    hass: HomeAssistant,
-    entity_id: str,
-    tts_service: str,
-    payload: dict[str, Any],
-) -> str:
-    """Deliver TTS with manual snapshot/restore of media state.
-
-    Before TTS: snapshots state, media_content_id, and media_content_type.
-    After TTS: if the player was previously 'playing' and content info is
-    available, calls media_player.play_media to resume. Streams resume
-    live; local files restart from the beginning (known limitation).
-
-    Restore failures log a warning but do not fail the notification.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The media_player entity ID.
-        tts_service: TTS service identifier.
-        payload: TTS service payload.
-
-    Returns:
-        Delivery method label for logging.
-    """
-    # Snapshot current media state before TTS
-    state_obj = hass.states.get(entity_id)
-    prev_state = state_obj.state if state_obj else None
-    prev_content_id = (
-        state_obj.attributes.get("media_content_id") if state_obj else None
-    )
-    prev_content_type = (
-        state_obj.attributes.get("media_content_type") if state_obj else None
-    )
-
-    _LOGGER.debug(
-        "TTS restore delivery to %s (prev_state=%s, has_content=%s)",
-        entity_id, prev_state, bool(prev_content_id),
-    )
-
-    # Deliver TTS (blocking — waits for TTS to be queued, not for playback to finish)
-    await _call_tts_service(hass, tts_service, payload)
-
-    # Wait for TTS playback to actually finish before restoring.
-    # Note: if player transitions through 'playing' faster than poll_interval,
-    # the 5s timeout acts as a minimum wait — still better than 0s.
-    await _wait_for_state(hass, entity_id, "playing", timeout=TTS_PLAYBACK_START_TIMEOUT)
-    await _wait_for_state_exit(hass, entity_id, "playing", timeout=TTS_PLAYBACK_MAX_TIMEOUT)
-
-    # Attempt to restore previous media if it was playing
-    if prev_state == "playing" and prev_content_id:
-        try:
-            await asyncio.wait_for(
-                hass.services.async_call(
-                    "media_player",
-                    "play_media",
-                    {
-                        "entity_id": entity_id,
-                        "media_content_id": prev_content_id,
-                        "media_content_type": prev_content_type or "music",
-                    },
-                    blocking=True,
-                ),
-                timeout=NOTIFY_SERVICE_TIMEOUT,
-            )
-            _LOGGER.debug("Restored media on %s after TTS", entity_id)
-        except asyncio.TimeoutError:
-            _LOGGER.warning(
-                "Timeout restoring media on %s after TTS (exceeded %ds)",
-                entity_id, NOTIFY_SERVICE_TIMEOUT,
-            )
-        except Exception as err:  # noqa: BLE001
-            _LOGGER.warning(
-                "Failed to restore media on %s after TTS: %s", entity_id, err,
-            )
-
-    return "restore"
-
-
-async def _deliver_tts_plain(
-    hass: HomeAssistant,
-    entity_id: str,
-    tts_service: str,
-    payload: dict[str, Any],
-) -> str:
-    """Deliver TTS with no announce or restore — plain fire-and-forget.
-
-    Args:
-        hass: Home Assistant instance.
-        entity_id: The media_player entity ID.
-        tts_service: TTS service identifier.
-        payload: TTS service payload.
-
-    Returns:
-        Delivery method label for logging.
-    """
-    _LOGGER.debug(
-        "TTS plain delivery to %s via %s", entity_id, tts_service,
-    )
-    await _call_tts_service(hass, tts_service, payload)
-    return "plain"
-
-
 async def async_send_tts(
     hass: HomeAssistant,
     store: "TickerStore",
@@ -296,6 +103,7 @@ async def async_send_tts(
     message: str,
     data: dict[str, Any] | None = None,
     notification_id: str | None = None,
+    volume: float | None = None,
 ) -> dict[str, list[str]]:
     """Send a TTS notification to a recipient's media player.
 
@@ -315,6 +123,9 @@ async def async_send_tts(
         message: Message text to speak.
         data: Optional extra data dict.
         notification_id: Unique notification call ID for log grouping.
+        volume: F-35.2 — explicit volume override (e.g. for the test
+            chime path). When None, resolved from the recipient default
+            and category override via ``_resolve_volume``.
 
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists.
@@ -341,7 +152,7 @@ async def async_send_tts(
     tts_service = recipient.get("tts_service") or "tts.speak"
     payload = build_tts_payload(message, entity_id, tts_service)
 
-    # Optional pre-playback delay for Chromecast/Cast devices
+    # F-35 §5.2: pre-playback delay (Chromecast). Runs BEFORE the chime.
     buffer_delay = recipient.get("tts_buffer_delay", TTS_BUFFER_DELAY_DEFAULT)
     if buffer_delay > 0:
         _LOGGER.debug(
@@ -349,7 +160,22 @@ async def async_send_tts(
         )
         await asyncio.sleep(buffer_delay)
 
-    # Determine delivery method: announce > restore > plain
+    # Best-effort category fetch — chime + volume both resolve from this.
+    category: dict[str, Any] | None = None
+    try:
+        category = store.get_category(category_id)
+    except Exception:  # noqa: BLE001
+        category = None
+    chime_id = _resolve_chime(recipient, category)
+
+    # F-35.2: explicit caller-supplied volume wins (test-chime path);
+    # otherwise resolve recipient default vs. category override.
+    volume_level: float | None
+    if volume is not None:
+        volume_level = volume
+    else:
+        volume_level = _resolve_volume(recipient, category)
+
     features = _get_supported_features(hass, entity_id)
     supports_announce = bool(features & MEDIA_ANNOUNCE_FEATURE)
     resume = recipient.get("resume_after_tts", False)
@@ -358,14 +184,17 @@ async def async_send_tts(
         if supports_announce:
             method = await _deliver_tts_announce(
                 hass, entity_id, tts_service, payload,
+                chime_id=chime_id, volume_level=volume_level,
             )
         elif resume:
             method = await _deliver_tts_with_restore(
                 hass, entity_id, tts_service, payload,
+                chime_id=chime_id, volume_level=volume_level,
             )
         else:
             method = await _deliver_tts_plain(
                 hass, entity_id, tts_service, payload,
+                chime_id=chime_id, volume_level=volume_level,
             )
 
         svc_display = f"{tts_service} -> {entity_id} [{method}]"

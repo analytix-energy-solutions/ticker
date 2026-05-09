@@ -469,6 +469,17 @@ window.Ticker.styles = {
     .expand-icon.open { transform: rotate(180deg); }
   `,
 
+  /** F-35.2: volume override slider (recipients + categories dialogs) */
+  volumeOverride: `.ticker-volume-override{margin-top:12px;padding:8px;border:1px solid var(--divider);border-radius:4px}.ticker-volume-override-label{display:block;margin-bottom:4px;font-size:13px;color:var(--text-primary);font-weight:600}.ticker-volume-override-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.ticker-volume-slider{flex:1;min-width:140px;accent-color:var(--ticker-500)}.ticker-volume-slider:disabled{opacity:0.4}.ticker-volume-value{min-width:48px;font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}.ticker-volume-value.is-default{font-style:italic}.ticker-volume-help{display:block;margin-top:4px;font-size:11px;color:var(--text-secondary)}`,
+
+  /** F-35.1: bundled chime preset chips (recipients + categories dialogs) */
+  chimePresets: `
+    .ticker-chime-presets { display:flex; flex-wrap:wrap; gap:6px; margin:4px 0 8px; }
+    .ticker-chime-chip { padding:4px 10px; font-size:12px; border-radius:14px; border:1px solid var(--divider); background:var(--bg-card); color:var(--text-secondary); cursor:pointer; transition:background 0.1s, color 0.1s, border-color 0.1s; }
+    .ticker-chime-chip:hover { border-color:var(--ticker-500); color:var(--text-primary); }
+    .ticker-chime-chip.active { border-color:var(--ticker-500); background:var(--ticker-500-alpha-8, rgba(6,182,212,0.08)); color:var(--ticker-500); font-weight:600; }
+  `,
+
   /** Ticker logo SVG as HTML string */
   logoSvg: `<svg class="header-logo" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
     <circle cx="50" cy="50" r="12" style="fill:var(--ticker-500)"/>
@@ -479,21 +490,10 @@ window.Ticker.styles = {
   /** Get all common styles concatenated. */
   getCommonStyles() {
     return [
-      this.variables,
-      this.base,
-      this.header,
-      this.tabs,
-      this.cards,
-      this.buttons,
-      this.badges,
-      this.messages,
-      this.states,
-      this.toggles,
-      this.notifyServices,
-      this.queueItems,
-      this.warningBanner,
-      this.forms,
-      this.listItems,
+      this.variables, this.base, this.header, this.tabs, this.cards,
+      this.buttons, this.badges, this.messages, this.states, this.toggles,
+      this.notifyServices, this.queueItems, this.warningBanner, this.forms,
+      this.listItems, this.chimePresets, this.volumeOverride,
     ].join('\n');
   },
 };

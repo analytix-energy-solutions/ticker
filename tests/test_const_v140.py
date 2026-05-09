@@ -27,11 +27,20 @@ from custom_components.ticker.const import (
 
 class TestVersion:
     def test_version_is_valid_semver(self):
-        """Version string is valid semver (X.Y.Z)."""
+        """Version string is X.Y.Z[bN] — PEP 440 final or beta release."""
         parts = VERSION.split(".")
-        assert len(parts) == 3, f"Expected X.Y.Z, got {VERSION}"
-        for p in parts:
+        assert len(parts) == 3, f"Expected X.Y.Z[bN], got {VERSION}"
+        # Major and minor must be plain integers
+        for p in parts[:2]:
             assert p.isdigit(), f"Non-numeric version part: {p}"
+        # Patch may be plain "Z" or "ZbN" (PEP 440 beta) per beta-versioning rule
+        patch = parts[2]
+        if "b" in patch:
+            base, beta = patch.split("b", 1)
+            assert base.isdigit(), f"Non-numeric patch base: {base}"
+            assert beta.isdigit(), f"Non-numeric beta counter: {beta}"
+        else:
+            assert patch.isdigit(), f"Non-numeric patch: {patch}"
 
 
 class TestDeviceTypes:

@@ -60,11 +60,13 @@ from .recipients import (
     ws_create_recipient,
     ws_update_recipient,
     ws_delete_recipient,
-    ws_set_recipient_subscription,
 )
+from .recipient_subscriptions import ws_set_recipient_subscription
 from .recipient_helpers import (
     ws_get_available_notify_services,
+    ws_get_bundled_chimes,
     ws_get_tts_options,
+    ws_test_chime,
     ws_test_recipient,
 )
 from .automations import (
@@ -138,6 +140,10 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_get_available_notify_services)
     websocket_api.async_register_command(hass, ws_get_tts_options)
     websocket_api.async_register_command(hass, ws_test_recipient)
+    # F-35: Pre-TTS chime test
+    websocket_api.async_register_command(hass, ws_test_chime)
+    # F-35.1: Bundled default chimes (admin + user dialogs)
+    websocket_api.async_register_command(hass, ws_get_bundled_chimes)
 
     # Automations Manager commands (F-3)
     websocket_api.async_register_command(hass, ws_automations_scan)
