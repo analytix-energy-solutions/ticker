@@ -114,13 +114,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     store = TickerStore(hass)
     await store.async_load()
 
-    # Pre-warm discovery cache once HA signals startup is complete (BUG-060)
-    async def _prewarm_discovery(hass_ref: HomeAssistant) -> None:
-        """Pre-warm discovery cache after HA startup."""
-        await async_discover_notify_services(hass_ref, use_cache=False)
-
-    async_at_start(hass, _prewarm_discovery)
-
     # Create runtime data
     runtime_data = TickerData(store=store)
     # F-30: instantiate the auto-clear registry before services fire so the
@@ -195,6 +188,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
     # so the initial load is not duplicated.
     store.register_subscription_listener(condition_manager.schedule_refresh)
     runtime_data.subscription_listener = condition_manager.schedule_refresh
+
+    # Run post-startup actions once HA signals startup is complete:
+    # 1. Pre-warm the discovery cache (BUG-060).
+    # 2. Sweep stuck conditional subscriptions whose conditions became
+    #    met during the late-startup zone-attribute settle window (BUG-106).
+    async def _on_ha_started(hass_ref: HomeAssistant) -> None:
+        """Handle HA startup completion."""
+        await async_discover_notify_services(hass_ref, use_cache=False)
+        await condition_manager.async_sweep_for_startup()
+
+    async_at_start(hass, _on_ha_started)
 
     # Set up notification action listener (F-5)
     unsub_actions = await async_setup_action_listener(hass, store)

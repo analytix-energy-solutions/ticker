@@ -119,9 +119,39 @@ class ConditionListenerManager:
         # Debounced refresh state (BUG-086)
         self._pending_refresh_unsub: Callable[[], None] | None = None
 
+        # BUG-106: one-shot post-startup queue sweep state.
+        self._startup_swept: bool = False
+        self._was_starting_at_register: bool = not hass.is_running
+
     async def async_setup(self) -> None:
         """Set up initial listeners based on current subscriptions."""
         await self.async_refresh_listeners()
+
+    async def async_sweep_for_startup(self) -> None:
+        """Re-evaluate all conditional subscriptions once after HA startup.
+
+        Catches the race where ``ticker.notify`` dispatches BEFORE zone
+        entity attributes (or other condition-relevant state) finish
+        settling at startup, leaving entries queued under
+        ``queue_until_met=true`` even though conditions resolve as met
+        moments later.
+
+        Runs at most once per HA process: guarded by both
+        ``_startup_swept`` (within an entry lifetime) and
+        ``_was_starting_at_register`` (skips on config-entry reload after
+        HA is already running).
+        """
+        if self._startup_swept:
+            _LOGGER.debug("Startup sweep already ran, skipping")
+            return
+        if not self._was_starting_at_register:
+            _LOGGER.debug("Skipping startup sweep — config entry reload, not cold boot")
+            self._startup_swept = True
+            return
+
+        self._startup_swept = True
+        _LOGGER.info("Running startup queue sweep for stuck conditional notifications")
+        await self._async_reevaluate_subscriptions()
 
     async def async_refresh_listeners(self) -> None:
         """Refresh all listeners based on current subscriptions.

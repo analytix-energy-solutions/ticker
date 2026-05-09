@@ -40,6 +40,76 @@ def invalidate_discovery_cache() -> None:
     _LOGGER.debug("Discovery cache invalidated")
 
 
+def _dedup_device_services(
+    services: list[dict[str, str]],
+    notify_services_map: dict[str, Any],
+) -> list[dict[str, str]]:
+    """Collapse duplicate notify-service entries within a single device bucket.
+
+    Path 1 (entity-registry) and Path 2 (device-registry mobile_app fallback)
+    can both emit valid services for the same logical device but with
+    different `service` slugs (e.g. after a Companion App update where the
+    entity_id-derived slug and the config-entry-derived slug diverge). The
+    frontend renders chips by `name`, so users see what looks like two
+    duplicate entries — but only one slug actually resolves on HA, so
+    dispatched notifications via the stale slug fail silently. (BUG-105)
+
+    Strategy: group entries by lowercased+stripped `name`. For groups with
+    more than one entry, prefer the entry whose service slug exists in
+    `notify_services_map`. If multiple match (or none match), keep the first
+    emitted — Path 1 runs before Path 2, so entity-registry-authoritative
+    wins on ties. Drop the others and DEBUG-log what was dropped.
+
+    Args:
+        services: List of service dicts for a single device_id.
+        notify_services_map: Current `notify` domain services from
+            `hass.services.async_services()`. Used to identify the
+            live/preferred slug when multiple compete.
+
+    Returns:
+        Deduplicated list preserving original order of survivors.
+    """
+    if len(services) <= 1:
+        return services
+
+    groups: dict[str, list[dict[str, str]]] = {}
+    order: list[str] = []
+    for entry in services:
+        key = (entry.get("name") or "").strip().lower()
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(entry)
+
+    survivors: list[dict[str, str]] = []
+    for key in order:
+        group = groups[key]
+        if len(group) == 1:
+            survivors.append(group[0])
+            continue
+        # Prefer first entry whose slug is live in notify_services_map.
+        chosen = None
+        for entry in group:
+            slug = entry.get("service", "").split(".", 1)[-1]
+            if slug in notify_services_map:
+                chosen = entry
+                break
+        if chosen is None:
+            chosen = group[0]
+        dropped = [e for e in group if e is not chosen]
+        if dropped:
+            _LOGGER.debug(
+                "Dedup: kept notify entry %s; dropped duplicates %s "
+                "(grouped by display name %r)",
+                chosen.get("service"),
+                [e.get("service") for e in dropped],
+                chosen.get("name"),
+            )
+        survivors.append(chosen)
+
+    return survivors
+
+
 def _should_cache_result(result: dict[str, dict[str, Any]]) -> bool:
     """Check whether a discovery result is worth caching.
 
@@ -103,13 +173,25 @@ async def async_discover_notify_services(
     # Build device_id → notify services mapping (with names)
     # Structure: {device_id: [{"service": "...", "name": "...", "device_id": "..."}]}
     device_notify_services: dict[str, list[dict[str, str]]] = {}
-    
+
+    # Hoisted above Path 1 (BUG-105) so both discovery paths share the same
+    # stale-service filter. Empty dict during cold-start; in that case both
+    # paths skip everything and `_should_cache_result` (BUG-060) refuses to
+    # cache the empty result so the next caller retries.
+    notify_services_map = hass.services.async_services().get("notify", {})
+
     for entity in entity_reg.entities.values():
         if entity.domain == "notify" and entity.device_id:
-            if entity.device_id not in device_notify_services:
-                device_notify_services[entity.device_id] = []
             # Use the service name format: notify.{entity_id without domain}
             service_name = f"notify.{entity.entity_id.split('.', 1)[1]}"
+            # BUG-105: drop entries whose slug no longer resolves on HA. Mirrors
+            # the existing Path 2 check at the same step. Without this, stale
+            # entity-registry slugs (e.g. after Companion App update / device
+            # replace) leak through and dispatch silently fails.
+            if service_name.split(".", 1)[1] not in notify_services_map:
+                continue
+            if entity.device_id not in device_notify_services:
+                device_notify_services[entity.device_id] = []
             device_name = _get_device_name(entity.device_id) or service_name
             service_entry = {
                 "service": service_name,
@@ -119,9 +201,8 @@ async def async_discover_notify_services(
             # Avoid duplicates
             if not any(s["service"] == service_name for s in device_notify_services[entity.device_id]):
                 device_notify_services[entity.device_id].append(service_entry)
-    
+
     # Path 2: Legacy mobile_app services via device registry + config entries
-    notify_services_map = hass.services.async_services().get("notify", {})
     for entity in entity_reg.entities.values():
         if (
             entity.platform == "mobile_app"
@@ -159,6 +240,13 @@ async def async_discover_notify_services(
                         "name": friendly,
                         "device_id": entity.device_id,
                     })
+
+    # BUG-105: collapse cross-path duplicates within each device bucket so
+    # frontend chips and dispatched notifications use the single live slug.
+    for _device_id, _entries in list(device_notify_services.items()):
+        device_notify_services[_device_id] = _dedup_device_services(
+            _entries, notify_services_map
+        )
 
     # Build device_id → device_tracker mapping
     device_trackers: dict[str, list[str]] = {}
