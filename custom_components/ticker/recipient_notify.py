@@ -223,6 +223,14 @@ async def _async_send_push(
             )
             inject_navigate_to(payload["data"], resolved_navigate_to, delivery_format)
 
+        # Android channel: per-category notification routing (Android only)
+        android_channel = (category or {}).get("android_channel")
+        if android_channel and delivery_format == DELIVERY_FORMAT_RICH:
+            if "data" not in payload:
+                payload["data"] = {}
+            if "channel" not in payload["data"]:
+                payload["data"]["channel"] = android_channel
+
         try:
             domain, service_name = service_id.split(".", 1)
             await asyncio.wait_for(

@@ -144,6 +144,13 @@ window.Ticker.AdminCategoriesTab = {
           </div>
         </div>
       </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Android Channel</label>
+        <input type="text" id="edit-android-channel-${escId}" value="${escAttr(c.android_channel || '')}" placeholder="e.g. security_alerts" style="min-width:180px">
+        <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+          Android notification channel for per-category sound and DND routing
+        </div>
+      </div>
       ${window.Ticker.NavigationPicker.render(c.navigate_to || '', 'cat-edit', { panels: window.Ticker._adminPanel._hasPanels || [], dashboards: window.Ticker._adminPanel._lovelaceDashboards || [], views: window.Ticker._adminPanel._lovelaceViews || {} })}
     `;
   },
@@ -405,12 +412,14 @@ window.Ticker.AdminCategoriesTab = {
       const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
       const defaultMode = defaultModeEl?.value || (cat.default_mode || 'always');
       const criticalEl = panel.shadowRoot.getElementById(`edit-critical-${categoryId}`);
+      const androidChannelEl = panel.shadowRoot.getElementById(`edit-android-channel-${categoryId}`);
 
       if (!name) { panel._showError('Name required'); return; }
 
       try {
         const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
         if (criticalEl) { params.critical = criticalEl.checked; }
+        if (androidChannelEl) { params.android_channel = androidChannelEl.value.trim() || ''; }
         const navPresetEl = panel.shadowRoot.getElementById('nav-preset-cat-edit');
         if (navPresetEl) {
           params.navigate_to = window.Ticker.NavigationPicker.read(panel.shadowRoot, 'cat-edit');
