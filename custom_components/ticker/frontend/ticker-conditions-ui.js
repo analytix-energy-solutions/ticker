@@ -109,6 +109,14 @@ class TickerConditionsUI extends HTMLElement {
     const g=this._clone(this._getNode(pp)); g.operator=g.operator==='AND'?'OR':'AND';
     this._tree=this._setNode(pp,g); this._dispatchTreeChanged(true); this._render();
   }
+  // F-33: toggle NOT on any node (leaf or group). Always writes explicit
+  // negate:false (no delete) so the wire shape stays predictable; backend
+  // store strips false to sparse on persistence.
+  _toggleNegateAt(path) {
+    const n=this._clone(this._getNode(path));
+    n.negate = !(n.negate === true);
+    this._tree=this._setNode(path,n); this._dispatchTreeChanged(true); this._render();
+  }
   _groupAt(pp, ci) {
     const t=this._clone(this._tree); let p=t; for(const i of pp) p=p.children[i];
     const ng={type:'group',operator:p.operator,children:[p.children[ci],p.children[ci+1]]};
@@ -128,9 +136,23 @@ class TickerConditionsUI extends HTMLElement {
   _dispatchTreeChanged(imm=false) {
     if(this._dispatchTimer){clearTimeout(this._dispatchTimer);this._dispatchTimer=null;}
     const go=()=>{this._dispatchTimer=null;this.dispatchEvent(new CustomEvent('rules-changed',{
-      detail:{condition_tree:this._tree,deliver_when_met:this._deliverWhenMet,queue_until_met:this._queueUntilMet},
+      detail:{condition_tree:this._normalizeNegate(this._tree),deliver_when_met:this._deliverWhenMet,queue_until_met:this._queueUntilMet},
       bubbles:true,composed:true}));};
     imm?go():this._dispatchTimer=setTimeout(go,400);
+  }
+  // F-33: stamp explicit negate:false on every node missing the key so the
+  // wire shape is always {negate: bool}. Backend store strips false to sparse
+  // for storage; this is purely about the outbound contract being explicit.
+  _normalizeNegate(node) {
+    if(!node||typeof node!=='object') return node;
+    const out=this._clone(node);
+    const walk=n=>{
+      if(!n||typeof n!=='object') return;
+      n.negate = n.negate===true;
+      if(n.type==='group' && Array.isArray(n.children)) n.children.forEach(walk);
+    };
+    walk(out);
+    return out;
   }
 
   // --- Entity input ---
@@ -168,11 +190,31 @@ class TickerConditionsUI extends HTMLElement {
   }
   _typeName(t) { return {zone:'Zone',time:'Time',state:'Entity State'}[t]||t; }
   _summary(r) {
+    const base = this._summaryRaw(r);
+    return r && r.negate === true ? this._negatedLabel(r.type, base) : base;
+  }
+  _summaryRaw(r) {
     if(r.type==='zone') return `In ${this._zoneName(r.zone_id)}`;
     if(r.type==='time'){const dn=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
       const ds=(r.days||[]).map(d=>dn[d-1]).join(', ');return `${r.after} - ${r.before}${ds?` (${ds})`:''}`;  }
     if(r.type==='state') return r.entity_id?`${r.entity_id} = ${r.state}`:'Not configured';
     return 'Unknown';
+  }
+  // F-33: per-type NOT placement convention (ASCII != for state per Hans).
+  _negatedLabel(type, base) {
+    if(type==='zone')  return base.replace(/^In /, 'NOT in ');
+    if(type==='time')  return 'NOT ' + base;
+    if(type==='state') return base.replace(' = ', ' != ');
+    return 'NOT (' + base + ')';
+  }
+  // F-33: shared NOT pill markup for both leaves and group headers.
+  _negateButtonHtml(node, path) {
+    const ps = JSON.stringify(path);
+    const isNeg = node && node.negate === true;
+    const cls = isNeg ? 'negate-pill active' : 'negate-pill';
+    const pressed = isNeg ? 'true' : 'false';
+    const dis = this._disabled ? 'disabled' : '';
+    return `<button type="button" class="${cls}" data-negate-path='${ps}' aria-pressed="${pressed}" title="Toggle NOT" ${dis}>NOT</button>`;
   }
 
   // --- Rendering ---
@@ -201,6 +243,8 @@ class TickerConditionsUI extends HTMLElement {
     sr.querySelectorAll('.group-btn').forEach(b=>{if(!b.disabled)b.addEventListener('click',()=>this._groupAt(JSON.parse(b.dataset.parentpath),parseInt(b.dataset.childidx)));});
     sr.querySelectorAll('[data-toggle-path]').forEach(e=>e.addEventListener('click',()=>this._toggleExpand(JSON.parse(e.dataset.togglePath))));
     sr.querySelectorAll('[data-delete-path]').forEach(b=>b.addEventListener('click',ev=>{ev.stopPropagation();this._removeNodeAt(JSON.parse(b.dataset.deletePath));}));
+    // F-33: NOT pill toggle. Stop propagation so leaf-row expand handler does not also fire.
+    sr.querySelectorAll('[data-negate-path]').forEach(b=>b.addEventListener('click',ev=>{ev.stopPropagation();this._toggleNegateAt(JSON.parse(b.dataset.negatePath));}));
     sr.querySelectorAll('[data-ungroup-path]').forEach(b=>b.addEventListener('click',()=>this._ungroupAt(JSON.parse(b.dataset.ungroupPath))));
     sr.querySelectorAll('.group-op-pill').forEach(p=>p.addEventListener('click',()=>this._toggleOperator(JSON.parse(p.dataset.grouppath))));
     sr.querySelectorAll('[data-action-toggle]').forEach(c=>c.addEventListener('change',()=>{c.dataset.actionToggle==='deliver'?this._toggleDeliverWhenMet():this._toggleQueueUntilMet();}));
@@ -227,17 +271,25 @@ class TickerConditionsUI extends HTMLElement {
   }
   _renderGroup(g, path) {
     const ps=JSON.stringify(path), op=g.operator||'AND', isOr=op==='OR';
-    return `<div class="group-card"><div class="group-header"><span class="group-label">Group</span>`+
+    const isNeg=g.negate===true;
+    const cardCls=isNeg?'group-card negated':'group-card';
+    const labelText=isNeg?'NOT Group':'Group';
+    const negBtn=this._negateButtonHtml(g,path);
+    return `<div class="${cardCls}"><div class="group-header">${negBtn}<span class="group-label">${this._esc(labelText)}</span>`+
       `<span class="group-op-pill operator-pill ${isOr?'or':''}" data-grouppath='${ps}'>${this._esc(op)}</span>`+
       `<button class="rule-delete" data-ungroup-path='${ps}' title="Ungroup">&times;</button></div>`+
       `<div class="group-body">${this._renderChildren(g.children||[],path)}</div></div>`;
   }
   _renderLeaf(rule, path) {
     const ps=JSON.stringify(path), isE=this._isExpanded(path);
+    const isNeg=rule.negate===true;
+    const itemCls=`rule-item ${isE?'expanded':''}${isNeg?' negated':''}`.trim();
     const cont=isE?this._leafContent(rule,path):'';
-    return `<div class="rule-item ${isE?'expanded':''}"><div class="rule-header" data-toggle-path='${ps}'>`+
+    const negBtn=this._negateButtonHtml(rule,path);
+    return `<div class="${itemCls}"><div class="rule-header" data-toggle-path='${ps}'>`+
       `<div class="rule-header-left"><span class="chevron ${isE?'expanded':''}">&#9654;</span>`+
       `<span class="rule-type-badge">${this._esc(this._typeName(rule.type))}</span>`+
+      `${negBtn}`+
       `<span class="rule-summary">${this._esc(this._summary(rule))}</span></div>`+
       `<button class="rule-delete" data-delete-path='${ps}' ${this._disabled?'disabled':''} title="Remove rule">&times;</button>`+
       `</div>${cont}</div>`;

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.helpers.storage import Store
 
+from ..conditions_normalize import normalize_conditions_negate
 from ..const import (
     DEFAULT_SUBSCRIPTION_MODE,
     MODE_ALWAYS,
@@ -200,6 +201,11 @@ class SubscriptionMixin:
 
         if mode == MODE_CONDITIONAL:
             if conditions and self._has_valid_conditions(conditions):
+                # F-33: normalize negate flags to sparse storage before
+                # persisting. Mirrors the strip applied to
+                # category.default_conditions in store/categories.py so
+                # subscription conditions share the same canonical shape.
+                conditions = normalize_conditions_negate(conditions)
                 subscription["conditions"] = conditions
             else:
                 # No valid conditions - fallback to always

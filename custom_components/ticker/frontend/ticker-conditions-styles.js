@@ -17,6 +17,10 @@ window.Ticker.conditionsStyles = `
       --ticker-500-alpha-8: rgba(6,182,212,0.08);
       --ticker-500-alpha-20: rgba(6,182,212,0.2);
       --ticker-500-alpha-40: rgba(6,182,212,0.4);
+      /* F-33 NOT operator — amber palette from branding/README.md Warning Banners */
+      --ticker-negate-color: #92400e;             /* amber-800: NOT pill fill, group dashed border */
+      --ticker-negate-bg: rgba(146,64,14,0.06);   /* amber-800 @ 6%: negated group header tint */
+      --ticker-negate-color-hover: #7c2d12;       /* amber-900: NOT pill hover fill when active */
       --text-primary: var(--primary-text-color, #212121);
       --text-secondary: var(--secondary-text-color, #727272);
       --bg-card: var(--card-background-color, #fff);
@@ -330,6 +334,69 @@ window.Ticker.conditionsStyles = `
 
     .group-body {
       padding: 8px 8px 8px 12px;
+    }
+
+    /* F-33 NOT operator — group negation: dashed amber border + amber-tinted header */
+    .group-card.negated {
+      border-left: 3px dashed var(--ticker-negate-color);
+    }
+
+    .group-card.negated .group-header {
+      background: var(--ticker-negate-bg);
+    }
+
+    /* F-33 NOT operator — inline NOT pill (shared by leaf and group nodes) */
+    .negate-pill {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1px 6px;
+      border-radius: 10px;
+      border: 1px solid var(--text-secondary);
+      background: transparent;
+      color: var(--text-secondary);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      cursor: pointer;
+      opacity: 0.5;
+      user-select: none;
+      transition: background 0.15s, color 0.15s, opacity 0.15s, border-color 0.15s;
+    }
+
+    .negate-pill:hover {
+      opacity: 0.9;
+      border-color: var(--ticker-negate-color);
+      color: var(--ticker-negate-color);
+    }
+
+    .negate-pill:focus-visible {
+      outline: 2px solid var(--ticker-negate-color);
+      outline-offset: 2px;
+      opacity: 1;
+    }
+
+    .negate-pill.active {
+      background: var(--ticker-negate-color);
+      border-color: var(--ticker-negate-color);
+      color: #ffffff;
+      opacity: 1;
+    }
+
+    .negate-pill.active:hover {
+      background: var(--ticker-negate-color-hover);
+      border-color: var(--ticker-negate-color-hover);
+    }
+
+    .negate-pill[disabled] {
+      cursor: not-allowed;
+      opacity: 0.35;
+    }
+
+    /* Reinforce a negated leaf with amber summary text */
+    .rule-item.negated .rule-summary {
+      color: var(--ticker-negate-color);
+      font-weight: 500;
     }
 
     .empty-state {

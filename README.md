@@ -62,6 +62,7 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Critical notifications** - single `critical: true` flag translates to platform-specific critical alert payloads on both iOS and Android *(v1.4.0)*
 - **Alarmo and blueprint compatibility** - Ticker registers as a standard `notify.ticker` service, discoverable by Alarmo and any integration scanning for notify services *(v1.4.0)*
 - **AND/OR condition grouping** - Mix AND and OR logic in the conditions builder with up to two nesting levels. Existing conditions migrate automatically *(v1.5.0)*
+- **NOT operator for conditions** - Toggle a NOT pill on any condition row or group to invert its result. Works for every rule type: "NOT in zone home" delivers when a person is outside the zone, "NOT 08:00–22:00" covers the overnight window, and NOT on a group inverts the entire AND/OR result. Conditions without the flag are unaffected *(v1.7.0)*
 - **Automations Manager** - Admin tab that surfaces every automation and script using `ticker.notify` with inline editing, no automation editor required *(v1.5.0)*
 - **Action Sets Library** - Reusable action button sets managed from a central library tab, referenced by ID from any category *(v1.5.0)*
 - **Smart notification management** - Auto-grouping, auto-tagging, sticky/persistent flags, and `ticker.clear_notification` service injected automatically at delivery time *(v1.5.0)*

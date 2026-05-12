@@ -76,6 +76,7 @@ async def ws_get_categories(
             None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("android_channel"): vol.Any(None, str),
         vol.Optional("chime_media_content_id"): vol.Any(None, str),
         vol.Optional("volume_override"): vol.Any(
             None,

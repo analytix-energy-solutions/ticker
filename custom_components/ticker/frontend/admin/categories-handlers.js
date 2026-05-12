@@ -148,12 +148,14 @@ window.Ticker.AdminCategoriesTab.handlers = {
     const defaultModeEl = root.getElementById(`edit-default-mode-${categoryId}`);
     const defaultMode = defaultModeEl?.value || (cat.default_mode || 'always');
     const criticalEl = root.getElementById(`edit-critical-${categoryId}`);
+    const androidChannelEl = root.getElementById(`edit-android-channel-${categoryId}`);
 
     if (!name) { panel._showError('Name required'); return; }
 
     try {
       const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
       if (criticalEl) { params.critical = criticalEl.checked; }
+      if (androidChannelEl) { params.android_channel = androidChannelEl.value.trim() || ''; }
       const navPresetEl = root.getElementById('nav-preset-cat-edit');
       if (navPresetEl) {
         params.navigate_to = window.Ticker.NavigationPicker.read(root, 'cat-edit');

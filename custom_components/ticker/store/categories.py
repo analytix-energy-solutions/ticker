@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.helpers.storage import Store
 
+from ..conditions_normalize import normalize_conditions_negate
 from ..const import CATEGORY_DEFAULT, CATEGORY_DEFAULT_NAME, SMART_TAG_MODE_NONE
 
 if TYPE_CHECKING:
@@ -101,6 +102,7 @@ class CategoryMixin:
         action_set_id: str | None = None,
         navigate_to: str | None = None,
         expose_in_sensor: bool | None = None,
+        android_channel: str | None = None,
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
     ) -> dict[str, Any]:
@@ -131,6 +133,11 @@ class CategoryMixin:
                 last_triggered but omit notification header/body content from its
                 attributes (BUG-099). Sparse storage — only persisted when False;
                 read-time default is True via category.get("expose_in_sensor", True).
+            android_channel: Optional Android notification channel ID for per-category
+                routing on Android devices (e.g., "security_alerts"). When set, this
+                value is injected as `channel` in the push data payload for Android
+                recipients only. Omitted when None (sparse storage); an empty string
+                clears any existing value. Not injected for iOS (plain format).
         """
         category: dict[str, Any] = {
             "id": category_id,
@@ -141,6 +148,8 @@ class CategoryMixin:
         }
         if default_mode:
             category["default_mode"] = default_mode
+        # F-33: normalize negate flags to sparse storage before persisting.
+        default_conditions = normalize_conditions_negate(default_conditions)
         if default_conditions:
             category["default_conditions"] = default_conditions
         if critical:
@@ -156,6 +165,8 @@ class CategoryMixin:
         # is True via category.get("expose_in_sensor", True).
         if expose_in_sensor is False:
             category["expose_in_sensor"] = False
+        if android_channel:
+            category["android_channel"] = android_channel
         # F-35: Pre-TTS chime override (sparse — non-empty string only)
         if chime_media_content_id and chime_media_content_id.strip():
             category["chime_media_content_id"] = chime_media_content_id.strip()
@@ -185,6 +196,7 @@ class CategoryMixin:
         action_set_id: str | None = None,
         navigate_to: str | None = None,
         expose_in_sensor: bool | None = None,
+        android_channel: str | None = None,
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
         clear_volume_override: bool = False,
@@ -205,6 +217,9 @@ class CategoryMixin:
                 exposes notification header/body (BUG-099). None leaves the current
                 value unchanged. True removes the key (default behavior, sparse).
                 False persists the key so the sensor blanks content.
+            android_channel: If provided, set the Android notification channel ID.
+                A non-empty string is stored; an empty string clears the key
+                (sparse storage). None leaves the current value unchanged.
         """
         if category_id not in self._categories:
             return None
@@ -252,6 +267,13 @@ class CategoryMixin:
             else:
                 category.pop("expose_in_sensor", None)
 
+        # android_channel: non-empty string sets, empty string clears (sparse)
+        if android_channel is not None:
+            if android_channel:
+                category["android_channel"] = android_channel
+            else:
+                category.pop("android_channel", None)
+
         # F-35: chime_media_content_id sparse — non-empty string sets,
         # empty string or explicit None clears the key
         if chime_media_content_id is not None:
@@ -286,6 +308,10 @@ class CategoryMixin:
             if default_mode is not None:
                 category["default_mode"] = default_mode
             if default_conditions is not None:
+                # F-33: normalize negate flags to sparse storage before persisting.
+                default_conditions = normalize_conditions_negate(
+                    default_conditions,
+                )
                 category["default_conditions"] = default_conditions
 
         category["updated_at"] = datetime.now(timezone.utc).isoformat()

@@ -201,6 +201,37 @@ def evaluate_rules(
     return all_met, results
 
 
+def _apply_negate(
+    node: dict[str, Any],
+    is_met: bool,
+    reason: str,
+) -> tuple[bool, str]:
+    """Apply a node's negate flag to its evaluated result (F-33).
+
+    Missing flag reads as ``False`` (no negation). When ``True``, the
+    boolean is inverted and the reason is prefixed with ``NOT`` for log
+    readability.
+
+    This is the single point at which a NOT operator is applied for both
+    leaf and group nodes. Leaf evaluators stay pure — they return raw
+    met/not-met — and the parent group's evaluation loop invokes this
+    helper per child. The group's own negate is applied after the AND/OR
+    fold so ``NOT (A AND B)`` works without rewriting leaves.
+
+    Args:
+        node: A condition tree node (leaf or group).
+        is_met: The raw evaluation result.
+        reason: The raw reason string.
+
+    Returns:
+        ``(is_met, reason)`` unchanged when ``node.negate`` is missing or
+        False; otherwise ``(not is_met, "NOT (<reason>)")``.
+    """
+    if not node.get("negate", False):
+        return is_met, reason
+    return (not is_met), f"NOT ({reason})"
+
+
 def evaluate_group(
     hass: HomeAssistant,
     group: dict[str, Any],
@@ -212,11 +243,16 @@ def evaluate_group(
     children = group.get("children", [])
 
     if not children:
-        return True, [(True, "Empty group")]
+        # F-33: an empty negated group inverts to False.
+        empty_met, empty_reason = _apply_negate(group, True, "Empty group")
+        return empty_met, [(empty_met, empty_reason)]
 
     results: list[tuple[bool, str]] = []
     for child in children:
         if child.get("type") == CONDITION_NODE_GROUP:
+            # Recurse — the recursive call applies its own negate inside
+            # before returning, so the boolean we read here is already
+            # negate-applied for the child group.
             child_met, _child_results = evaluate_group(
                 hass, child, person_state, now,
             )
@@ -226,17 +262,25 @@ def evaluate_group(
                 f"Group ({child_op}): {'met' if child_met else 'not met'}",
             ))
         else:
-            child_met, child_reason = evaluate_rule(
+            raw_met, raw_reason = evaluate_rule(
                 hass, child, person_state, now,
             )
-            results.append((child_met, child_reason))
+            # F-33: apply leaf negate at the parent's recursion point so
+            # leaf evaluators stay pure and the existing per-leaf test
+            # suite remains valid unchanged.
+            leaf_met, leaf_reason = _apply_negate(child, raw_met, raw_reason)
+            results.append((leaf_met, leaf_reason))
 
     if operator == "OR":
-        all_met = any(r[0] for r in results)
+        group_met = any(r[0] for r in results)
     else:  # AND
-        all_met = all(r[0] for r in results)
+        group_met = all(r[0] for r in results)
 
-    return all_met, results
+    # F-33: apply group negate AFTER the fold so NOT (A AND B) works.
+    final_met, _final_reason = _apply_negate(
+        group, group_met, f"Group ({operator})",
+    )
+    return final_met, results
 
 
 def evaluate_condition_tree(
