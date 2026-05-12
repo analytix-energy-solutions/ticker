@@ -81,4 +81,44 @@ window.Ticker.UserRecoveryHandlers = {
     panel.style.display = '';
     void panel.offsetHeight;
   },
+
+  /**
+   * BUG-107: Render a terminal-state card (no-person / error) with a
+   * "Return to Dashboard" escape button. Caller is responsible for
+   * focusing `.terminal-card-btn` after the DOM is in place.
+   * @param {string} title - Card heading (escaped).
+   * @param {string} message - Card body text (escaped).
+   * @param {string} stateClass - Existing CSS class: 'no-person-state' or 'error-state'.
+   * @returns {string} innerHTML for the card.
+   */
+  renderTerminalCard(title, message, stateClass) {
+    const esc = window.Ticker.utils.esc;
+    return `
+      <div class="card">
+        <div class="${stateClass}">
+          <h3>${esc(title)}</h3>
+          <p>${esc(message)}</p>
+          <div style="margin-top: 16px;">
+            <button class="btn btn-primary terminal-card-btn"
+              onclick="window.Ticker._userPanel._returnToDashboard()">Return to Dashboard</button>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  /**
+   * BUG-107: Escape the user panel via `history.replaceState` so the iOS
+   * Companion App cached route no longer points at `/ticker`. Fires the
+   * HA `location-changed` event so `ha-router` resolves the new path.
+   * `replaceState` (not `pushState`) is required per SPEC_BUG-107 §4.1.
+   */
+  returnToDashboard() {
+    window.history.replaceState(null, '', '/');
+    window.dispatchEvent(new CustomEvent('location-changed', {
+      detail: { replace: true },
+      bubbles: true,
+      composed: true,
+    }));
+  },
 };
