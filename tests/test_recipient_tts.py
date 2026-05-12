@@ -208,8 +208,8 @@ class TestDeliverTtsPlain:
 # _deliver_tts_with_restore
 # ---------------------------------------------------------------------------
 
-@patch("custom_components.ticker.recipient_tts._wait_for_state_exit", new_callable=AsyncMock, return_value=True)
-@patch("custom_components.ticker.recipient_tts._wait_for_state", new_callable=AsyncMock, return_value=True)
+@patch("custom_components.ticker.recipient_tts_delivery._wait_for_state_exit", new_callable=AsyncMock, return_value=True)
+@patch("custom_components.ticker.recipient_tts_delivery._wait_for_state", new_callable=AsyncMock, return_value=True)
 class TestDeliverTtsWithRestore:
     """Tests for _deliver_tts_with_restore()."""
 

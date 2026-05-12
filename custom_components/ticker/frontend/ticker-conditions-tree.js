@@ -62,6 +62,24 @@ window.Ticker.conditionsTree = {
   },
 
   /**
+   * Set a node's NOT (negate) flag at the given path.
+   * Both true and false are written explicitly (no client-side delete) — the
+   * backend store strips false to sparse, but the wire always carries an
+   * explicit boolean. Symmetric with toggleOperator. (F-33)
+   * @param {object} tree - Root tree
+   * @param {number[]} path - Path to the target node (leaf or group)
+   * @param {boolean} value - New negate value (true or false)
+   * @returns {object} New tree with the negate flag set on the target node
+   */
+  setNegate(tree, path, value) {
+    const cloned = this.clone(tree);
+    const node = this.getNode(cloned, path);
+    if (!node) return cloned;
+    node.negate = value === true;
+    return cloned;
+  },
+
+  /**
    * Group two adjacent children into a new sub-group.
    * The new sub-group inherits the parent's current operator.
    * Respects MAX_DEPTH: returns unchanged tree if depth would be exceeded.
@@ -252,7 +270,13 @@ window.Ticker.conditionsTree = {
     var self = this;
     var pruned = (node.children || []).map(function(c) { return self.pruneTree(c); }).filter(Boolean);
     if (pruned.length === 0) return null;
-    return { type: node.type, operator: node.operator, children: pruned };
+    // F-33: preserve explicit negate (true or false) on group rebuild so subscription
+    // saves don't silently drop NOT flags. Pre-F-33 trees have no negate key — keep
+    // the output sparse in that case. Backend strips explicit-false to sparse on
+    // persistence (Chunks 1+2), so both shapes round-trip cleanly.
+    var out = { type: node.type, operator: node.operator, children: pruned };
+    if (typeof node.negate === 'boolean') out.negate = node.negate;
+    return out;
   },
 
   /**

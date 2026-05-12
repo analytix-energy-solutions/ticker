@@ -62,10 +62,13 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Critical notifications** - single `critical: true` flag translates to platform-specific critical alert payloads on both iOS and Android *(v1.4.0)*
 - **Alarmo and blueprint compatibility** - Ticker registers as a standard `notify.ticker` service, discoverable by Alarmo and any integration scanning for notify services *(v1.4.0)*
 - **AND/OR condition grouping** - Mix AND and OR logic in the conditions builder with up to two nesting levels. Existing conditions migrate automatically *(v1.5.0)*
+- **NOT operator for conditions** - Toggle a NOT pill on any condition row or group to invert its result. Works for every rule type: "NOT in zone home" delivers when a person is outside the zone, "NOT 08:00–22:00" covers the overnight window, and NOT on a group inverts the entire AND/OR result. Conditions without the flag are unaffected *(v1.7.0)*
 - **Automations Manager** - Admin tab that surfaces every automation and script using `ticker.notify` with inline editing, no automation editor required *(v1.5.0)*
 - **Action Sets Library** - Reusable action button sets managed from a central library tab, referenced by ID from any category *(v1.5.0)*
 - **Smart notification management** - Auto-grouping, auto-tagging, sticky/persistent flags, and `ticker.clear_notification` service injected automatically at delivery time *(v1.5.0)*
 - **Notification navigation target** - `navigate_to` parameter on `ticker.notify` deep-links to any HA panel on notification tap, with a live navigation picker in the admin panel *(v1.5.0)*
+- **Pre-TTS chime** - configure an audio chime that plays through the target media_player immediately before each TTS announcement, set per recipient with optional per-category override; ships three bundled CC0 chime presets (subtle/alert/doorbell) so the feature is functional out-of-box *(v1.7.0)*
+- **Volume override** - 0–100 % slider on the device and category dialogs sets the media_player volume for the chime+TTS pair, then restores the previous level after TTS finishes playing. Leave on "Default" to inherit the device's current volume *(v1.7.0)*
 - **Multi-category fan-out** - `category` field accepts a list of category IDs so a single `ticker.notify` call can target multiple categories at once *(v1.6.0)*
 - **Auto-clear triggers** - `clear_when` parameter on `ticker.notify` auto-dismisses persistent notifications when an entity state or event trigger fires *(v1.6.0)*
 - **History search and filters** - full-text search with category and date-range filters in the user History tab, plus clickable status filters on the admin Logs tab *(v1.6.0)*

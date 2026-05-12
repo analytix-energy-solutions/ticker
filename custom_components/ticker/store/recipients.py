@@ -80,6 +80,8 @@ class RecipientMixin:
         resume_after_tts: bool = False,
         tts_buffer_delay: float = TTS_BUFFER_DELAY_DEFAULT,
         conditions: dict[str, Any] | None = None,
+        chime_media_content_id: str | None = None,
+        volume_override: float | None = None,
     ) -> dict[str, Any]:
         """Create a new recipient.
 
@@ -99,6 +101,15 @@ class RecipientMixin:
             tts_buffer_delay: Seconds to wait before TTS playback (Chromecast).
             conditions: Device-level conditions dict (time/state rules).
                 Evaluated before subscription mode. None means no gate.
+            chime_media_content_id: F-35 — optional HA media_content_id played
+                before TTS on this device. Sparse storage: only persisted when
+                non-empty and only meaningful for TTS-type recipients (push
+                recipients silently drop the field).
+            volume_override: F-35.2 — optional float in [0.0, 1.0] applied via
+                ``media_player.volume_set`` before chime+TTS, then restored
+                afterwards. Sparse storage: only persisted on TTS recipients
+                with a value in range; push recipients silently drop. None or
+                out-of-range values are dropped.
 
         Returns:
             The created recipient dict.
@@ -145,6 +156,38 @@ class RecipientMixin:
         if conditions is not None:
             recipient["conditions"] = conditions
 
+        # F-35: Sparse storage for chime — only persist on TTS devices
+        # when a non-empty value was supplied. Push devices silently drop
+        # the field per spec §6.1.
+        if (
+            device_type == DEVICE_TYPE_TTS
+            and chime_media_content_id
+            and chime_media_content_id.strip()
+        ):
+            recipient["chime_media_content_id"] = chime_media_content_id.strip()
+        elif device_type != DEVICE_TYPE_TTS and chime_media_content_id:
+            _LOGGER.debug(
+                "Dropping chime_media_content_id on non-TTS recipient %s",
+                recipient_id,
+            )
+
+        # F-35.2: Sparse storage for volume_override — TTS-only,
+        # in-range float. Push devices silently drop.
+        if (
+            device_type == DEVICE_TYPE_TTS
+            and isinstance(volume_override, (int, float))
+            and 0.0 <= float(volume_override) <= 1.0
+        ):
+            recipient["volume_override"] = float(volume_override)
+        elif (
+            device_type != DEVICE_TYPE_TTS
+            and volume_override is not None
+        ):
+            _LOGGER.debug(
+                "Dropping volume_override on non-TTS recipient %s",
+                recipient_id,
+            )
+
         self._recipients[recipient_id] = recipient
         await self.async_save_recipients()
         _LOGGER.info("Created recipient: %s (%s, type=%s)", recipient_id, name, device_type)
@@ -173,6 +216,7 @@ class RecipientMixin:
             "name", "icon", "notify_services", "delivery_format", "enabled",
             "device_type", "media_player_entity_id", "tts_service",
             "resume_after_tts", "tts_buffer_delay", "conditions",
+            "chime_media_content_id", "volume_override",
         }
         unknown = set(kwargs) - allowed_fields
         if unknown:
@@ -186,6 +230,29 @@ class RecipientMixin:
                 if key == "conditions" and value is None:
                     # Sparse storage: remove conditions key when cleared
                     self._recipients[recipient_id].pop("conditions", None)
+                elif key == "chime_media_content_id":
+                    # F-35: sparse storage — strip + remove key when blank
+                    cleaned = (value or "").strip() if isinstance(value, str) else ""
+                    if cleaned:
+                        self._recipients[recipient_id]["chime_media_content_id"] = cleaned
+                    else:
+                        self._recipients[recipient_id].pop(
+                            "chime_media_content_id", None,
+                        )
+                elif key == "volume_override":
+                    # F-35.2: sparse storage — None/out-of-range removes key,
+                    # in-range float [0.0, 1.0] sets it.
+                    if (
+                        isinstance(value, (int, float))
+                        and 0.0 <= float(value) <= 1.0
+                    ):
+                        self._recipients[recipient_id]["volume_override"] = (
+                            float(value)
+                        )
+                    else:
+                        self._recipients[recipient_id].pop(
+                            "volume_override", None,
+                        )
                 else:
                     self._recipients[recipient_id][key] = value
 

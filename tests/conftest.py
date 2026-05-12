@@ -70,6 +70,7 @@ _HA_MODULES = [
     "homeassistant.helpers.event",
     "homeassistant.helpers.service",
     "homeassistant.helpers.start",
+    "homeassistant.helpers.network",
     "homeassistant.util",
     "homeassistant.util.dt",
     "homeassistant.components",
@@ -104,9 +105,21 @@ _helpers.typing = sys.modules["homeassistant.helpers.typing"]
 _helpers.event = sys.modules["homeassistant.helpers.event"]
 _helpers.service = sys.modules["homeassistant.helpers.service"]
 _helpers.start = sys.modules["homeassistant.helpers.start"]
+_helpers.network = sys.modules["homeassistant.helpers.network"]
 
 _start = sys.modules["homeassistant.helpers.start"]
 _start.async_at_start = MagicMock()
+
+# F-35.1: stub homeassistant.helpers.network used by ws_get_bundled_chimes.
+_network = sys.modules["homeassistant.helpers.network"]
+
+
+class _NoURLAvailableError(Exception):
+    """Stub for homeassistant.helpers.network.NoURLAvailableError."""
+
+
+_network.NoURLAvailableError = _NoURLAvailableError
+_network.get_url = MagicMock(return_value="http://homeassistant.local:8123")
 
 _util = sys.modules["homeassistant.util"]
 _util.dt = sys.modules["homeassistant.util.dt"]

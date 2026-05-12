@@ -190,7 +190,7 @@ class TestBug082ConditionsNull:
             "custom_components.ticker.websocket.recipients.sanitize_for_storage",
             return_value="Test Device",
         ), patch(
-            "custom_components.ticker.websocket.recipients.validate_condition_tree",
+            "custom_components.ticker.websocket.recipient_validation.validate_condition_tree",
             return_value=None,  # None means valid
         ):
             await ws_create_recipient(hass, conn, _base_msg(conditions=conditions))

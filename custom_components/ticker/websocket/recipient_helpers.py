@@ -16,18 +16,22 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 
 from ..const import (
+    BUNDLED_CHIMES,
     DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_PERSISTENT,
     DELIVERY_FORMAT_RICH,
     DEVICE_TYPE_TTS,
     MEDIA_ANNOUNCE_FEATURE,
+    STATIC_CHIMES_PATH,
+    VOLUME_OVERRIDE_MAX,
+    VOLUME_OVERRIDE_MIN,
 )
 from ..formatting import (
     detect_delivery_format,
     resolve_ios_platform,
     transform_payload_for_format,
 )
-from ..recipient_tts import async_send_tts
+from ..recipient_tts import _play_chime, async_send_tts
 from .validation import get_store
 
 _LOGGER = logging.getLogger(__name__)
@@ -333,3 +337,152 @@ async def _test_push_recipient(
             )
 
     return results
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ticker/test_chime",
+        vol.Required("media_player_entity_id"): str,
+        vol.Required("chime_media_content_id"): str,
+        vol.Optional("volume_override"): vol.Any(
+            None,
+            vol.All(
+                vol.Coerce(float),
+                vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
+            ),
+        ),
+    }
+)
+@websocket_api.async_response
+async def ws_test_chime(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """F-35: Play a chime on the chosen media_player without TTS.
+
+    Calls _play_chime directly — does NOT use async_send_tts. The test
+    path matches the production chime sequence but produces no History
+    entry and never touches the TTS queue (spec §8.3 / §17).
+
+    Uses announce=True so HA pauses any current media and resumes it after
+    the chime on platforms that support MEDIA_ANNOUNCE_FEATURE.
+
+    F-35.2: When ``volume_override`` is supplied (in [0.0, 1.0]),
+    ``_play_chime`` snapshots the current volume_level, applies the
+    override, plays the chime, and restores the previous volume — so
+    the user's media is not left at the test volume after the click.
+    """
+    entity_id = msg["media_player_entity_id"]
+    chime_id = msg["chime_media_content_id"]
+    volume_override = msg.get("volume_override")
+
+    if not entity_id.startswith("media_player."):
+        connection.send_error(
+            msg["id"], "invalid_media_player",
+            "media_player_entity_id must start with 'media_player.'",
+        )
+        return
+    if not chime_id.strip():
+        connection.send_error(
+            msg["id"], "invalid_chime",
+            "chime_media_content_id is required",
+        )
+        return
+
+    try:
+        await _play_chime(
+            hass, entity_id, chime_id.strip(), announce=True,
+            volume_level=volume_override,
+        )
+        connection.send_result(msg["id"], {"success": True})
+    except Exception as err:  # noqa: BLE001
+        # _play_chime is fail-soft and shouldn't raise, but guard anyway
+        connection.send_error(
+            msg["id"], "test_chime_failed", str(err),
+        )
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {vol.Required("type"): "ticker/get_bundled_chimes"}
+)
+@websocket_api.async_response
+async def ws_get_bundled_chimes(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """F-35.1: Return absolute URLs for the in-tree bundled chime assets.
+
+    The picker on the recipient and category dialogs writes the returned
+    ``url`` verbatim into ``chime_media_content_id`` so bundled chimes
+    flow through the same delivery path as user-supplied media_content_id
+    values.
+
+    URL is composed using HA's INTERNAL URL by preference (b7 fix). The
+    bundled WAVs are served locally from /config/custom_components/ticker
+    /static/chimes via Ticker's static-path registration, so the consumer
+    (a media_player on the same LAN as HA — Sonos / Cast / HA Voice /
+    ESPHome speaker) reaches them fastest over the internal hostname.
+
+    Earlier (b6 and prior) this used ``prefer_external=True``, which on
+    Nabu-Cloud-connected installs wrote a ``*.ui.nabu.casa`` URL into
+    ``chime_media_content_id``. HA Voice and other LAN devices then
+    fetched the chime over the internet (cold TLS handshake +
+    Nabu→HA→Nabu round trip), regularly taking longer than ``tts.cloud_say``
+    itself, so the chime arrived at the device AFTER the TTS audio.
+    Switching to internal URL keeps the fetch on-LAN and gives the chime
+    a clean head start.
+
+    Existing recipients/categories with stored ``ui.nabu.casa`` chime URLs
+    keep working but stay slow — re-pick the chip to refresh.
+
+    Returns ``[]`` (no chips rendered) when no HA URL is resolvable.
+    """
+    # Resolve HA's externally-reachable base URL. We import lazily so that
+    # absence of the helper in older HA versions only impacts F-35.1 and
+    # not the rest of the integration.
+    try:
+        from homeassistant.helpers.network import (
+            NoURLAvailableError,
+            get_url,
+        )
+    except ImportError:  # pragma: no cover — defensive guard
+        _LOGGER.warning(
+            "homeassistant.helpers.network.get_url unavailable; "
+            "bundled chimes disabled"
+        )
+        connection.send_result(msg["id"], {"chimes": []})
+        return
+
+    try:
+        base_url = get_url(hass, prefer_external=False, allow_internal=True)
+    except NoURLAvailableError as err:
+        _LOGGER.warning(
+            "No HA URL resolvable for bundled chimes: %s", err
+        )
+        connection.send_result(msg["id"], {"chimes": []})
+        return
+    except Exception as err:  # noqa: BLE001 — defensive against HA shape drift
+        _LOGGER.warning(
+            "Unexpected error resolving HA URL for bundled chimes: %s", err
+        )
+        connection.send_result(msg["id"], {"chimes": []})
+        return
+
+    if not base_url:
+        connection.send_result(msg["id"], {"chimes": []})
+        return
+
+    base = base_url.rstrip("/")
+    chimes = [
+        {
+            "id": entry["id"],
+            "label": entry["label"],
+            "url": f"{base}{STATIC_CHIMES_PATH}/{entry['filename']}",
+        }
+        for entry in BUNDLED_CHIMES
+    ]
+    connection.send_result(msg["id"], {"chimes": chimes})

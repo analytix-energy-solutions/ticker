@@ -144,8 +144,89 @@ window.Ticker.AdminCategoriesTab = {
           </div>
         </div>
       </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Android Channel</label>
+        <input type="text" id="edit-android-channel-${escId}" value="${escAttr(c.android_channel || '')}" placeholder="e.g. security_alerts" style="min-width:180px">
+        <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+          Android notification channel for per-category sound and DND routing
+        </div>
+      </div>
+      ${this._renderCategoryVolumeBlock(c, escId)}
+      ${this._renderCategoryChimeBlock(c, escId)}
       ${window.Ticker.NavigationPicker.render(c.navigate_to || '', 'cat-edit', { panels: window.Ticker._adminPanel._hasPanels || [], dashboards: window.Ticker._adminPanel._lovelaceDashboards || [], views: window.Ticker._adminPanel._lovelaceViews || {} })}
     `;
+  },
+
+  /**
+   * F-35.2: Per-category volume override block. Shares the slider
+   * markup with the recipient dialog via AdminVolumeOverride.render.
+   */
+  _renderCategoryVolumeBlock(c, escId) {
+    const raw = c.volume_override;
+    const volume = (typeof raw === 'number' && raw >= 0 && raw <= 1) ? raw : null;
+    const helper = 'Overrides the device default for this category. Leave Default to inherit.';
+    return window.Ticker.AdminVolumeOverride.render(
+      `cat-${escId}`, volume, helper,
+    );
+  },
+
+  /**
+   * F-35: Render the per-category Pre-TTS Chime override picker. The
+   * category has no inherent media_player, so the Test Chime button is
+   * paired with a target dropdown populated from TTS recipients.
+   *
+   * F-35.1: Bundled-chime preset chips render above the URL field. The
+   * chip list is loaded once per panel session into ``panel._bundledChimes``.
+   */
+  _renderCategoryChimeBlock(c, escId) {
+    const { esc, escAttr } = window.Ticker.utils;
+    const ns = 'window.Ticker.AdminCategoriesTab.handlers';
+    const chimeId = c.chime_media_content_id || '';
+    const recipients = (window.Ticker._adminPanel?._recipients || [])
+      .filter(r => r.device_type === 'tts' && r.media_player_entity_id);
+    const targetOptions = recipients.map(r => `
+      <option value="${escAttr(r.media_player_entity_id)}">${esc(r.name || r.recipient_id)} (${esc(r.media_player_entity_id)})</option>
+    `).join('');
+    const noTarget = recipients.length === 0;
+    const haveChime = !!(chimeId && chimeId.trim());
+    const testDisabled = noTarget || !haveChime;
+    const helper = noTarget
+      ? 'No TTS device configured — add one to enable testing.'
+      : 'Plays before TTS, overrides the device default. Empty = use device default. Some TTS engines (e.g. Amazon Alexa) play their own tone.';
+    const presets = this._renderCategoryChimePresets(escId, chimeId);
+    return `
+      <div style="margin-top:12px;padding:8px;border:1px solid var(--divider);border-radius:4px">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--primary-text-color,#212121);font-weight:600">Pre-TTS Chime (override)</label>
+        ${presets}
+        <input type="hidden" id="cat-chime-id-${escId}" value="${escAttr(chimeId)}">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <input class="form-input" id="cat-chime-display-${escId}" value="${escAttr(chimeId)}" placeholder="media-source://media_source/local/chimes/alarm.mp3" style="flex:1" oninput="${ns}.onCategoryChimeInput(window.Ticker._adminPanel, '${escId}')">
+          <button type="button" class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="${ns}.clearCategoryChime(window.Ticker._adminPanel, '${escId}')">Clear</button>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select id="cat-chime-test-target-${escId}" class="form-select" style="font-size:12px;padding:4px 6px" ${noTarget ? 'disabled' : ''} onchange="${ns}.onCategoryChimeInput(window.Ticker._adminPanel, '${escId}')">
+            ${noTarget ? '<option value="">No TTS device</option>' : targetOptions}
+          </select>
+          <button type="button" id="cat-chime-test-${escId}" class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="${ns}.testChimeFromCategory(window.Ticker._adminPanel, '${escId}')" ${testDisabled ? 'disabled' : ''}>Test Chime</button>
+          <span style="font-size:11px;color:var(--secondary-text-color,#727272);flex-basis:100%">${helper}</span>
+        </div>
+      </div>
+    `;
+  },
+
+  /** F-35.1: Render bundled-chime chips for the per-category override picker. */
+  _renderCategoryChimePresets(escId, currentChime) {
+    const { escAttr } = window.Ticker.utils;
+    const list = (window.Ticker._adminPanel?._bundledChimes) || [];
+    if (!list.length) {
+      return `<div id="cat-chime-presets-${escId}" class="ticker-chime-presets" style="display:none"></div>`;
+    }
+    const ns = 'window.Ticker.AdminCategoriesTab.handlers';
+    const chips = list.map(c => {
+      const active = currentChime && currentChime === c.url ? ' active' : '';
+      return `<button type="button" class="ticker-chime-chip${active}" data-chime-url="${escAttr(c.url)}" onclick="${ns}.pickBundledCategoryChime(window.Ticker._adminPanel, '${escId}', '${escAttr(c.url)}')">${escAttr(c.label)}</button>`;
+    }).join('');
+    return `<div id="cat-chime-presets-${escId}" class="ticker-chime-presets">${chips}</div>`;
   },
 
   _renderModeTab(c, escId) {
@@ -320,173 +401,5 @@ window.Ticker.AdminCategoriesTab = {
     return s && s[categoryId] ? s[categoryId].mode !== 'never' : true;
   },
 
-  handlers: {
-    toggleAdd(panel) {
-      panel._addingCategory = !panel._addingCategory;
-      panel._editingCategory = null;
-      panel._renderTabContentPreserveScroll();
-    },
-
-    startEdit(panel, categoryId) {
-      if (panel._editingCategory === categoryId) {
-        panel._editingCategory = null;
-      } else {
-        panel._editingCategory = categoryId;
-        panel._editingCategorySubTab = 'general';
-      }
-      panel._addingCategory = false;
-      panel._pendingDefaultMode = null;
-      panel._pendingDefaultConditions = null;
-      panel._renderTabContentPreserveScroll();
-    },
-
-    switchSubTab(panel, subTab) {
-      panel._editingCategorySubTab = subTab;
-      panel._renderTabContentPreserveScroll();
-    },
-
-    cancelEdit(panel) {
-      panel._editingCategory = null;
-      panel._addingCategory = false;
-      panel._pendingDefaultConditions = null;
-      panel._pendingDefaultMode = null;
-      panel._renderTabContentPreserveScroll();
-    },
-
-    defaultModeChanged(panel, categoryId, mode) {
-      panel._pendingDefaultMode = mode;
-      if (mode === 'conditional') {
-        const cat = panel._categories.find(c => c.id === categoryId);
-        if (cat && !cat.default_conditions && !panel._pendingDefaultConditions) {
-          panel._pendingDefaultConditions = {
-            deliver_when_met: true,
-            queue_until_met: true,
-            condition_tree: { type: 'group', operator: 'AND', children: [{ type: 'zone', zone_id: 'zone.home' }] },
-          };
-        }
-      } else {
-        panel._pendingDefaultConditions = null;
-      }
-      panel._renderTabContentPreserveScroll();
-    },
-
-    async create(panel) {
-      const { generateCategoryId } = window.Ticker.utils;
-      const name = panel.shadowRoot.getElementById('new-category-name')?.value?.trim();
-      const icon = panel.shadowRoot.getElementById('new-category-icon')?.value?.trim() || 'mdi:bell';
-      const color = panel.shadowRoot.getElementById('new-category-color')?.value || null;
-      const defaultMode = panel.shadowRoot.getElementById('new-category-default-mode')?.value || 'always';
-
-      if (!name) { panel._showError('Enter a category name'); return; }
-      const id = generateCategoryId(name);
-      if (!id) { panel._showError('Invalid name'); return; }
-
-      try {
-        const params = { type: 'ticker/category/create', category_id: id, name, icon, color };
-        if (defaultMode !== 'always') { params.default_mode = defaultMode; }
-        await panel._hass.callWS(params);
-        panel._addingCategory = false;
-        await panel._loadCategories();
-        panel._renderTabContentPreserveScroll();
-        panel._showSuccess('Category created');
-      } catch (err) { panel._showError(err.message); }
-    },
-
-    async save(panel, categoryId) {
-      const cat = panel._categories.find(c => c.id === categoryId);
-      if (!cat) return;
-
-      const nameEl = panel.shadowRoot.getElementById(`edit-name-${categoryId}`);
-      const name = nameEl ? nameEl.value.trim() : cat.name;
-      const iconEl = panel.shadowRoot.getElementById(`edit-icon-${categoryId}`);
-      const icon = iconEl ? iconEl.value.trim() : cat.icon;
-      const colorEl = panel.shadowRoot.getElementById(`edit-color-${categoryId}`);
-      const color = colorEl ? colorEl.value : (cat.color || null);
-      const defaultModeEl = panel.shadowRoot.getElementById(`edit-default-mode-${categoryId}`);
-      const defaultMode = defaultModeEl?.value || (cat.default_mode || 'always');
-      const criticalEl = panel.shadowRoot.getElementById(`edit-critical-${categoryId}`);
-
-      if (!name) { panel._showError('Name required'); return; }
-
-      try {
-        const params = { type: 'ticker/category/update', category_id: categoryId, name, icon, color };
-        if (criticalEl) { params.critical = criticalEl.checked; }
-        const navPresetEl = panel.shadowRoot.getElementById('nav-preset-cat-edit');
-        if (navPresetEl) {
-          params.navigate_to = window.Ticker.NavigationPicker.read(panel.shadowRoot, 'cat-edit');
-        }
-
-        if (defaultMode === 'conditional') {
-          params.default_mode = 'conditional';
-          params.default_conditions = panel._pendingDefaultConditions || null;
-        } else if (defaultMode === 'never') {
-          params.default_mode = 'never';
-        } else {
-          params.default_mode = null;
-        }
-
-        await panel._hass.callWS(params);
-        panel._pendingDefaultConditions = null;
-        panel._pendingDefaultMode = null;
-        await panel._loadCategories();
-        panel._renderTabContentPreserveScroll();
-        panel._showSuccess('Updated');
-      } catch (err) { panel._showError(err.message); }
-    },
-
-    persistentChanged(panel, categoryId) {
-      const r = panel.shadowRoot, g = id => r.getElementById(`smart-${id}-${categoryId}`);
-      panel._pendingSmart = panel._pendingSmart || {};
-      panel._pendingSmart[categoryId] = {
-        group: g('group')?.checked || false, tag_mode: g('tag-mode')?.value || 'none',
-        sticky: g('sticky')?.checked || false, persistent: g('persistent')?.checked || false,
-      };
-      panel._renderTabContentPreserveScroll();
-    },
-
-    async saveSmart(panel, categoryId) {
-      const root = panel.shadowRoot;
-      const group = root.getElementById(`smart-group-${categoryId}`)?.checked || false;
-      const tagMode = root.getElementById(`smart-tag-mode-${categoryId}`)?.value || 'none';
-      const persistent = root.getElementById(`smart-persistent-${categoryId}`)?.checked || false;
-      const stickyEl = root.getElementById(`smart-sticky-${categoryId}`);
-      const sticky = persistent || (stickyEl?.checked || false);
-
-      try {
-        await panel._hass.callWS({
-          type: 'ticker/category/update',
-          category_id: categoryId,
-          smart_notification: { group, tag_mode: tagMode, sticky, persistent },
-        });
-        if (panel._pendingSmart) delete panel._pendingSmart[categoryId];
-        await panel._loadCategories();
-        panel._renderTabContentPreserveScroll();
-        panel._showSuccess('Smart delivery updated');
-      } catch (err) { panel._showError(err.message); }
-    },
-
-    async saveActionSetId(panel, categoryId, actionSetId) {
-      try {
-        await panel._hass.callWS({
-          type: 'ticker/category/update',
-          category_id: categoryId,
-          action_set_id: actionSetId || '',  // empty string clears
-        });
-        await panel._loadCategories();
-        panel._renderTabContentPreserveScroll();
-        panel._showSuccess('Action set updated');
-      } catch (e) {
-        panel._showError(e.message || 'Failed to update action set');
-      }
-    },
-
-    async delete(panel, categoryId) {
-      if (!confirm('Delete category?')) return;
-      try {
-        await panel._hass.callWS({ type: 'ticker/category/delete', category_id: categoryId });
-        await panel._loadCategories();
-        panel._renderTabContentPreserveScroll();
-      } catch (err) { panel._showError(err.message); }
-    },
-  },
+  // Handlers extracted to categories-handlers.js (BUG-055-style split).
 };

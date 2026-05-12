@@ -1,10 +1,12 @@
 """Recipient management WebSocket commands for Ticker integration (F-18).
 
 Handles CRUD operations for non-user recipients (devices like TVs, TTS
-speakers, tablets) and recipient subscription management.
+speakers, tablets).
 
 Test notification and notify service discovery commands are in
 recipient_helpers.py (extracted to stay under the 500-line limit).
+The set_recipient_subscription handler lives in recipient_subscriptions.py
+(also extracted for the 500-line limit).
 """
 
 from __future__ import annotations
@@ -23,20 +25,23 @@ from ..const import (
     DEVICE_TYPES,
     DELIVERY_FORMAT_RICH,
     MAX_RECIPIENT_NAME_LENGTH,
-    MAX_NOTIFY_SERVICES,
     MODE_ALWAYS,
     MODE_CONDITIONAL,
-    MODE_NEVER,
-    RECIPIENT_DELIVERY_FORMATS,
-    SET_BY_ADMIN,
     TTS_BUFFER_DELAY_DEFAULT,
     TTS_BUFFER_DELAY_MAX,
     TTS_BUFFER_DELAY_MIN,
+    VOLUME_OVERRIDE_MAX,
+    VOLUME_OVERRIDE_MIN,
+)
+from .recipient_validation import (
+    validate_by_device_type,
+    validate_chime_length,
+    validate_conditions_blob,
+    validate_delivery_format,
+    validate_notify_services,
 )
 from .validation import (
     get_store,
-    validate_category_id,
-    validate_condition_tree,
     validate_icon,
     validate_recipient_id,
     sanitize_for_storage,
@@ -44,83 +49,14 @@ from .validation import (
 
 _LOGGER = logging.getLogger(__name__)
 
-RECIPIENT_SUBSCRIPTION_MODES = [MODE_ALWAYS, MODE_NEVER, MODE_CONDITIONAL]
-
-
-def _validate_notify_services(
-    notify_services: list[dict[str, Any]],
-) -> tuple[bool, str | None]:
-    """Validate notify_services list. Each entry needs a 'service' key.
-
-    Called only for push-type recipients; TTS recipients skip this.
-    """
-    if not notify_services:
-        return False, "At least one notify service is required"
-    if len(notify_services) > MAX_NOTIFY_SERVICES:
-        return False, f"Maximum {MAX_NOTIFY_SERVICES} notify services allowed"
-    for idx, entry in enumerate(notify_services):
-        if not isinstance(entry, dict):
-            return False, f"Notify service {idx} must be an object"
-        service = entry.get("service", "")
-        if not isinstance(service, str) or not service.startswith("notify."):
-            return False, f"Notify service {idx}: 'service' must start with 'notify.'"
-    return True, None
-
-
-def _validate_delivery_format(fmt: str) -> tuple[bool, str | None]:
-    """Validate delivery format value against recipient-valid formats."""
-    if fmt not in RECIPIENT_DELIVERY_FORMATS:
-        return False, (
-            f"Delivery format must be one of: "
-            f"{', '.join(RECIPIENT_DELIVERY_FORMATS)}"
-        )
-    return True, None
-
-
-def _validate_by_device_type(
-    msg: dict[str, Any],
-    device_type: str,
-    require_notify_services: bool = True,
-) -> tuple[bool, str, str | None]:
-    """Validate fields conditionally based on device_type.
-
-    For push: requires notify_services (if require_notify_services=True).
-    For tts: requires media_player_entity_id.
-
-    Args:
-        msg: WebSocket message dict.
-        device_type: 'push' or 'tts'.
-        require_notify_services: Whether to require non-empty notify_services
-            for push devices (True for create, False for update).
-
-    Returns:
-        Tuple of (is_valid, error_code, error_message).
-    """
-    if device_type == DEVICE_TYPE_TTS:
-        entity_id = msg.get("media_player_entity_id")
-        if not entity_id or not isinstance(entity_id, str):
-            return (
-                False, "invalid_media_player",
-                "media_player_entity_id is required for TTS recipients",
-            )
-        if not entity_id.startswith("media_player."):
-            return (
-                False, "invalid_media_player",
-                "media_player_entity_id must start with 'media_player.'",
-            )
-    elif device_type == DEVICE_TYPE_PUSH and require_notify_services:
-        notify_services = msg.get("notify_services")
-        if notify_services is not None:
-            is_valid, error = _validate_notify_services(notify_services)
-            if not is_valid:
-                return False, "invalid_notify_services", error
-        elif require_notify_services:
-            return (
-                False, "invalid_notify_services",
-                "notify_services is required for push recipients",
-            )
-
-    return True, "", None
+# F-35.2: shared schema fragment for the volume_override field.
+_VOLUME_SCHEMA = vol.Any(
+    None,
+    vol.All(
+        vol.Coerce(float),
+        vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
+    ),
+)
 
 
 @websocket_api.require_admin
@@ -182,6 +118,8 @@ async def ws_get_recipients(
             vol.Coerce(float), vol.Range(min=TTS_BUFFER_DELAY_MIN, max=TTS_BUFFER_DELAY_MAX),
         ),
         vol.Optional("conditions"): vol.Any(dict, None),
+        vol.Optional("chime_media_content_id"): vol.Any(None, str),
+        vol.Optional("volume_override"): _VOLUME_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -214,7 +152,7 @@ async def ws_create_recipient(
     device_type = msg.get("device_type", DEVICE_TYPE_PUSH)
 
     # Conditional validation based on device_type
-    is_valid, err_code, err_msg = _validate_by_device_type(
+    is_valid, err_code, err_msg = validate_by_device_type(
         msg, device_type, require_notify_services=True,
     )
     if not is_valid:
@@ -223,7 +161,7 @@ async def ws_create_recipient(
 
     # Validate delivery_format only for push devices
     if device_type == DEVICE_TYPE_PUSH:
-        is_valid, error = _validate_delivery_format(msg["delivery_format"])
+        is_valid, error = validate_delivery_format(msg["delivery_format"])
         if not is_valid:
             connection.send_error(msg["id"], "invalid_delivery_format", error)
             return
@@ -233,35 +171,24 @@ async def ws_create_recipient(
         connection.send_error(msg["id"], "invalid_icon", error)
         return
 
-    # Validate conditions structure if provided (accepts condition_tree or rules).
-    # BUG-093: treat conditions={} same as conditions=None — empty dict is a
-    # natural "no conditions" value and must normalize to None for storage.
-    # Dicts with unknown keys but no tree/rules are still malformed and rejected.
-    conditions = msg.get("conditions")
-    if not conditions:
-        # None or empty dict {} — store as None
-        conditions = None
-    elif conditions.get("condition_tree") or conditions.get("rules") is not None:
-        tree = conditions.get("condition_tree")
-        rules = conditions.get("rules")
-        if tree:
-            tree_error = validate_condition_tree(tree, hass)
-            if tree_error:
-                code, msg_text = tree_error
-                connection.send_error(msg["id"], code, msg_text)
-                return
-        elif not isinstance(rules, list):
-            connection.send_error(
-                msg["id"], "invalid_conditions",
-                "Conditions must contain 'condition_tree' or 'rules'",
-            )
-            return
-    else:
-        connection.send_error(
-            msg["id"], "invalid_conditions",
-            "Conditions must contain 'condition_tree' or 'rules'",
-        )
+    # Validate conditions (BUG-093: empty dict normalizes to None).
+    conditions, cond_err = validate_conditions_blob(msg.get("conditions"), hass)
+    if cond_err:
+        code, msg_text = cond_err
+        connection.send_error(msg["id"], code, msg_text)
         return
+
+    # F-35: validate chime_media_content_id length (if provided)
+    chime_id = msg.get("chime_media_content_id")
+    chime_err = validate_chime_length(chime_id)
+    if chime_err:
+        connection.send_error(msg["id"], chime_err[0], chime_err[1])
+        return
+
+    # F-35.2: volume_override — stored only on TTS recipients with an
+    # in-range float. Push devices silently drop the field at the store
+    # layer (mirrors chime_media_content_id behavior).
+    volume_override = msg.get("volume_override")
 
     try:
         recipient = await store.async_create_recipient(
@@ -277,6 +204,8 @@ async def ws_create_recipient(
             resume_after_tts=msg["resume_after_tts"],
             tts_buffer_delay=msg["tts_buffer_delay"],
             conditions=conditions,
+            chime_media_content_id=chime_id,
+            volume_override=volume_override,
         )
     except ValueError as err:
         connection.send_error(msg["id"], "create_failed", str(err))
@@ -303,6 +232,8 @@ async def ws_create_recipient(
             vol.Coerce(float), vol.Range(min=TTS_BUFFER_DELAY_MIN, max=TTS_BUFFER_DELAY_MAX),
         ),
         vol.Optional("conditions"): vol.Any(dict, None),
+        vol.Optional("chime_media_content_id"): vol.Any(None, str),
+        vol.Optional("volume_override"): _VOLUME_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -341,7 +272,7 @@ async def ws_update_recipient(
     # Validate notify_services only for push devices
     if "notify_services" in msg:
         if device_type == DEVICE_TYPE_PUSH:
-            is_valid, error = _validate_notify_services(msg["notify_services"])
+            is_valid, error = validate_notify_services(msg["notify_services"])
             if not is_valid:
                 connection.send_error(msg["id"], "invalid_notify_services", error)
                 return
@@ -350,7 +281,7 @@ async def ws_update_recipient(
     # Validate delivery_format only for push devices
     if "delivery_format" in msg:
         if device_type == DEVICE_TYPE_PUSH:
-            is_valid, error = _validate_delivery_format(msg["delivery_format"])
+            is_valid, error = validate_delivery_format(msg["delivery_format"])
             if not is_valid:
                 connection.send_error(msg["id"], "invalid_delivery_format", error)
                 return
@@ -389,34 +320,42 @@ async def ws_update_recipient(
 
     # F-21: Device-level conditions (None clears via sparse storage).
     # BUG-093: empty dict normalizes to None, same as explicit None.
-    # Dicts with unknown keys but no tree/rules are still malformed and rejected.
     if "conditions" in msg:
-        cond_val = msg["conditions"]
-        if not cond_val:
-            # None or empty dict {} — store as None
-            cond_val = None
-        elif cond_val.get("condition_tree") or cond_val.get("rules") is not None:
-            tree = cond_val.get("condition_tree")
-            rules = cond_val.get("rules")
-            if tree:
-                tree_error = validate_condition_tree(tree, hass)
-                if tree_error:
-                    code, msg_text = tree_error
-                    connection.send_error(msg["id"], code, msg_text)
-                    return
-            elif not isinstance(rules, list):
-                connection.send_error(
-                    msg["id"], "invalid_conditions",
-                    "Conditions must contain 'condition_tree' or 'rules'",
-                )
-                return
-        else:
-            connection.send_error(
-                msg["id"], "invalid_conditions",
-                "Conditions must contain 'condition_tree' or 'rules'",
-            )
+        cond_val, cond_err = validate_conditions_blob(msg["conditions"], hass)
+        if cond_err:
+            code, msg_text = cond_err
+            connection.send_error(msg["id"], code, msg_text)
             return
         kwargs["conditions"] = cond_val
+
+    # F-35: chime_media_content_id — present means update; None or "" clears.
+    # Push-type recipients silently drop the value at the store layer.
+    if "chime_media_content_id" in msg:
+        chime_id = msg["chime_media_content_id"]
+        chime_err = validate_chime_length(chime_id)
+        if chime_err:
+            connection.send_error(msg["id"], chime_err[0], chime_err[1])
+            return
+        if device_type == DEVICE_TYPE_TTS:
+            kwargs["chime_media_content_id"] = chime_id
+        else:
+            _LOGGER.debug(
+                "Dropping chime_media_content_id for non-TTS recipient %s",
+                recipient_id,
+            )
+
+    # F-35.2: volume_override — present means update; None or out-of-range
+    # clears via store. Push-type recipients silently drop the value at
+    # the store layer.
+    if "volume_override" in msg:
+        vol_val = msg["volume_override"]
+        if device_type == DEVICE_TYPE_TTS:
+            kwargs["volume_override"] = vol_val
+        else:
+            _LOGGER.debug(
+                "Dropping volume_override for non-TTS recipient %s",
+                recipient_id,
+            )
 
     if not kwargs:
         connection.send_error(msg["id"], "no_fields", "No fields to update")
@@ -454,55 +393,3 @@ async def ws_delete_recipient(
         )
         return
     connection.send_result(msg["id"], {"success": True})
-
-
-@websocket_api.require_admin
-@websocket_api.websocket_command(
-    {
-        vol.Required("type"): "ticker/set_recipient_subscription",
-        vol.Required("recipient_id"): str,
-        vol.Required("category_id"): str,
-        vol.Required("mode"): vol.In(RECIPIENT_SUBSCRIPTION_MODES),
-        vol.Optional("conditions"): dict,
-    }
-)
-@websocket_api.async_response
-async def ws_set_recipient_subscription(
-    hass: HomeAssistant,
-    connection: websocket_api.ActiveConnection,
-    msg: dict[str, Any],
-) -> None:
-    """Set subscription mode for a recipient and category."""
-    store = get_store(hass)
-
-    recipient_id = msg["recipient_id"]
-    if store.get_recipient(recipient_id) is None:
-        connection.send_error(
-            msg["id"], "recipient_not_found",
-            f"Recipient '{recipient_id}' not found",
-        )
-        return
-
-    category_id = msg["category_id"]
-    is_valid, error = validate_category_id(category_id)
-    if not is_valid:
-        connection.send_error(msg["id"], "invalid_category_id", error)
-        return
-
-    if not store.category_exists(category_id):
-        connection.send_error(
-            msg["id"], "category_not_found",
-            f"Category '{category_id}' not found",
-        )
-        return
-
-    person_id = f"recipient:{recipient_id}"
-    conditions = msg.get("conditions")
-    subscription = await store.async_set_subscription(
-        person_id=person_id,
-        category_id=category_id,
-        mode=msg["mode"],
-        conditions=conditions,
-        set_by=SET_BY_ADMIN,
-    )
-    connection.send_result(msg["id"], {"subscription": subscription})

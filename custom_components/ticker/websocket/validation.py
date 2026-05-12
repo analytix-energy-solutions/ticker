@@ -324,6 +324,13 @@ def validate_condition_tree(
     if not isinstance(tree, dict):
         return ("invalid_tree", "Condition tree node must be a dict")
 
+    # F-33: optional negate flag on every node (leaf or group). When
+    # present it must be a bool; absent reads as False at evaluation time.
+    # Accept both explicit `negate: false` and absent — the frontend may
+    # send either, and the categories store normalizes to sparse on write.
+    if "negate" in tree and not isinstance(tree["negate"], bool):
+        return ("invalid_tree", "'negate' must be a boolean")
+
     node_type = tree.get("type")
     if not node_type:
         return ("invalid_tree", "Condition tree node missing 'type'")

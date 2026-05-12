@@ -10,7 +10,14 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..const import DOMAIN, MAX_NAVIGATE_TO_LENGTH, SMART_TAG_MODES
+from ..const import (
+    DOMAIN,
+    MAX_CHIME_MEDIA_CONTENT_ID_LENGTH,
+    MAX_NAVIGATE_TO_LENGTH,
+    SMART_TAG_MODES,
+    VOLUME_OVERRIDE_MAX,
+    VOLUME_OVERRIDE_MIN,
+)
 from .validation import (
     get_store,
     sanitize_for_storage,
@@ -69,6 +76,15 @@ async def ws_get_categories(
             None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("android_channel"): vol.Any(None, str),
+        vol.Optional("chime_media_content_id"): vol.Any(None, str),
+        vol.Optional("volume_override"): vol.Any(
+            None,
+            vol.All(
+                vol.Coerce(float),
+                vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
+            ),
+        ),
     }
 )
 @websocket_api.async_response
@@ -129,6 +145,21 @@ async def ws_create_category(
         return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
 
+    # F-35: validate chime_media_content_id length
+    chime_id = msg.get("chime_media_content_id")
+    if chime_id is not None and isinstance(chime_id, str):
+        if len(chime_id) > MAX_CHIME_MEDIA_CONTENT_ID_LENGTH:
+            connection.send_error(
+                msg["id"], "invalid_chime",
+                f"chime_media_content_id exceeds "
+                f"{MAX_CHIME_MEDIA_CONTENT_ID_LENGTH} characters",
+            )
+            return
+
+    # F-35.2: volume_override — pass through to store. Voluptuous already
+    # validated the range; store enforces sparse storage.
+    volume_override = msg.get("volume_override")
+
     category = await store.async_create_category(
         category_id=category_id,
         name=name,
@@ -141,6 +172,8 @@ async def ws_create_category(
         action_set_id=action_set_id,
         navigate_to=navigate_to,
         expose_in_sensor=expose_in_sensor,
+        chime_media_content_id=chime_id,
+        volume_override=volume_override,
     )
 
     connection.send_result(msg["id"], {"category": category})
@@ -170,6 +203,14 @@ async def ws_create_category(
             None, vol.All(str, vol.Length(max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("chime_media_content_id"): vol.Any(None, str),
+        vol.Optional("volume_override"): vol.Any(
+            None,
+            vol.All(
+                vol.Coerce(float),
+                vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
+            ),
+        ),
     }
 )
 @websocket_api.async_response
@@ -244,7 +285,25 @@ async def ws_update_category(
             return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
 
-    category = await store.async_update_category(
+    # F-35: chime_media_content_id — only forwarded when key is present in msg.
+    # None or "" clears the override; non-empty sets it. Length-validated here.
+    chime_id_present = "chime_media_content_id" in msg
+    chime_id = msg.get("chime_media_content_id") if chime_id_present else None
+    if chime_id_present and chime_id is not None and isinstance(chime_id, str):
+        if len(chime_id) > MAX_CHIME_MEDIA_CONTENT_ID_LENGTH:
+            connection.send_error(
+                msg["id"], "invalid_chime",
+                f"chime_media_content_id exceeds "
+                f"{MAX_CHIME_MEDIA_CONTENT_ID_LENGTH} characters",
+            )
+            return
+
+    # F-35.2: volume_override — present with None clears the key, present
+    # with a numeric value sets it. Voluptuous already enforced range.
+    volume_present = "volume_override" in msg
+    volume_value = msg.get("volume_override") if volume_present else None
+
+    update_kwargs: dict[str, Any] = dict(
         category_id=category_id,
         name=name,
         icon=icon,
@@ -259,6 +318,16 @@ async def ws_update_category(
         navigate_to=navigate_to,
         expose_in_sensor=expose_in_sensor,
     )
+    if chime_id_present:
+        # Pass empty string to explicitly clear; non-empty to set
+        update_kwargs["chime_media_content_id"] = chime_id if chime_id else ""
+    if volume_present:
+        if volume_value is None:
+            update_kwargs["clear_volume_override"] = True
+        else:
+            update_kwargs["volume_override"] = volume_value
+
+    category = await store.async_update_category(**update_kwargs)
 
     # Update service schema if name changed
     if name:

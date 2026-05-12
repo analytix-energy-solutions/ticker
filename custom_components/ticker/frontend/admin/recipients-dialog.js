@@ -8,12 +8,7 @@
 window.Ticker = window.Ticker || {};
 
 window.Ticker.AdminRecipientsDialog = {
-  /**
-   * Render the create/edit dialog overlay.
-   * @param {Object} panel - Admin panel instance
-   * @param {Object|null} existing - Existing recipient for edit, null for create
-   * @returns {string} - HTML string
-   */
+  /** Render the create/edit dialog overlay. */
   render(panel, existing) {
     const { esc, escAttr } = window.Ticker.utils;
     const isEdit = !!existing;
@@ -33,7 +28,12 @@ window.Ticker.AdminRecipientsDialog = {
     const pushFields = this._renderPushFields(panel, selectedServices, format, deviceType);
     const resumeAfterTts = existing ? (existing.resume_after_tts || false) : false;
     const bufferDelay = existing ? (existing.tts_buffer_delay ?? 0) : 0;
-    const ttsFields = this._renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay);
+    // F-35: Pre-TTS chime media_content_id (sparse: missing/empty == no chime)
+    const chimeId = existing ? (existing.chime_media_content_id || '') : '';
+    // F-35.2: volume override (0.0–1.0); null = inherit (no override).
+    const rawVol = existing ? existing.volume_override : null;
+    const volume = (typeof rawVol === 'number' && rawVol >= 0 && rawVol <= 1) ? rawVol : null;
+    const ttsFields = this._renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay, chimeId, volume);
 
     return `
       <div id="recipient-dialog-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)window.Ticker.AdminRecipientsTab.handlers.closeDialog(window.Ticker._adminPanel)">
@@ -75,11 +75,7 @@ window.Ticker.AdminRecipientsDialog = {
     `;
   },
 
-  /**
-   * Render name input and slug preview (BUG-051: auto-derive ID).
-   * On create: name input + read-only slug preview. No manual ID input.
-   * On edit: read-only ID + editable name.
-   */
+  /** BUG-051: name input + slug preview on create; read-only ID + editable name on edit. */
   _renderNameSection(isEdit, existing, escAttr, name) {
     if (isEdit) {
       return `
@@ -175,8 +171,8 @@ window.Ticker.AdminRecipientsDialog = {
     `;
   },
 
-  /** Render TTS-specific fields: media player entity + TTS service + resume toggle. */
-  _renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay) {
+  /** Render TTS-specific fields: media player entity + TTS service + resume toggle + chime. */
+  _renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay, chimeId, volumeOverride) {
     const { esc } = window.Ticker.utils;
     const ttsOptions = panel._ttsOptions || { media_players: [], tts_services: [] };
     const ns = 'window.Ticker.AdminRecipientsDialog';
@@ -235,15 +231,103 @@ window.Ticker.AdminRecipientsDialog = {
         <input type="number" id="dlg-tts-buffer-delay" min="0" max="10" step="0.5" value="${bufferDelay}" style="width:80px;padding:6px 8px;border-radius:4px;border:1px solid var(--divider);background:var(--bg-card);color:var(--text-primary)">
         <p style="margin:4px 0 0;font-size:11px;color:var(--text-secondary)">Chromecast / Cast devices may need a delay before TTS playback to avoid silent output. Set 2-3s for Chromecast. Leave at 0 for devices that work without delay.</p>
       </div>
+      ${window.Ticker.AdminVolumeOverride.render('dlg', volumeOverride)}
+      ${this._renderChimeSection(escAttr, chimeId || '')}
     `;
   },
 
-  /**
-   * Build announce support indicator HTML for a given media player entity.
-   * @param {Object} ttsOptions - TTS options with media_players array
-   * @param {string} entityId - Selected media player entity ID
-   * @returns {string} - HTML string
-   */
+  /** F-35 / F-35.1: Pre-TTS Chime picker (bundled chips + URL field + Test). */
+  _renderChimeSection(escAttr, chimeId) {
+    const ns = 'window.Ticker.AdminRecipientsDialog';
+    const handlersNs = 'window.Ticker.AdminRecipientsTab.handlers';
+    const hasChime = !!(chimeId && chimeId.trim());
+    const displayValue = hasChime ? chimeId : '';
+    const presets = this._renderChimePresets(escAttr, chimeId || '');
+    return `
+      <div style="margin-top:12px;margin-bottom:12px;padding:8px;border:1px solid var(--divider);border-radius:4px">
+        <label style="display:block;margin-bottom:4px;font-size:13px;color:var(--text-primary);font-weight:600">Pre-TTS Chime</label>
+        ${presets}
+        <input type="hidden" id="dlg-chime-id" value="${escAttr(chimeId || '')}">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+          <input class="form-input" id="dlg-chime-display" value="${escAttr(displayValue)}" placeholder="media-source://media_source/local/chimes/ding.mp3" style="flex:1" oninput="${ns}.onChimeInput(window.Ticker._adminPanel)">
+          <button type="button" class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="${ns}.clearChime(window.Ticker._adminPanel)">Clear</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button type="button" id="dlg-chime-test" class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="${handlersNs}.testChime(window.Ticker._adminPanel)" ${hasChime ? '' : 'disabled'}>Test Chime</button>
+          <span style="font-size:11px;color:var(--text-secondary)">Plays before TTS. Leave empty for none. Some TTS engines (e.g. Amazon Alexa) play their own tone — leave empty to avoid a double chime.</span>
+        </div>
+      </div>
+    `;
+  },
+
+  /** F-35.1: Render bundled-chime chips; hidden when panel._bundledChimes is empty. */
+  _renderChimePresets(escAttr, currentChime) {
+    const panel = window.Ticker._adminPanel;
+    const list = (panel && panel._bundledChimes) || [];
+    if (!list.length) {
+      return `<div id="dlg-chime-presets" class="ticker-chime-presets" style="display:none"></div>`;
+    }
+    const ns = 'window.Ticker.AdminRecipientsDialog';
+    const chips = list.map(c => {
+      const active = currentChime && currentChime === c.url ? ' active' : '';
+      return `<button type="button" class="ticker-chime-chip${active}" data-chime-url="${escAttr(c.url)}" onclick="${ns}.pickBundledChime(window.Ticker._adminPanel, '${escAttr(c.url)}')">${escAttr(c.label)}</button>`;
+    }).join('');
+    return `<div id="dlg-chime-presets" class="ticker-chime-presets">${chips}</div>`;
+  },
+
+  /** F-35.1: Apply a bundled chime URL verbatim to the dialog inputs. */
+  pickBundledChime(panel, url) {
+    const container = panel.shadowRoot.getElementById('ticker-dialog-container');
+    if (!container) return;
+    const hidden = container.querySelector('#dlg-chime-id');
+    const display = container.querySelector('#dlg-chime-display');
+    const test = container.querySelector('#dlg-chime-test');
+    if (hidden) hidden.value = url;
+    if (display) display.value = url;
+    const mp = container.querySelector('#dlg-media-player');
+    if (test) test.disabled = !(url && mp && mp.value);
+    this._refreshChimeChipActive(container, url);
+  },
+
+  /** F-35.1: Toggle the .active class on whichever chip URL matches. */
+  _refreshChimeChipActive(container, url) {
+    const chips = container.querySelectorAll('#dlg-chime-presets .ticker-chime-chip');
+    chips.forEach(chip => {
+      chip.classList.toggle('active', chip.dataset.chimeUrl === url);
+    });
+  },
+
+  /** F-35: Sync hidden input with display field, refresh Test button enabled state. */
+  onChimeInput(panel) {
+    const container = panel.shadowRoot.getElementById('ticker-dialog-container');
+    if (!container) return;
+    const display = container.querySelector('#dlg-chime-display');
+    const hidden = container.querySelector('#dlg-chime-id');
+    const test = container.querySelector('#dlg-chime-test');
+    if (!display || !hidden || !test) return;
+    hidden.value = display.value || '';
+    const mp = container.querySelector('#dlg-media-player');
+    const enabled = !!(hidden.value.trim()) && !!(mp && mp.value);
+    test.disabled = !enabled;
+    // F-35.1: keep bundled-chime chip highlight in sync with manual edits.
+    this._refreshChimeChipActive(container, hidden.value);
+  },
+
+  /** F-35: Clear both display and hidden chime inputs. */
+  clearChime(panel) {
+    const container = panel.shadowRoot.getElementById('ticker-dialog-container');
+    if (!container) return;
+    const display = container.querySelector('#dlg-chime-display');
+    const hidden = container.querySelector('#dlg-chime-id');
+    const test = container.querySelector('#dlg-chime-test');
+    if (display) display.value = '';
+    if (hidden) hidden.value = '';
+    if (test) test.disabled = true;
+    // F-35.1: clear the active chip when the field is wiped.
+    this._refreshChimeChipActive(container, '');
+  },
+
+  /** Build announce support indicator HTML for a given media player entity. */
   _getAnnounceIndicator(ttsOptions, entityId) {
     if (!entityId) return '';
     const mp = (ttsOptions.media_players || []).find(m => m.entity_id === entityId);
@@ -263,13 +347,16 @@ window.Ticker.AdminRecipientsDialog = {
     if (!select || !indicator) return;
     const ttsOptions = panel._ttsOptions || { media_players: [], tts_services: [] };
     indicator.innerHTML = this._getAnnounceIndicator(ttsOptions, select.value);
+    // F-35: Test Chime enabled state depends on both fields being set
+    const hidden = container.querySelector('#dlg-chime-id');
+    const test = container.querySelector('#dlg-chime-test');
+    if (hidden && test) {
+      const enabled = !!(hidden.value && hidden.value.trim()) && !!select.value;
+      test.disabled = !enabled;
+    }
   },
 
-  /**
-   * Check whether any push-specific fields have user-entered values.
-   * Checks checkboxes (spec-required) and also guards the delivery format
-   * selection to prevent silent data loss when switching device types.
-   */
+  /** Whether any push-specific fields have user-entered values (guard for type switch). */
   _hasPushValues(container) {
     const checkedServices = container.querySelectorAll('#dlg-service-list input[type="checkbox"]:checked');
     if (checkedServices.length > 0) return true;
@@ -278,11 +365,7 @@ window.Ticker.AdminRecipientsDialog = {
     return false;
   },
 
-  /**
-   * Check whether any TTS-specific fields have user-entered values.
-   * Checks the spec-required media player and TTS service dropdowns,
-   * plus the resume_after_tts toggle.
-   */
+  /** Whether any TTS-specific fields have user-entered values (guard for type switch). */
   _hasTtsValues(container) {
     const mp = container.querySelector('#dlg-media-player');
     if (mp && mp.value) return true;
@@ -291,6 +374,8 @@ window.Ticker.AdminRecipientsDialog = {
     const resume = container.querySelector('#dlg-resume-tts');
     if (resume && resume.checked) return true;
     if (parseFloat(container.querySelector('#dlg-tts-buffer-delay')?.value) > 0) return true;
+    const chime = container.querySelector('#dlg-chime-id');
+    if (chime && chime.value && chime.value.trim()) return true;
     return false;
   },
 
@@ -316,13 +401,18 @@ window.Ticker.AdminRecipientsDialog = {
     if (indicator) indicator.innerHTML = '';
     const bufferEl = container.querySelector('#dlg-tts-buffer-delay');
     if (bufferEl) bufferEl.value = '0';
+    // F-35: also clear the chime fields
+    const chimeDisplay = container.querySelector('#dlg-chime-display');
+    if (chimeDisplay) chimeDisplay.value = '';
+    const chimeHidden = container.querySelector('#dlg-chime-id');
+    if (chimeHidden) chimeHidden.value = '';
+    const chimeTest = container.querySelector('#dlg-chime-test');
+    if (chimeTest) chimeTest.disabled = true;
+    // F-35.1: clear active chip state
+    this._refreshChimeChipActive(container, '');
   },
 
-  /**
-   * Handle device type radio change: show/hide field groups.
-   * If the previous type had user-entered values, prompt for confirmation
-   * before switching and clearing those values.
-   */
+  /** Handle device type radio change: show/hide field groups; confirm if losing data. */
   onDeviceTypeChange(panel) {
     const container = panel.shadowRoot.getElementById('ticker-dialog-container');
     if (!container) return;
@@ -363,11 +453,7 @@ window.Ticker.AdminRecipientsDialog = {
     ttsFields.style.display = newType === 'tts' ? 'block' : 'none';
   },
 
-  /**
-   * Show an error message inside the dialog overlay (BUG-062).
-   * @param {Object} panel - Admin panel instance
-   * @param {string} message - Error message to display
-   */
+  /** Show an error message inside the dialog overlay (BUG-062). */
   showDialogError(panel, message) {
     const container = panel.shadowRoot.getElementById('ticker-dialog-container');
     if (!container) return;
@@ -375,10 +461,7 @@ window.Ticker.AdminRecipientsDialog = {
     if (el) { el.textContent = message; el.style.display = 'block'; }
   },
 
-  /**
-   * Clear the dialog error message (BUG-062).
-   * @param {Object} panel - Admin panel instance
-   */
+  /** Clear the dialog error message (BUG-062). */
   clearDialogError(panel) {
     const container = panel.shadowRoot.getElementById('ticker-dialog-container');
     if (!container) return;
@@ -386,10 +469,7 @@ window.Ticker.AdminRecipientsDialog = {
     if (el) { el.style.display = 'none'; el.textContent = ''; }
   },
 
-  /**
-   * Switch between Settings and Conditions tabs in the dialog.
-   * @param {string} name - Tab name: 'settings' or 'conditions'
-   */
+  /** Switch between Settings and Conditions tabs in the dialog. */
   switchTab(name) {
     const root = window.Ticker._adminPanel.shadowRoot;
     const container = root.getElementById('ticker-dialog-container');

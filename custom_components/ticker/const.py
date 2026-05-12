@@ -129,6 +129,54 @@ TTS_BUFFER_DELAY_DEFAULT = 0.0
 # MediaPlayerEntityFeature.MEDIA_ANNOUNCE (HA 2024.1+)
 MEDIA_ANNOUNCE_FEATURE = 524288
 
+# F-35: Pre-TTS Chime
+# Hard cap (seconds) for waiting on the chime media to finish playing
+# before kicking off the TTS service call. Most chime assets are
+# 0.5–3 seconds; 10s tolerates a slow Chromecast buffer + 3s jingle.
+CHIME_WAIT_TIMEOUT = 10.0
+# Fixed delay (seconds) between the chime play_media call and the TTS
+# service call. State polling (`_wait_for_state_exit`) was unreliable
+# across platforms — HA Voice in particular keeps the entity in
+# "playing" through the chime/TTS swap, while other platforms briefly
+# transition to "paused". A fixed delay covers all three bundled chimes
+# (max 1.7s) plus a buffer before TTS audio starts on the device.
+# 3.0s gives ~1.3s of silence between the longest bundled chime and the
+# TTS audio (which starts ~0.2-0.5s after tts.cloud_say is invoked on
+# warm Nabu connections). Chime assets longer than this gap will
+# overlap with TTS — documented limitation.
+CHIME_TTS_GAP = 3.0
+ATTR_CHIME_MEDIA_CONTENT_ID = "chime_media_content_id"
+MAX_CHIME_MEDIA_CONTENT_ID_LENGTH = 500
+
+# F-35.2: Volume Override
+# Admin-configurable volume for the chime+TTS pair. Range mirrors HA's
+# media_player.volume_set service: 0.0–1.0. Two-level config (recipient
+# default + category override) using the same resolver shape as chime.
+# Sparse storage — omitted when None/empty so existing recipients and
+# categories load with no volume override (current behavior preserved).
+ATTR_VOLUME_OVERRIDE = "volume_override"
+VOLUME_OVERRIDE_MIN = 0.0
+VOLUME_OVERRIDE_MAX = 1.0
+# Settle delay (seconds) after media_player.volume_set before issuing the
+# next service call. Sonos in particular needs ~150-250ms for the new
+# volume to take effect on the cached connector before play_media starts;
+# without it the chime can play at the previous volume level.
+VOLUME_SET_SETTLE_DELAY = 0.2
+
+# F-35.1: Bundled Default Chimes
+# Three CC0 / synthesized chime assets shipped in-tree so the Pre-TTS
+# Chime feature is functional out-of-box. Files live under
+# custom_components/ticker/static/chimes/ and are served via a static
+# HTTP path registered in __init__.py. The picker writes the absolute
+# URL composed from HA's external/internal URL into chime_media_content_id —
+# bundled chimes use the same delivery path as user-supplied assets.
+STATIC_CHIMES_PATH = "/ticker_static/chimes"
+BUNDLED_CHIMES = [
+    {"id": "subtle", "label": "Subtle ding", "filename": "subtle.wav"},
+    {"id": "alert", "label": "Alert tone", "filename": "alert.wav"},
+    {"id": "doorbell", "label": "Doorbell", "filename": "doorbell.wav"},
+]
+
 # Delivery format constants
 DELIVERY_FORMAT_RICH = "rich"
 DELIVERY_FORMAT_PLAIN = "plain"

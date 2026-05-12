@@ -42,6 +42,7 @@ from .const import (
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
     PANEL_USER_TITLE,
+    STATIC_CHIMES_PATH,
 )
 from .store import TickerStore
 from .actions import async_setup_action_listener
@@ -335,18 +336,28 @@ def get_entry(hass: HomeAssistant) -> TickerConfigEntry | None:
 async def _async_register_static_paths(hass: HomeAssistant) -> None:
     """Register static paths for frontend files."""
     frontend_path = Path(__file__).parent / "frontend"
+    chimes_path = Path(__file__).parent / "static" / "chimes"
 
-    # Register the frontend directory as a static path
+    # Register the frontend directory as a static path. The bundled chime
+    # assets (F-35.1) are served from a sibling path so user-supplied chime
+    # media_content_id values and bundled defaults share an identical
+    # delivery path — bundled chimes are just absolute URLs.
     await hass.http.async_register_static_paths(
         [
             frontend.StaticPathConfig(
                 FRONTEND_URL_BASE,
                 str(frontend_path),
                 cache_headers=False,  # Disable caching during development
-            )
+            ),
+            frontend.StaticPathConfig(
+                STATIC_CHIMES_PATH,
+                str(chimes_path),
+                cache_headers=True,  # Bundled assets are immutable per release
+            ),
         ]
     )
     _LOGGER.debug("Registered static path %s -> %s", FRONTEND_URL_BASE, frontend_path)
+    _LOGGER.debug("Registered static path %s -> %s", STATIC_CHIMES_PATH, chimes_path)
 
 
 async def _async_register_panels(hass: HomeAssistant) -> None:
