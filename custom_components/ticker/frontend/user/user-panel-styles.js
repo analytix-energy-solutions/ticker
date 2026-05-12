@@ -205,4 +205,10 @@ window.Ticker.userPanelStyles = `
   .no-person-state { text-align: center; padding: 40px; }
   .no-person-state h3 { color: var(--text-primary); margin: 0 0 8px 0; }
   .no-person-state p { color: var(--text-secondary); margin: 0; }
+
+  /* BUG-107: Terminal-card escape button focus ring (keyboard / screen reader) */
+  .terminal-card-btn:focus-visible {
+    outline: 2px solid var(--ticker-400);
+    outline-offset: 2px;
+  }
 `;
