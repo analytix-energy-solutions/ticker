@@ -363,6 +363,16 @@ class TickerPanel extends HTMLElement {
     }
   }
 
+  // BUG-107: Terminal-card render + escape navigation live in
+  // window.Ticker.UserRecoveryHandlers (user/recovery-handlers.js) to
+  // keep this file under the 500-line cap.
+  _renderTerminalCard(title, message, stateClass) {
+    return window.Ticker.UserRecoveryHandlers.renderTerminalCard(title, message, stateClass);
+  }
+  _returnToDashboard() {
+    window.Ticker.UserRecoveryHandlers.returnToDashboard();
+  }
+
   _renderTabContent() {
     if (!this._els) return;
     if (this._loading) {
@@ -380,25 +390,17 @@ class TickerPanel extends HTMLElement {
     }
     this._els.loadingArea.innerHTML = '';
     if (this._error) {
-      this._els.tabContent.innerHTML = `
-        <div class="card">
-          <div class="error-state">
-            <p>Error: ${window.Ticker.utils.esc(this._error)}</p>
-          </div>
-        </div>
-      `;
+      this._els.tabContent.innerHTML = this._renderTerminalCard(
+        'Error', `Error: ${this._error}`, 'error-state');
+      this.shadowRoot.querySelector('.terminal-card-btn')?.focus();
       return;
     }
     if (!this._currentPerson) {
-      this._els.tabContent.innerHTML = `
-        <div class="card">
-          <div class="no-person-state">
-            <h3>No Person Entity Found</h3>
-            <p>Your Home Assistant user account is not linked to a person entity.<br>
-            Ask an administrator to link your account in Settings → People.</p>
-          </div>
-        </div>
-      `;
+      this._els.tabContent.innerHTML = this._renderTerminalCard(
+        'No Person Entity Found',
+        'Your Home Assistant user account is not linked to a person entity. Ask an administrator to link your account in Settings → People.',
+        'no-person-state');
+      this.shadowRoot.querySelector('.terminal-card-btn')?.focus();
       return;
     }
     // Render tabs bar
