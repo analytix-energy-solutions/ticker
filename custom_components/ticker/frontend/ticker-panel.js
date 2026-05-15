@@ -231,12 +231,16 @@ class TickerPanel extends HTMLElement {
   }
 
   _loadEntities() {
+    // F-37: enrich with domain/state/options/hvac_modes/device_class so the
+    // conditions UI can suggest valid state values. Missing attrs = undefined.
     try {
       const states = this._hass.states;
-      this._entities = Object.keys(states).map(entityId => ({
-        entity_id: entityId,
-        name: states[entityId].attributes.friendly_name || entityId,
-      })).sort((a, b) => a.name.localeCompare(b.name));
+      this._entities = Object.keys(states).map(eid => {
+        const a = states[eid].attributes || {};
+        return { entity_id: eid, name: a.friendly_name || eid,
+          domain: eid.split('.', 1)[0], state: states[eid].state,
+          options: a.options, hvac_modes: a.hvac_modes, device_class: a.device_class };
+      }).sort((a, b) => a.name.localeCompare(b.name));
     } catch (err) {
       console.error('Failed to load entities:', err);
       this._entities = [];

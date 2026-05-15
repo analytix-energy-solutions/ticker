@@ -169,24 +169,78 @@ class TickerConditionsUI extends HTMLElement {
     }}
     const newDom=(value||'').split('.')[0];
     if(newDom!==oldDom){const sel=this.shadowRoot.getElementById(`state-select-${pid}`);
-      if(sel){const sg=this._stateSugg(value),cur=this._getNode(path).state||'',hc=!cur||sg.includes(cur);
+      if(sel){const ent=this._findEntity(value);
+        const sg=TickerConditionsUI.getStateOptions(ent,this._zones).values;
+        const cur=this._getNode(path).state||'',hc=!cur||sg.includes(cur);
         let h='<option value="">Select state...</option>';
         if(cur&&!hc)h+=`<option value="${this._escAttr(cur)}" selected>${this._esc(cur)}</option>`;
         h+=sg.map(s=>`<option value="${this._escAttr(s)}" ${s===cur?'selected':''}>${this._esc(s)}</option>`).join('');
         sel.innerHTML=h;}}
   }
   _zoneName(id) { const z=this._zones.find(z=>z.zone_id===id); return z?z.name:id.replace('zone.',''); }
-  _stateSugg(eid) {
-    if(!eid)return['on','off']; const d=eid.split('.')[0];
-    const m={'binary_sensor':['on','off'],'switch':['on','off'],'light':['on','off'],'fan':['on','off'],
-      'input_boolean':['on','off'],'lock':['locked','unlocked'],'cover':['open','closed','opening','closing'],
-      'alarm_control_panel':['armed_away','armed_home','armed_night','disarmed','triggered'],
-      'climate':['off','heat','cool','heat_cool','auto','dry','fan_only'],
-      'media_player':['off','on','playing','paused','idle','standby'],
-      'vacuum':['cleaning','docked','idle','paused','returning'],
-      'person':['home','not_home','away'],'device_tracker':['home','not_home','away'],
-      'sun':['above_horizon','below_horizon'],'weather':['sunny','cloudy','partlycloudy','rainy','snowy','fog']};
-    return m[d]||['on','off'];
+  _findEntity(eid) { return eid ? this._entities.find(e => e.entity_id === eid) : undefined; }
+  /**
+   * F-37: Compute datalist suggestions for the state field given an enriched
+   * entity object ({entity_id, name, domain, state, options, hvac_modes,
+   * device_class}) and the panel's zones array. Returns
+   * {values: string[], freeform: boolean}.
+   *
+   * Per-domain dispatch with defensive fallback to current state when an
+   * attribute-driven domain (input_select/select/climate) is missing the
+   * expected attribute. Defensive: undefined entity => {values:[], freeform:true}.
+   *
+   * Note: climate uses `hvac_modes` (state values). `hvac_action` is a
+   * separate attribute with its own enum (heating/cooling/idle/off/fan/
+   * defrosting/preheating/drying) — out of scope for F-37 since the state
+   * field compares the entity state, not arbitrary attributes.
+   */
+  static getStateOptions(entity, zones) {
+    if (!entity) return { values: [], freeform: true };
+    const d = entity.domain || (entity.entity_id || '').split('.')[0];
+    const fallback = () => entity.state ? [entity.state] : [];
+    switch (d) {
+      case 'input_boolean': case 'switch': case 'light': case 'fan':
+      case 'automation': case 'script': case 'update': case 'remote':
+      case 'siren': case 'binary_sensor':
+        return { values: ['on', 'off'], freeform: false };
+      case 'input_select': case 'select':
+        return Array.isArray(entity.options)
+          ? { values: entity.options.slice(), freeform: false }
+          : { values: fallback(), freeform: true };
+      case 'lock':
+        return { values: ['locked','unlocked','locking','unlocking','jammed'], freeform: false };
+      case 'cover':
+        return { values: ['open','closed','opening','closing','stopped'], freeform: false };
+      // climate: state values come from hvac_modes (entity-specific).
+      case 'climate':
+        return Array.isArray(entity.hvac_modes)
+          ? { values: entity.hvac_modes.slice(), freeform: false }
+          : { values: fallback(), freeform: true };
+      case 'media_player':
+        return { values: ['playing','paused','idle','off','on','standby','buffering'], freeform: false };
+      case 'alarm_control_panel':
+        return { values: ['disarmed','armed_home','armed_away','armed_night','armed_vacation','armed_custom_bypass','pending','triggered','arming','disarming'], freeform: false };
+      case 'vacuum':
+        return { values: ['cleaning','docked','idle','paused','returning','error'], freeform: false };
+      case 'weather':
+        return { values: ['sunny','cloudy','partlycloudy','rainy','pouring','snowy','snowy-rainy','lightning','lightning-rainy','hail','exceptional','fog','windy','windy-variant','clear-night'], freeform: false };
+      case 'timer':
+        return { values: ['idle','active','paused'], freeform: false };
+      case 'sun':
+        return { values: ['above_horizon','below_horizon'], freeform: false };
+      case 'person': case 'device_tracker': {
+        const vals = ['home', 'not_home'];
+        const seen = new Set(vals);
+        for (const z of (zones || [])) {
+          const zid = z && z.zone_id ? z.zone_id : '';
+          const name = zid.startsWith('zone.') ? zid.slice(5) : zid;
+          if (name && !seen.has(name)) { seen.add(name); vals.push(name); }
+        }
+        return { values: vals, freeform: true };
+      }
+      default:
+        return { values: fallback(), freeform: true };
+    }
   }
   _typeName(t) { return {zone:'Zone',time:'Time',state:'Entity State'}[t]||t; }
   _summary(r) {
@@ -305,13 +359,19 @@ class TickerConditionsUI extends HTMLElement {
         `<input type="time" class="time-input" value="${this._escAttr(rule.after||'08:00')}" data-time-after-path='${ps}' ${da}>`+
         `<span class="time-separator">to</span><input type="time" class="time-input" value="${this._escAttr(rule.before||'22:00')}" data-time-before-path='${ps}' ${da}>`+
         `</div></div><div class="form-group"><label class="form-label">Days</label><div class="days-selector">${db}</div></div></div>`;}
-    if(rule.type==='state'){const pid=ps.replace(/[\[\],]/g,'_'),sg=this._stateSugg(rule.entity_id),cur=rule.state||'',hc=!cur||sg.includes(cur);
+    if(rule.type==='state'){const pid=ps.replace(/[\[\],]/g,'_');
+      const ent=this._findEntity(rule.entity_id);
+      const sg=TickerConditionsUI.getStateOptions(ent,this._zones).values;
+      const cur=rule.state||'',hc=!cur||sg.includes(cur);
       const co=!hc?`<option value="${this._escAttr(cur)}" selected>${this._esc(cur)}</option>`:'';
       const so=sg.map(s=>`<option value="${this._escAttr(s)}" ${s===cur?'selected':''}>${this._esc(s)}</option>`).join('');
+      // F-37: state help text is always rendered (sibling of form-row, untouched
+      // by _onEntityInput which only rewrites the select's innerHTML).
       return `<div class="rule-content"><div class="form-row"><div class="form-group" style="flex:2"><label class="form-label">Entity</label>`+
         `<input type="text" class="form-input" list="entity-list-${pid}" id="entity-input-${pid}" placeholder="Start typing to search..." value="${this._escAttr(rule.entity_id||'')}" data-entity-path='${ps}' ${da}>`+
         `<datalist id="entity-list-${pid}"></datalist></div><div class="form-group" style="flex:1"><label class="form-label">State</label>`+
-        `<select class="form-select" id="state-select-${pid}" data-state-path='${ps}' ${da}><option value=""${!cur?' selected':''}>Select state...</option>${co}${so}</select></div></div></div>`;}
+        `<select class="form-select" id="state-select-${pid}" data-state-path='${ps}' ${da}><option value=""${!cur?' selected':''}>Select state...</option>${co}${so}</select></div></div>`+
+        `<div class="state-help-text">Suggestions are based on the selected entity. Any value is accepted.</div></div>`;}
     return '';
   }
   _infoText() {
