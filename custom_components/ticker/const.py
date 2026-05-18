@@ -175,10 +175,12 @@ BUNDLED_CHIMES = [
     {"id": "subtle", "label": "Subtle ding", "filename": "subtle.wav"},
     {"id": "alert", "label": "Alert tone", "filename": "alert.wav"},
     {"id": "doorbell", "label": "Doorbell", "filename": "doorbell.wav"},
-    # BUG-110 workaround variants: ~1.5s of leading silence prepended so
+    # BUG-110 workaround variants: 2.5s of leading silence prepended so
     # Cast Default Media Receiver's swallow window consumes the silence
-    # instead of the audible chime body. Manual user selection — Ticker
-    # does not auto-route by device platform.
+    # instead of the audible chime body (bumped from 1.5s in v1.7.0b22
+    # after in-room verification on prod kitchen_chromecast still showed
+    # clipping at the start). Manual user selection — Ticker does not
+    # auto-route by device platform.
     {
         "id": "chromecast_subtle",
         "label": "(Chromecast) Subtle ding",
