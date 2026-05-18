@@ -181,7 +181,11 @@ Update any automations using `ticker.notify` before removing. Then delete the in
 
 ## License
 
-GPL-3.0
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+Releases prior to v1.7.0 (v1.0.0 through v1.6.2) were licensed under GPL-3.0
+and remain available under that license; the relicense applies to v1.7.0
+and later.
 
 ## Support Ticker
 
