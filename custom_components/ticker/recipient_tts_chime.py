@@ -27,6 +27,7 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 
 from .const import (
     CHIME_WAIT_TIMEOUT,
@@ -38,6 +39,39 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# BUG-109 iteration 2: cast-platform detection
+# ---------------------------------------------------------------------------
+
+
+async def _is_cast_target(hass: HomeAssistant, entity_id: str) -> bool:
+    """Return True if entity_id is served by the cast platform.
+
+    BUG-109: Chromecast/Google Cast devices have a per-media-app volume
+    context that differs from the receiver-level volume. A volume_set
+    issued before play_media is applied to the previous (now-leaving)
+    app context and does not affect the freshly-loaded chime/TTS app.
+    The cast-aware delivery path defers volume_set to AFTER each
+    play_media + state=playing transition. Non-cast platforms use the
+    original simpler pre-set pattern.
+
+    Detection uses the entity registry — the authoritative source for
+    which integration owns an entity. We import ``entity_registry`` at
+    call time (rather than module top-level) only for the lookup itself;
+    the import is at module top so we mirror the pattern used elsewhere
+    in the codebase (discovery.py, formatting.py, actions.py).
+    """
+    try:
+        registry = er.async_get(hass)
+        entry = registry.async_get(entity_id)
+        return entry is not None and entry.platform == "cast"
+    except Exception:  # noqa: BLE001
+        # Defensive: any registry lookup failure (mock states, test
+        # harness without registry, hass not yet started) defaults to
+        # non-cast so we use the simpler delivery path.
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -81,6 +115,15 @@ async def _wait_for_chime_complete(
     def _is_chime_now() -> bool:
         state = hass.states.get(entity_id)
         if not state:
+            return False
+        # BUG-110 b21 (Issue 2): Chromecast keeps the chime URL in
+        # ``media_content_id`` after audio ends — content_id alone made
+        # this poll wait the full CHIME_WAIT_TIMEOUT (10s) ceiling on
+        # cast, producing an ~8s silent gap between chime end and TTS
+        # start. State is the reliable signal: if the entity is not
+        # actively playing/buffering the chime is over, regardless of
+        # what content_id still reports.
+        if state.state not in ("playing", "buffering"):
             return False
         current = state.attributes.get("media_content_id") or ""
         return chime_marker in current or current == chime_url
@@ -165,29 +208,70 @@ async def _play_chime(
     override volume, plays the chime, waits for it to finish, and
     restores the snapshotted volume — local to this helper so isolated
     callers (test chime path) don't leave the device's volume changed.
+
+    BUG-109 iteration 3 (v1.7.0b17): Cast targets now PRE-SET the
+    override volume via the jiggle helper BEFORE ``play_media`` so the
+    chime app loads at the override gain (iteration 2's deferred-only
+    pattern left the chime's first ~0.5-1s at the wrong volume — a
+    devastating regression for short chime audio). Non-cast platforms
+    continue with the simpler single pre-set pattern.
     """
     # F-35.2 cold-device consistency (FIX-001 Option A): only apply the
     # override when we successfully captured a snapshot. Cold devices
     # (no volume_level attribute, e.g. idle/off speakers) silently skip
     # the override so we never leave the device's volume permanently
-    # changed. Mirrors `_deliver_tts_with_restore`.
+    # changed.
     snapshot_volume: float | None = None
     if volume_level is not None and _is_valid_volume(volume_level):
         snapshot_volume = _snapshot_volume(hass, entity_id)
-        if snapshot_volume is not None:
-            await _set_volume(hass, entity_id, float(volume_level))
-        else:
+        if snapshot_volume is None:
             _LOGGER.debug(
                 "Skipping volume override on %s — no volume_level "
                 "attribute (likely cold device)",
                 entity_id,
             )
 
+    is_cast = await _is_cast_target(hass, entity_id)
+
+    # Pre-set override BEFORE play_media so the chime app loads at the
+    # target volume. Cast uses the jiggle helper to defeat cast's
+    # internal volume cache. BUG-110 b21 (Issue 1): drop the trailing
+    # settle on the target volume_set — play_media's context switch
+    # supersedes any settle, and skipping it shrinks the audible window
+    # where the still-playing prior media is at the override volume by
+    # ~200ms. Non-cast platforms don't have the per-app reset so use
+    # the simple single set.
+    if snapshot_volume is not None:
+        if is_cast:
+            # BUG-110 b23 (Issue 1 follow-up): pause the still-playing
+            # prior media before the jiggle so no audible window exists
+            # at the override gain. play_media below resumes audio at
+            # the new gain. Gated to cast since pause+jiggle+play is a
+            # cast-specific cure for cast's per-app-volume reset.
+            await _set_volume_with_jiggle(
+                hass, entity_id, float(volume_level),
+                skip_final_settle=True,
+                pause_before_jiggle=True,
+            )
+        else:
+            await _set_volume(hass, entity_id, float(volume_level))
+
     try:
         _LOGGER.debug(
-            "Pre-TTS chime: calling play_media on %s (chime=%s, announce=%s)",
-            entity_id, chime_id, announce,
+            "Pre-TTS chime: calling play_media on %s (chime=%s, announce=%s, "
+            "cast=%s)",
+            entity_id, chime_id, announce, is_cast,
         )
+        # BUG-110 (WONTFIX, v1.7.0b20): Cast's Default Media Receiver has
+        # a ~1-2s swallow window when loading a new media context. For a
+        # ~1.5s chime on Cast targets that lack MEDIA_ANNOUNCE feature
+        # the audible portion lands inside that window. Two experimental
+        # workarounds (b18: audio/wav + announce=True; b19: extra.
+        # stream_type=LIVE) were tested in-room and either had no effect
+        # or caused regressions in TTS audibility. Reverted to baseline:
+        # the cast branch is bit-identical to the non-cast branch for
+        # play_media. The swallow is an upstream Cast platform limitation
+        # — see BUGS.md BUG-110 for documented user-side workarounds.
         try:
             await asyncio.wait_for(
                 hass.services.async_call(
@@ -219,7 +303,12 @@ async def _play_chime(
         await _wait_for_chime_complete(hass, entity_id, chime_id)
     finally:
         if snapshot_volume is not None:
-            await _set_volume(hass, entity_id, snapshot_volume)
+            # Cast: use jiggle for restore (still needs the cache-busting
+            # double-set pattern). Non-cast: simple single set.
+            if is_cast:
+                await _set_volume_with_jiggle(hass, entity_id, snapshot_volume)
+            else:
+                await _set_volume(hass, entity_id, snapshot_volume)
 
 
 # ---------------------------------------------------------------------------
@@ -270,12 +359,22 @@ async def _set_volume(
     hass: HomeAssistant,
     entity_id: str,
     volume_level: float,
+    settle: bool = True,
 ) -> bool:
     """F-35.2: Call ``media_player.volume_set`` fail-soft.
 
-    Returns True if the call succeeded (and we slept for the settle
-    delay), False if it raised. Failures log a warning but never
-    propagate — callers continue with chime+TTS at the current volume.
+    Returns True if the call succeeded, False if it raised. Failures
+    log a warning but never propagate — callers continue with
+    chime+TTS at the current volume.
+
+    ``settle``: when True (default) sleep ``VOLUME_SET_SETTLE_DELAY``
+    after the service call so platforms like Sonos see the new volume
+    on the next call. When False, skip the trailing sleep — used by
+    the BUG-110 b21 (Issue 1) "skip_final_settle" path on cast pre-set
+    sites where the caller is about to invoke ``play_media``, which
+    triggers its own context switch and renders the settle wasteful
+    (the audible window where the still-playing prior media is at the
+    override volume is shortened by ~200ms).
     """
     try:
         await asyncio.wait_for(
@@ -294,5 +393,100 @@ async def _set_volume(
         return False
     # Some platforms (Sonos) need a moment to apply the change before the
     # next service call sees the new volume.
-    await asyncio.sleep(VOLUME_SET_SETTLE_DELAY)
+    if settle:
+        await asyncio.sleep(VOLUME_SET_SETTLE_DELAY)
     return True
+
+
+async def _set_volume_with_jiggle(
+    hass: HomeAssistant,
+    entity_id: str,
+    volume_level: float,
+    skip_final_settle: bool = False,
+    pause_before_jiggle: bool = False,
+) -> bool:
+    """Set volume reliably across cast platforms via a two-step pattern.
+
+    Cast devices (Chromecast, Google Home) cache their volume internally
+    and may ignore ``volume_set`` calls when the requested value matches
+    that internal cache — even when HA's ``volume_level`` attribute shows
+    a different value, because HA's view can desync from the cast
+    device's actual state.
+
+    The fix Hans empirically validated in a prior automation: send a
+    distinct intermediate value ("jiggle") first, then the real target.
+    Cast sees two transitions and physically applies the second one.
+
+    Jiggle magnitude per Hans's working pattern: ``target - 0.25`` (or
+    ``target + 0.25`` when target is too small to subtract from). On
+    non-cast platforms the extra service call is wasted but harmless;
+    we accept the small inefficiency for cross-platform reliability.
+
+    ``skip_final_settle`` (BUG-110 b21, Issue 1): when True the trailing
+    settle sleep after the TARGET call is skipped. The mid-jiggle settle
+    is preserved unconditionally — cast needs to register the distinct
+    intermediate value or it collapses the pair into one transition.
+    Callers should pass True only when about to invoke ``play_media``
+    immediately after; play_media's context switch supersedes the
+    settle and the saved ~200ms shrinks the audible window where the
+    still-playing prior media plays at the override volume. Cast
+    acknowledges ``volume_set`` within ~15ms (faster than play_media
+    takes effect), so the target is applied before chime audio.
+
+    ``pause_before_jiggle`` (BUG-110 b23, Issue 1 follow-up): when True
+    AND the entity is currently in ``state="playing"`` (narrow match —
+    NOT ``"buffering"``), issue ``media_player.media_pause`` before the
+    jiggle so the still-playing prior media is muted before any volume
+    transition becomes audible. Eliminates the residual ~200ms audible
+    window left after b21 where the override volume was briefly audible
+    on the prior media. The pause call is fail-soft (broad Exception
+    catch, log warning, continue) matching the ``_set_volume`` envelope;
+    a settle delay follows so cast quiesces before the jiggle's first
+    volume_set hits. Subsequent ``play_media`` resumes audio at the
+    new gain — hence the pattern name "pause-jiggle-play". Gating is
+    at call sites; this helper stays platform-agnostic.
+
+    Returns True if both calls succeeded; False if either raised.
+    Both calls are attempted regardless of the first's outcome —
+    fail-soft contract preserved across BUG-109 history.
+    """
+    # BUG-110 b23 (Issue 1 follow-up): optionally pause currently-playing
+    # media before any volume transition so the audible-window-on-prior-
+    # media problem disappears. Narrow state check ("playing" only —
+    # NOT "buffering") avoids pausing transient mid-load states.
+    if pause_before_jiggle:
+        state = hass.states.get(entity_id)
+        if state is not None and state.state == "playing":
+            try:
+                await asyncio.wait_for(
+                    hass.services.async_call(
+                        "media_player", "media_pause",
+                        {"entity_id": entity_id},
+                        blocking=True,
+                    ),
+                    timeout=NOTIFY_SERVICE_TIMEOUT,
+                )
+                # Let the cast app quiesce before the jiggle's first
+                # volume_set so the pause has fully taken effect.
+                await asyncio.sleep(VOLUME_SET_SETTLE_DELAY)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Pause-before-jiggle failed on %s: %s — proceeding "
+                    "with jiggle anyway",
+                    entity_id, err,
+                )
+
+    # Pick a jiggle value that's distinct from the target.
+    if volume_level >= 0.25:
+        jiggle = max(0.0, volume_level - 0.25)
+    else:
+        jiggle = min(1.0, volume_level + 0.25)
+
+    # Mid-jiggle settle stays unconditionally — cast must register the
+    # distinct intermediate value, otherwise it may collapse jiggle+target
+    # into a single transition and the cache-busting effect is lost.
+    ok1 = await _set_volume(hass, entity_id, jiggle)
+    ok2 = await _set_volume(
+        hass, entity_id, volume_level, settle=not skip_final_settle,
+    )
+    return ok1 and ok2

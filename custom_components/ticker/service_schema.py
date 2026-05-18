@@ -16,6 +16,7 @@ from .const import (
     ATTR_EXPIRATION,
     ATTR_DATA,
     ATTR_ACTIONS,
+    ATTR_ACTION_SET_ID,
     ATTR_CRITICAL,
     ATTR_NAVIGATE_TO,
     ATTR_CLEAR_WHEN,
@@ -59,6 +60,10 @@ def _build_service_schema() -> vol.Schema:
             ),
             vol.Optional(ATTR_DATA, default={}): dict,
             vol.Optional(ATTR_ACTIONS): vol.In(["category_default", "none"]),
+            # BUG-104: per-call override of the category's default action set.
+            # Fail-soft on unknown IDs (resolve_action_set logs a warning and
+            # falls back to the category default), so no validation here.
+            vol.Optional(ATTR_ACTION_SET_ID): cv.string,
             vol.Optional(ATTR_CRITICAL): bool,
             # BUG-100: enforce relative HA path; blocks javascript:/http(s)://
             vol.Optional(ATTR_NAVIGATE_TO): vol.All(
@@ -193,6 +198,19 @@ def _build_service_description(
                 ),
                 "required": False,
                 "selector": {"boolean": {}},
+            },
+            ATTR_ACTION_SET_ID: {
+                "name": "Action set ID",
+                "description": (
+                    "ID of an action set from the Action Sets library. "
+                    "Overrides the category's default action set for this "
+                    "call only. Ignored if `actions: none` is also set. "
+                    "If the ID does not match a known action set, a warning "
+                    "is logged and the category default (if any) is used."
+                ),
+                "required": False,
+                "example": "confirm_alert",
+                "selector": {"text": {}},
             },
             ATTR_NAVIGATE_TO: {
                 "name": "Navigate to",

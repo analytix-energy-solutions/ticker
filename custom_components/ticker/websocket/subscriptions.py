@@ -21,6 +21,7 @@ from ..discovery import async_discover_notify_services
 from .validation import (
     _validate_leaf,
     get_store,
+    require_admin_for_cross_person,
     validate_category_id,
     validate_condition_tree,
     validate_entity_id,
@@ -62,6 +63,24 @@ async def ws_get_subscriptions(
             connection.send_error(msg["id"], "invalid_category_id", error)
             return
 
+    # BUG-108: gate cross-user read on admin-or-self. When a non-admin caller
+    # omits person_id, substitute their own so the handler does not fall
+    # through to the household-wide or category-wide branches and leak other
+    # users' subscriptions.
+    ok, caller_pid = await require_admin_for_cross_person(
+        hass, connection, msg, person_id
+    )
+    if not ok:
+        return
+
+    if not person_id and not connection.user.is_admin:
+        if caller_pid is None:
+            connection.send_error(
+                msg["id"], "forbidden", "Caller has no linked person"
+            )
+            return
+        person_id = caller_pid
+
     if person_id:
         subscriptions = store.get_subscriptions_for_person(person_id)
         result = list(subscriptions.values())
@@ -100,6 +119,13 @@ async def ws_set_subscription(
     is_valid, error = validate_entity_id(person_id, "person")
     if not is_valid:
         connection.send_error(msg["id"], "invalid_person_id", error)
+        return
+
+    # BUG-108: block cross-user writes by non-admin callers up-front.
+    # The set_by audit tagging below (BUG-098) is preserved for the
+    # admin-authorized cross-user path.
+    ok, _ = await require_admin_for_cross_person(hass, connection, msg, person_id)
+    if not ok:
         return
 
     # Validate category_id

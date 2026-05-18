@@ -18,11 +18,12 @@ For installation and a quick overview, see the [README](../../README.md).
 8. [Notification history](#notification-history)
 9. [Self-healing delivery](#self-healing-delivery)
 10. [Admin panel](#admin-panel)
-11. [User panel](#user-panel)
-12. [Migration wizard](#migration-wizard)
-13. [Dashboard sensors](#dashboard-sensors)
-14. [Uninstalling](#uninstalling)
-15. [Version history](#version-history)
+11. [Setting up Ticker for household members](#setting-up-ticker-for-household-members)
+12. [User panel](#user-panel)
+13. [Migration wizard](#migration-wizard)
+14. [Dashboard sensors](#dashboard-sensors)
+15. [Uninstalling](#uninstalling)
+16. [Version history](#version-history)
 
 ---
 
@@ -203,7 +204,7 @@ data:
   action_set_id: confirm_alert
 ```
 
-This overrides the category's default action set for this call only. The value must match an ID in the Action Sets library. Omitting it uses the category's configured action set, if any.
+This overrides the category's default action set for this call only. If the ID does not match a known action set, a warning is logged and the category default (if any) is used. Omitting `action_set_id` uses the category's configured action set.
 
 ---
 
@@ -436,6 +437,8 @@ Ticker ships three CC0-licensed chime assets out of the box so the feature is fu
 
 Both the recipient and category dialogs render preset chips above the chime URL field. Clicking a chip writes the chime's absolute URL into the field — bundled chimes use the same delivery path as user-supplied `media_content_id` values, so playback behaviour is identical.
 
+**Chromecast targets — pick the `(Chromecast)` variant.** Three additional bundled chimes — labelled `(Chromecast) Subtle ding`, `(Chromecast) Alert tone`, and `(Chromecast) Doorbell` — are identical to the originals but with 2.5 seconds of leading silence prepended. The Cast Default Media Receiver swallows the first 1–2 seconds when loading a new media context, which makes short chimes inaudible on a plain Chromecast target (see BUGS.md BUG-110). The `(Chromecast)` variants feed silence into that swallow window so the audible body of the chime survives. Pick the matching `(Chromecast)` variant from the preset chips on the recipient or category dialog when the target is a Chromecast / Google Cast speaker that lacks `MEDIA_ANNOUNCE` support; Ticker does not auto-detect this.
+
 **Caveat — host changes stale the URL:** The stored URL includes the HA host (e.g. `http://homeassistant.local:8123/ticker_static/chimes/subtle.wav`). If you later change your HA external URL or move to a different hostname, the stored URL becomes stale and the chime stops playing. Re-pick the chip to refresh — Ticker recomposes the URL from your current HA URL each time the dialog opens.
 
 If Ticker cannot resolve any HA URL (`get_url` returns nothing), the bundled chip row is hidden — you can still paste a chime URL or `media-source://` value manually.
@@ -624,6 +627,30 @@ Run the migration wizard (see Migration wizard section below).
 
 ---
 
+## Setting up Ticker for household members
+
+*Added in v1.7.0 (F-38)*
+
+Configuring Ticker for a non-technical household member normally requires them to log in to Home Assistant themselves and navigate to the user panel. The **View-as** feature lets an admin do this setup on their behalf without needing the other person's credentials.
+
+### How to use it
+
+1. Open the Ticker **user panel** while logged in as an admin.
+2. A **"Viewing as"** dropdown appears in the top-right corner of the panel header. It is only visible to admins — other users do not see it.
+3. Select a household member from the dropdown. The panel immediately re-renders showing that person's subscriptions, queue, and history.
+4. A persistent banner — "Viewing as: [Name]" — stays visible at the top of the panel so you always know whose view you are in.
+5. Make whatever changes are needed: update subscription modes, configure conditions, adjust device preferences. All changes are attributed to admin in the audit log.
+6. Click **Stop viewing** in the banner to return to your own view.
+
+### Notes
+
+- The dropdown only lists people with a linked HA person entity and discovered notify services. Service accounts and users without a person entity do not appear.
+- If your own HA account is not linked to a person entity, the panel shows a message pointing you to the dropdown — you can still assist other household members even without a personal entity.
+- Impersonation state is in-memory only. If you reload the page or navigate away, the panel returns to your own view automatically.
+- Any subscription changes made while in impersonation mode are written with `set_by=ADMIN` in the audit trail, identical to admin edits made directly via the admin Users tab.
+
+---
+
 ## User panel
 
 Available to all users. The user panel has three tabs.
@@ -708,7 +735,22 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 
 ## Version history
 
-### v1.6.0 (current)
+### v1.7.0 (current)
+
+**Added:**
+- **View-as-User** — admins can operate the user panel on another household member's behalf using a new "Viewing as" dropdown in the panel header. See [Setting up Ticker for household members](#setting-up-ticker-for-household-members).
+- **NOT operator for conditions** — toggle a NOT pill on any condition row or group to invert its result (e.g., "NOT in zone home" = person is away, "NOT 08:00–22:00" = overnight window). Works for all rule types.
+- **Pre-TTS chime** — TTS recipients can be paired with a short audio chime that plays immediately before each TTS announcement. Set at the device level in the admin Devices tab with an optional per-category override. Three bundled CC0 chime presets ship out of the box (subtle/alert/doorbell), plus matching `(Chromecast)` variants with leading silence to survive the Cast Default Media Receiver swallow window.
+- **Volume override** — a slider in the device and category dialogs sets the media_player volume for the chime+TTS pair and restores the previous level after TTS finishes. Leave on Default to inherit the device's current volume.
+- **Entity-state value suggestions** — the state field in entity-state condition rules suggests valid values for the selected entity's domain (input_select options, climate/lock/cover/media_player/alarm enums). Free-text still accepted for custom values.
+
+**Fixed:**
+- **BUG-104** — `action_set_id` parameter on `ticker.notify` (documented since v1.5.0) was rejected at the service schema layer. Now correctly accepted and forwarded to the action-set resolver. Unknown IDs log a warning and fall back to the category default.
+
+**Security:**
+- Cross-user WebSocket data disclosure (BUG-108): WebSocket handlers accepting `person_id` now enforce admin-or-self gating. A non-admin caller can no longer read another user's subscriptions, queue, or logs by supplying a foreign person_id. Existing HA access control (valid session required) was always enforced; this closes the within-session cross-user read path.
+
+### v1.6.0
 
 **Added:**
 - **Notification history search** — the user History tab has a new filter bar with full-text search, category dropdown, and a date-range picker. Filters compose with AND logic and run entirely client-side. An inline "No matches" state appears when filters reduce the list to zero while keeping the filter bar visible.

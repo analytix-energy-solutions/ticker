@@ -87,8 +87,20 @@ def _make_hass_with_state(entity_id: str, state_value: str) -> MagicMock:
 
 
 def _make_conn() -> MagicMock:
+    """Return a mock WS connection authenticated as an admin user.
+
+    The F-33 round-trip tests exercise the normalization path, not auth.
+    BUG-108 (F-38 Chunk 1) added an admin-or-self gate to
+    ``ws_set_subscription``; running these tests as a non-admin caller
+    against ``person.alice`` would be rejected before reaching the
+    normalization code under test. Using an admin connection keeps the
+    test surface focused on the negate-normalization contract.
+    """
     conn = MagicMock()
-    conn.user = None  # set_by branch uses default
+    user = MagicMock()
+    user.id = "uid_admin"
+    user.is_admin = True
+    conn.user = user
     return conn
 
 

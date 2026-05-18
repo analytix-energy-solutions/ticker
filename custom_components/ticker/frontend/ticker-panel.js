@@ -44,6 +44,13 @@ class TickerPanel extends HTMLElement {
     this._historyCategory = '';
     this._historyDateFrom = '';
     this._historyDateTo = '';
+    // F-38: View-as-user state (in-memory only, not persisted)
+    this._impersonatedPersonId = null;
+    this._isAdmin = false;
+    this._availableUsers = [];
+    // FIX-002: admin's own person_id, cached once after first self-load so
+    // self-exclusion survives impersonation (_currentPerson then = impersonated).
+    this._adminOwnPersonId = null;
   }
 
   set hass(hass) {
@@ -94,6 +101,17 @@ class TickerPanel extends HTMLElement {
     this._createStructure();
     this._wireHandlers();
     window.Ticker.UserRecoveryHandlers.setup(this);
+    // F-38: cache admin flag and roster for view-as dropdown
+    this._isAdmin = !!(this._hass?.user?.is_admin);
+    if (this._isAdmin) {
+      try {
+        const r = await this._hass.callWS({ type: 'ticker/users' });
+        this._availableUsers = r.users || [];
+      } catch (err) {
+        console.warn('[Ticker] Failed to load users for view-as:', err);
+        this._availableUsers = [];
+      }
+    }
     await this._loadData();
   }
 
@@ -109,6 +127,7 @@ class TickerPanel extends HTMLElement {
       `${base}/ticker-conditions-ui.js`,
       `${base}/user/user-panel-styles.js`,
       `${base}/user/recovery-handlers.js`,
+      `${base}/user/view-as-control.js`,
       `${base}/user/subscriptions-tab.js`,
       `${base}/user/subscriptions-handlers.js`,
       `${base}/user/queue-tab.js`,
@@ -146,7 +165,8 @@ class TickerPanel extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${allStyles}</style>
       <div class="container">
-        <div class="header">${logoSvg}<h1>Ticker</h1></div>
+        <div class="header">${logoSvg}<h1>Ticker</h1><div id="view-as-slot"></div></div>
+        <div id="view-as-banner-slot"></div>
         <div id="message-area" class="message"></div>
         <div id="loading-area"></div>
         <div id="tabs-bar"></div>
@@ -159,6 +179,8 @@ class TickerPanel extends HTMLElement {
       loadingArea: this.shadowRoot.getElementById('loading-area'),
       tabsBar: this.shadowRoot.getElementById('tabs-bar'),
       tabContent: this.shadowRoot.getElementById('tab-content'),
+      viewAsSlot: this.shadowRoot.getElementById('view-as-slot'),
+      viewAsBannerSlot: this.shadowRoot.getElementById('view-as-banner-slot'),
     };
   }
 
@@ -192,8 +214,17 @@ class TickerPanel extends HTMLElement {
 
   async _loadCurrentPerson() {
     try {
-      const result = await this._hass.callWS({ type: 'ticker/current_person' });
-      this._currentPerson = result.person;
+      if (this._impersonatedPersonId) {
+        await window.Ticker.ViewAsControl.loadImpersonatedPerson(this);
+      } else {
+        const result = await this._hass.callWS({ type: 'ticker/current_person' });
+        this._currentPerson = result.person;
+        // FIX-001: cache admin's own person_id on first self-load so the
+        // view-as dropdown can exclude self even on the first render pass.
+        if (this._isAdmin && this._adminOwnPersonId === null) {
+          this._adminOwnPersonId = this._currentPerson?.person_id || null;
+        }
+      }
     } catch (err) {
       console.error('Failed to load current person:', err);
       this._currentPerson = null;
@@ -324,47 +355,10 @@ class TickerPanel extends HTMLElement {
     };
   }
 
-  /**
-   * F-26: Update a history filter field and re-render the history tab
-   * without losing scroll position. Captures the currently focused input
-   * (id + selection range) before re-render and restores it afterwards
-   * so the search box keeps focus across keystrokes.
-   * @param {string} field - One of historySearch, historyCategory, historyDateFrom, historyDateTo
-   * @param {string} value - New value
-   */
+  // F-26 + BUG-040: implementation lives in user/recovery-handlers.js
+  // (extracted for F-38 to keep this file under the 500-line cap).
   _setHistoryFilter(field, value) {
-    const allowed = ['historySearch', 'historyCategory', 'historyDateFrom', 'historyDateTo'];
-    if (!allowed.includes(field)) return;
-    const key = '_' + field;
-    this[key] = value || '';
-
-    // Save focus state from the shadow root's active element.
-    const active = this.shadowRoot?.activeElement;
-    let focusInfo = null;
-    if (active && active.id && active.id.startsWith('ticker-history-')) {
-      focusInfo = { id: active.id };
-      // Only text-like inputs expose selection range
-      if (active.tagName === 'INPUT' && (active.type === 'search' || active.type === 'text')) {
-        focusInfo.selStart = active.selectionStart;
-        focusInfo.selEnd = active.selectionEnd;
-      }
-    }
-
-    this._renderTabContentPreserveScroll();
-
-    if (focusInfo) {
-      const restored = this.shadowRoot?.getElementById(focusInfo.id);
-      if (restored) {
-        restored.focus();
-        if (focusInfo.selStart != null && typeof restored.setSelectionRange === 'function') {
-          try {
-            restored.setSelectionRange(focusInfo.selStart, focusInfo.selEnd);
-          } catch {
-            // setSelectionRange throws on some input types — safe to ignore
-          }
-        }
-      }
-    }
+    window.Ticker.UserRecoveryHandlers.setHistoryFilter(this, field, value);
   }
 
   // BUG-107: Terminal-card render + escape navigation live in
@@ -379,6 +373,13 @@ class TickerPanel extends HTMLElement {
 
   _renderTabContent() {
     if (!this._els) return;
+    // F-38: populate view-as slots before everything else so banner persists
+    // through loading / error / no-person states.
+    if (window.Ticker.ViewAsControl) {
+      this._els.viewAsSlot.innerHTML = window.Ticker.ViewAsControl.renderDropdown(this);
+      this._els.viewAsBannerSlot.innerHTML = window.Ticker.ViewAsControl.renderBanner(this);
+      window.Ticker.ViewAsControl.attachEventListeners(this);
+    }
     if (this._loading) {
       this._els.loadingArea.innerHTML = `
         <div class="card">
@@ -400,10 +401,14 @@ class TickerPanel extends HTMLElement {
       return;
     }
     if (!this._currentPerson) {
+      // SPEC §6.8: admin without a linked person (and not impersonating) gets
+      // a variant message pointing them at the view-as dropdown above.
+      const adminVariant = this._isAdmin && !this._impersonatedPersonId;
+      const message = adminVariant
+        ? "Your account is not linked to a person entity. Use the 'Viewing as' dropdown above to assist another household member."
+        : 'Your Home Assistant user account is not linked to a person entity. Ask an administrator to link your account in Settings → People.';
       this._els.tabContent.innerHTML = this._renderTerminalCard(
-        'No Person Entity Found',
-        'Your Home Assistant user account is not linked to a person entity. Ask an administrator to link your account in Settings → People.',
-        'no-person-state');
+        'No Person Entity Found', message, 'no-person-state');
       this.shadowRoot.querySelector('.terminal-card-btn')?.focus();
       return;
     }
@@ -469,27 +474,11 @@ class TickerPanel extends HTMLElement {
     this._renderTabContent();
   }
 
-  _showError(message) {
-    if (this._els && this._els.messageArea) {
-      this._els.messageArea.textContent = message;
-      this._els.messageArea.className = 'message error-message';
-      this._els.messageArea.style.display = 'block';
-      setTimeout(() => {
-        this._els.messageArea.style.display = 'none';
-      }, 10000);
-    }
-  }
-
-  _showSuccess(message) {
-    if (this._els && this._els.messageArea) {
-      this._els.messageArea.textContent = message;
-      this._els.messageArea.className = 'message success-message';
-      this._els.messageArea.style.display = 'block';
-      setTimeout(() => {
-        this._els.messageArea.style.display = 'none';
-      }, 3000);
-    }
-  }
+  // FIX-002 (F-38): delegate to recovery-handlers.setMessage to stay under
+  // the 500-line cap. Callers across user/* and panel internals still use
+  // panel._showError / panel._showSuccess so the public surface is preserved.
+  _showError(message) { window.Ticker.UserRecoveryHandlers.setMessage(this, message, 'error'); }
+  _showSuccess(message) { window.Ticker.UserRecoveryHandlers.setMessage(this, message, 'success'); }
 }
 
 customElements.define('ticker-panel', TickerPanel);

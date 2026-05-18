@@ -22,6 +22,7 @@ from .const import (
     ATTR_EXPIRATION,
     ATTR_DATA,
     ATTR_ACTIONS,
+    ATTR_ACTION_SET_ID,
     ATTR_CRITICAL,
     ATTR_NAVIGATE_TO,
     ATTR_CLEAR_WHEN,
@@ -123,6 +124,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         base_data = dict(call.data.get(ATTR_DATA, {}))
         actions_param = call.data.get(ATTR_ACTIONS)
         suppress_actions = actions_param == "none"
+        # BUG-104: empty/whitespace -> None so the category default is used.
+        action_set_id = (call.data.get(ATTR_ACTION_SET_ID) or "").strip() or None
         navigate_to = call.data.get(ATTR_NAVIGATE_TO)
         critical_override_present = ATTR_CRITICAL in call.data
         critical_override_value = call.data.get(ATTR_CRITICAL)
@@ -202,6 +205,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 expiration=expiration,
                 notification_id=notification_id,
                 suppress_actions=suppress_actions,
+                action_set_id=action_set_id,
                 navigate_to=navigate_to,
                 persons=persons,
                 recipients=recipients,
@@ -241,6 +245,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         expiration: int,
         notification_id: str,
         suppress_actions: bool,
+        action_set_id: str | None,
         navigate_to: str | None,
         persons: list,
         recipients: dict,
@@ -297,6 +302,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     hass, store, person_id, person_name, category_id, title, message,
                     data, notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    action_set_id=action_set_id,
                     navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
@@ -317,6 +323,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     expiration=expiration,
                     notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    action_set_id=action_set_id,
                     navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
@@ -395,6 +402,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     hass, store, r_data, category_id, title, message, data,
                     notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    action_set_id=action_set_id,
                     navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
@@ -407,6 +415,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     expiration,
                     notification_id=notification_id,
                     suppress_actions=suppress_actions,
+                    action_set_id=action_set_id,
                     navigate_to=navigate_to,
                 )
                 delivery_results["delivered"].extend(results["delivered"])

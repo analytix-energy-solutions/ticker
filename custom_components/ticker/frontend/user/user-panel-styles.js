@@ -211,4 +211,74 @@ window.Ticker.userPanelStyles = `
     outline: 2px solid var(--ticker-400);
     outline-offset: 2px;
   }
+
+  /* F-38: View-as-user control. Admin-only chrome — non-admins don't get
+     these DOM nodes at all. */
+  /* FIX-001: collapse empty slot containers so non-admin header doesn't
+     leave a 16px flex gap where the dropdown would be, and so the banner
+     slot doesn't reserve vertical space when not impersonating. */
+  #view-as-slot:empty,
+  #view-as-banner-slot:empty {
+    display: none;
+  }
+  .view-as-dropdown {
+    margin-left: auto;
+    max-width: 240px;
+    padding: 6px 10px;
+    border: 1px solid var(--divider);
+    border-radius: 4px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .view-as-dropdown:focus {
+    outline: none;
+    border-color: var(--ticker-500);
+    box-shadow: 0 0 0 2px var(--ticker-500-alpha-8);
+  }
+  @media (max-width: 480px) {
+    .view-as-dropdown {
+      margin-left: 8px;
+      max-width: 160px;
+      font-size: 12px;
+      padding: 5px 8px;
+    }
+  }
+
+  .view-as-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    margin-bottom: 12px;
+    background: var(--ticker-700);
+    color: #ffffff;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .view-as-banner strong {
+    font-weight: 600;
+  }
+  .view-as-stop-btn {
+    background: transparent;
+    color: #ffffff;
+    border: 1px solid var(--ticker-400);
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 120ms ease, color 120ms ease;
+  }
+  .view-as-stop-btn:hover {
+    background: var(--ticker-400);
+    color: var(--ticker-700);
+  }
+  .view-as-stop-btn:focus-visible {
+    outline: 2px solid var(--ticker-400);
+    outline-offset: 2px;
+  }
 `;

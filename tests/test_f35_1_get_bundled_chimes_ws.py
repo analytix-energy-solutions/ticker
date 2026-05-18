@@ -1,7 +1,8 @@
 """Tests for F-35.1 — ws_get_bundled_chimes WebSocket handler.
 
 Verifies:
-- happy path returns 3 entries with absolute URLs composed from HA's
+- happy path returns the BUNDLED_CHIMES entries (6 after BUG-110 workaround
+  cast variants shipped in v1.7.0b20) with absolute URLs composed from HA's
   external/internal URL + STATIC_CHIMES_PATH + filename;
 - empty list when get_url raises NoURLAvailableError;
 - empty list when get_url returns falsy;
@@ -26,7 +27,7 @@ def _msg() -> dict:
 
 class TestWsGetBundledChimesHappyPath:
     @pytest.mark.asyncio
-    async def test_returns_three_entries_with_urls(self):
+    async def test_returns_all_entries_with_urls(self):
         hass = MagicMock()
         conn = MagicMock()
         with patch(
@@ -40,7 +41,8 @@ class TestWsGetBundledChimesHappyPath:
         result = args[1]
         assert "chimes" in result
         chimes = result["chimes"]
-        assert len(chimes) == 3
+        # Mirrors the const table (3 original + 3 BUG-110 cast variants).
+        assert len(chimes) == len(BUNDLED_CHIMES)
         for c in chimes:
             assert "id" in c and "label" in c and "url" in c
             assert c["url"].startswith("http://homeassistant.local:8123")
