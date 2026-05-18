@@ -22,6 +22,9 @@ from custom_components.ticker.recipient_tts import (
     _play_chime,
     async_send_tts,
 )
+from custom_components.ticker.recipient_tts_chime import (
+    _wait_for_chime_complete,
+)
 from custom_components.ticker.const import (
     CHIME_WAIT_TIMEOUT,
     LOG_OUTCOME_SENT,
@@ -590,3 +593,164 @@ class TestChimeQueueSerialisation:
             for call in store.async_add_log.await_args_list
         ]
         assert outcomes == [LOG_OUTCOME_SENT, LOG_OUTCOME_SENT]
+
+
+# ---------------------------------------------------------------------------
+# BUG-110 b21 Issue 2: _wait_for_chime_complete exits on state change even
+# when media_content_id still references the chime (Cast keeps content_id
+# stale after audio ends).
+# ---------------------------------------------------------------------------
+
+class TestWaitForChimeCompleteStateAwareExit:
+    """BUG-110 b21 Issue 2: state is the reliable signal that the chime
+    has ended on cast. Without this fix the helper sat at the
+    CHIME_WAIT_TIMEOUT ceiling waiting for content_id to clear, which
+    cast never does — producing the observed ~8s silent gap between
+    chime end and TTS start.
+    """
+
+    @pytest.mark.asyncio
+    async def test_exits_when_state_goes_idle_even_if_content_id_sticky(self):
+        """State leaves playing -> helper exits immediately, regardless
+        of content_id stickiness."""
+        chime_url = "media-source://media_source/local/subtle.wav"
+        states = [
+            # Phase 1 detect: state=playing with chime content_id.
+            SimpleNamespace(
+                state="playing",
+                attributes={"media_content_id": chime_url},
+            ),
+            # Phase 2: state goes idle but content_id stays sticky.
+            SimpleNamespace(
+                state="idle",
+                attributes={"media_content_id": chime_url},
+            ),
+        ]
+        hass = MagicMock()
+        hass.states.get = MagicMock(side_effect=states + [states[-1]] * 50)
+
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep:
+            await _wait_for_chime_complete(
+                hass, "media_player.kitchen", chime_url,
+                timeout=10.0, poll_interval=0.2, detect_window=1.5,
+            )
+
+        # Should exit fast — total sleep time well under the 10s timeout.
+        # Phase 1 used at most 1 poll (0.2s) to detect; Phase 2 exited on
+        # the FIRST poll because state != playing. Total ~0.2s.
+        sleeps = [c.args[0] for c in mock_sleep.await_args_list if c.args]
+        assert sum(sleeps) < 1.5, (
+            f"Expected fast exit on state change; got total sleep "
+            f"{sum(sleeps)}s with calls {sleeps}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_keeps_waiting_while_state_remains_playing(self):
+        """Sanity: when state stays 'playing' and content_id stays the
+        chime, the helper keeps polling (until content_id changes or
+        timeout — original behavior preserved for platforms that DO
+        clear content_id)."""
+        chime_url = "media-source://media_source/local/subtle.wav"
+        # State stays playing with chime content_id forever until
+        # content_id flips to something else.
+        playing_chime = SimpleNamespace(
+            state="playing",
+            attributes={"media_content_id": chime_url},
+        )
+        after_chime = SimpleNamespace(
+            state="playing",
+            attributes={"media_content_id": "http://stream/live"},
+        )
+        # Phase 1 detects on first read. Phase 2 polls a few times then
+        # content_id flips to the resumed stream.
+        get_sequence = [playing_chime] * 5 + [after_chime] * 50
+        hass = MagicMock()
+        hass.states.get = MagicMock(side_effect=get_sequence)
+
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep:
+            await _wait_for_chime_complete(
+                hass, "media_player.kitchen", chime_url,
+                timeout=10.0, poll_interval=0.2, detect_window=1.5,
+            )
+
+        # Should have polled at least a few times in phase 2 before
+        # content_id flipped. Not the timeout ceiling.
+        sleeps = [c.args[0] for c in mock_sleep.await_args_list if c.args]
+        total = sum(sleeps)
+        assert total < 5.0, f"Expected exit before timeout; got {total}s"
+        assert total >= 0.2, "Should poll at least once"
+
+    @pytest.mark.asyncio
+    async def test_exits_when_state_goes_to_off(self):
+        """State 'off' (device powered down) also terminates the wait."""
+        chime_url = "media-source://media_source/local/subtle.wav"
+        states = [
+            SimpleNamespace(
+                state="playing",
+                attributes={"media_content_id": chime_url},
+            ),
+            SimpleNamespace(
+                state="off",
+                attributes={"media_content_id": chime_url},
+            ),
+        ]
+        hass = MagicMock()
+        hass.states.get = MagicMock(side_effect=states + [states[-1]] * 50)
+
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep:
+            await _wait_for_chime_complete(
+                hass, "media_player.kitchen", chime_url,
+                timeout=10.0, poll_interval=0.2, detect_window=1.5,
+            )
+
+        sleeps = [c.args[0] for c in mock_sleep.await_args_list if c.args]
+        assert sum(sleeps) < 1.5
+
+    @pytest.mark.asyncio
+    async def test_buffering_state_still_treated_as_chime_playing(self):
+        """state=buffering counts as 'chime still running' — we don't
+        want to bail out during transient buffering blips mid-chime."""
+        chime_url = "media-source://media_source/local/subtle.wav"
+        playing = SimpleNamespace(
+            state="playing",
+            attributes={"media_content_id": chime_url},
+        )
+        buffering = SimpleNamespace(
+            state="buffering",
+            attributes={"media_content_id": chime_url},
+        )
+        idle = SimpleNamespace(
+            state="idle",
+            attributes={"media_content_id": chime_url},
+        )
+        # Phase 1 detects on first call. Then buffering for two polls,
+        # then idle — only then should we exit.
+        get_sequence = [playing, buffering, buffering, idle] + [idle] * 50
+        hass = MagicMock()
+        hass.states.get = MagicMock(side_effect=get_sequence)
+
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.asyncio.sleep",
+            new_callable=AsyncMock,
+        ) as mock_sleep:
+            await _wait_for_chime_complete(
+                hass, "media_player.kitchen", chime_url,
+                timeout=10.0, poll_interval=0.2, detect_window=1.5,
+            )
+
+        # 2 buffering polls + the idle check should have produced at
+        # least 2 sleeps in phase 2.
+        sleeps = [c.args[0] for c in mock_sleep.await_args_list if c.args]
+        assert sum(sleeps) >= 0.4, (
+            f"Expected helper to keep polling during buffering; "
+            f"got total {sum(sleeps)}s"
+        )

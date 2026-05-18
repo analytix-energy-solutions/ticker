@@ -15,24 +15,13 @@ import voluptuous as vol
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from ..discovery import async_discover_notify_services
-from .validation import get_store, validate_entity_id
+from .validation import (
+    get_store,
+    require_admin_for_cross_person,
+    validate_entity_id,
+)
 
 _LOGGER = logging.getLogger(__name__)
-
-
-async def _resolve_caller_person_id(
-    hass: HomeAssistant, connection: websocket_api.ActiveConnection
-) -> str | None:
-    """Return the person_id owned by the WS caller, or None."""
-    user = connection.user
-    if not user:
-        return None
-    discovered = await async_discover_notify_services(hass)
-    for pid, user_data in discovered.items():
-        if user_data.get("user_id") == user.id:
-            return pid
-    return None
 
 
 @websocket_api.require_admin
@@ -96,14 +85,11 @@ async def ws_remove_log_group(
         )
         return
 
-    user = connection.user
-    if not (user and user.is_admin):
-        caller_person_id = await _resolve_caller_person_id(hass, connection)
-        if caller_person_id != person_id:
-            connection.send_error(
-                msg["id"], "forbidden", "Cannot modify another user's history"
-            )
-            return
+    ok, _ = await require_admin_for_cross_person(
+        hass, connection, msg, person_id
+    )
+    if not ok:
+        return
 
     removed = await store.async_remove_log_group(notification_id, person_id)
     connection.send_result(msg["id"], {"removed": removed})
@@ -133,14 +119,11 @@ async def ws_clear_logs_for_person(
         connection.send_error(msg["id"], "invalid_person_id", error)
         return
 
-    user = connection.user
-    if not (user and user.is_admin):
-        caller_person_id = await _resolve_caller_person_id(hass, connection)
-        if caller_person_id != person_id:
-            connection.send_error(
-                msg["id"], "forbidden", "Cannot modify another user's history"
-            )
-            return
+    ok, _ = await require_admin_for_cross_person(
+        hass, connection, msg, person_id
+    )
+    if not ok:
+        return
 
     removed = await store.async_clear_logs_for_person(person_id)
     connection.send_result(msg["id"], {"cleared": removed})

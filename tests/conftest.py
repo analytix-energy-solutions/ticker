@@ -208,7 +208,20 @@ _websocket_api = sys.modules["homeassistant.components.websocket_api"]
 _websocket_api.async_register_command = MagicMock()
 _websocket_api.websocket_command = lambda schema: (lambda fn: fn)
 _websocket_api.async_response = lambda fn: fn
-_websocket_api.require_admin = lambda fn: fn
+
+
+def _require_admin_marker(fn):
+    """Tag the function as admin-gated so tests can assert the decorator
+    is applied. The runtime behavior in HA enforces admin-only access at
+    the framework boundary; in tests we surface the contract as an
+    attribute on the wrapped function. Tests that exercise the gate
+    invoke the function via :func:`call_with_admin_gate` below.
+    """
+    fn._ticker_require_admin = True
+    return fn
+
+
+_websocket_api.require_admin = _require_admin_marker
 _websocket_api.ActiveConnection = MagicMock
 
 
@@ -262,6 +275,69 @@ def mock_hass():
 
     hass.register_zone = _register_zone
     return hass
+
+
+def _make_ws_connection(user_id: str | None, is_admin: bool) -> MagicMock:
+    """Build a mock WebSocket connection.
+
+    Used by the admin-vs-non-admin fixture pair below. ``user_id=None``
+    produces a connection with no user (analogous to an unauthenticated
+    or system-internal call).
+    """
+    conn = MagicMock()
+    if user_id is None:
+        conn.user = None
+    else:
+        user = MagicMock()
+        user.id = user_id
+        user.is_admin = is_admin
+        conn.user = user
+    return conn
+
+
+@pytest.fixture
+def admin_connection():
+    """WebSocket connection authenticated as an HA admin user."""
+    return _make_ws_connection(user_id="uid_admin", is_admin=True)
+
+
+@pytest.fixture
+def non_admin_connection():
+    """WebSocket connection authenticated as a non-admin HA user."""
+    return _make_ws_connection(user_id="uid_regular", is_admin=False)
+
+
+@pytest.fixture
+def make_ws_connection():
+    """Factory fixture for ad-hoc connections with custom user ids."""
+    return _make_ws_connection
+
+
+async def call_with_admin_gate(handler, hass, connection, msg):
+    """Invoke a WS handler, enforcing ``@require_admin`` if marked.
+
+    The HA framework rejects non-admin calls to functions decorated with
+    ``@websocket_api.require_admin`` before they execute. The conftest
+    test stub marks such functions with ``_ticker_require_admin = True``.
+    This helper inspects the marker and, when present, sends a
+    ``connection.send_error(msg["id"], "unauthorized", ...)`` for
+    non-admin callers — mirroring the production gate — then short-
+    circuits without invoking ``handler``.
+    """
+    if getattr(handler, "_ticker_require_admin", False):
+        user = connection.user
+        if not (user and user.is_admin):
+            connection.send_error(
+                msg["id"], "unauthorized", "Admin required"
+            )
+            return
+    await handler(hass, connection, msg)
+
+
+@pytest.fixture
+def admin_gate_call():
+    """Expose :func:`call_with_admin_gate` to tests as a fixture."""
+    return call_with_admin_gate
 
 
 @pytest.fixture

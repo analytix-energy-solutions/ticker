@@ -16,6 +16,7 @@ from .categories import (
 from .users import (
     ws_get_users,
     ws_set_user_enabled,
+    ws_get_person,
 )
 from .subscriptions import (
     ws_get_subscriptions,
@@ -88,6 +89,7 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     # User commands
     websocket_api.async_register_command(hass, ws_get_users)
     websocket_api.async_register_command(hass, ws_set_user_enabled)
+    websocket_api.async_register_command(hass, ws_get_person)
 
     # Subscription commands
     websocket_api.async_register_command(hass, ws_get_subscriptions)

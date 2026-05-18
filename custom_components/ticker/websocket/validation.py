@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from ..const import (
@@ -426,3 +427,62 @@ def get_store(hass: HomeAssistant) -> "TickerStore":
     if not hasattr(entry, 'runtime_data') or entry.runtime_data is None:
         raise ValueError("Ticker integration not loaded")
     return entry.runtime_data.store
+
+
+# -----------------------------------------------------------------------------
+# Caller-identity helpers (BUG-108 — WS read-path cross-user gating)
+# -----------------------------------------------------------------------------
+
+
+async def _resolve_caller_person_id(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection
+) -> str | None:
+    """Return the person_id owned by the WS caller, or None.
+
+    Looks up the caller's HA user_id against the notify-discovery map and
+    returns the matching person entity_id. Returns None if the caller has
+    no associated HA user or no person entity is linked to that user.
+    """
+    # Local import to avoid a circular import: discovery -> store -> websocket.
+    from ..discovery import async_discover_notify_services
+
+    user = connection.user
+    if not user:
+        return None
+    discovered = await async_discover_notify_services(hass)
+    for pid, user_data in discovered.items():
+        if user_data.get("user_id") == user.id:
+            return pid
+    return None
+
+
+async def require_admin_for_cross_person(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+    requested_person_id: str | None,
+) -> tuple[bool, str | None]:
+    """Gate a handler against cross-user access by non-admin callers.
+
+    If ``requested_person_id`` is provided and does not match the caller's
+    resolved person_id, the caller must be an HA admin. Otherwise sends a
+    ``forbidden`` error via ``connection`` and returns ``(False, None)``.
+
+    Returns:
+        (ok, caller_person_id):
+          * ``(True,  caller_pid)`` — allowed to proceed. ``caller_pid``
+            may be None when caller has no linked person entity but is an
+            admin or no person_id was requested.
+          * ``(False, None)`` — error already sent; handler must return.
+    """
+    caller_person_id = await _resolve_caller_person_id(hass, connection)
+    if requested_person_id and requested_person_id != caller_person_id:
+        user = connection.user
+        if not (user and user.is_admin):
+            connection.send_error(
+                msg["id"],
+                "forbidden",
+                "Cross-user access requires admin",
+            )
+            return False, None
+    return True, caller_person_id

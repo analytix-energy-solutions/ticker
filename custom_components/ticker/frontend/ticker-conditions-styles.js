@@ -414,5 +414,12 @@ window.Ticker.conditionsStyles = `
       background: var(--bg-primary);
       border-radius: 4px;
     }
+
+    /* F-37: help text under state input — light grey, ~12px, modest top spacing */
+    .state-help-text {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-top: 6px;
+    }
   </style>
 `;

@@ -7,6 +7,13 @@ Covers:
 - async_send_tts plain/restore/announce branches: snapshot before chime,
   override applied, restored after TTS exits playing.
 - Caller-supplied volume= kwarg overrides resolved value (test-chime path).
+- BUG-109 iteration 2: ``_is_cast_target`` helper unit coverage
+  (TestCastDetection).
+
+All non-cast integration tests default ``_is_cast_target`` to ``False``
+so they exercise the simpler pre-set pattern (single ``volume_set`` per
+side, no jiggle). Cast-branch coverage lives in
+``test_f35_2_volume_delivery_jiggle.py``.
 """
 
 from __future__ import annotations
@@ -25,7 +32,10 @@ from custom_components.ticker.recipient_tts import (
     _snapshot_volume,
     async_send_tts,
 )
-from custom_components.ticker.recipient_tts_delivery import _is_valid_volume
+from custom_components.ticker.recipient_tts_delivery import (
+    _is_cast_target,
+    _is_valid_volume,
+)
 from custom_components.ticker.const import (
     MEDIA_ANNOUNCE_FEATURE,
     VOLUME_SET_SETTLE_DELAY,
@@ -228,14 +238,89 @@ class TestSetVolume:
 
 
 # ---------------------------------------------------------------------------
-# async_send_tts integration — volume snapshot/set/restore
+# BUG-109 iteration 2: _is_cast_target detection helper
+# ---------------------------------------------------------------------------
+
+
+class TestCastDetection:
+    """Coverage for ``_is_cast_target``.
+
+    BUG-109 iteration 2: cast scoping. The helper detects cast targets
+    via the entity registry ``platform`` field. Cast targets get the
+    deferred-apply jiggle pipeline; non-cast targets get the simpler
+    pre-BUG-109 single-set flow.
+    """
+
+    @pytest.mark.asyncio
+    async def test_cast_platform_returns_true(self):
+        hass = MagicMock()
+        entry = SimpleNamespace(platform="cast")
+        registry = MagicMock()
+        registry.async_get = MagicMock(return_value=entry)
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.er.async_get",
+            return_value=registry,
+        ):
+            assert (
+                await _is_cast_target(hass, "media_player.kitchen")
+            ) is True
+
+    @pytest.mark.asyncio
+    async def test_non_cast_platform_returns_false(self):
+        hass = MagicMock()
+        entry = SimpleNamespace(platform="sonos")
+        registry = MagicMock()
+        registry.async_get = MagicMock(return_value=entry)
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.er.async_get",
+            return_value=registry,
+        ):
+            assert (
+                await _is_cast_target(hass, "media_player.living_room")
+            ) is False
+
+    @pytest.mark.asyncio
+    async def test_missing_entry_returns_false(self):
+        hass = MagicMock()
+        registry = MagicMock()
+        registry.async_get = MagicMock(return_value=None)
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.er.async_get",
+            return_value=registry,
+        ):
+            assert (
+                await _is_cast_target(hass, "media_player.unknown")
+            ) is False
+
+    @pytest.mark.asyncio
+    async def test_registry_exception_returns_false(self):
+        """Any registry-lookup failure (mock states, hass not ready)
+        defaults to non-cast so the simpler path is used."""
+        hass = MagicMock()
+        with patch(
+            "custom_components.ticker.recipient_tts_chime.er.async_get",
+            side_effect=RuntimeError("hass not ready"),
+        ):
+            assert (
+                await _is_cast_target(hass, "media_player.kitchen")
+            ) is False
+
+
+# ---------------------------------------------------------------------------
+# async_send_tts integration — non-cast simple flow
 # ---------------------------------------------------------------------------
 
 
 class TestPlainBranchVolume:
-    """Plain delivery: snapshot vol, set override, chime+TTS, restore vol."""
+    """Plain delivery (non-cast): snapshot vol, single set override,
+    chime+TTS, single set restore. BUG-109 iteration 2 reverts non-cast
+    targets to the pre-BUG-109 simple flow."""
 
     @pytest.mark.asyncio
+    @patch(
+        "custom_components.ticker.recipient_tts_delivery._is_cast_target",
+        new_callable=AsyncMock, return_value=False,
+    )
     @patch(
         "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
         new_callable=AsyncMock, return_value=True,
@@ -244,16 +329,23 @@ class TestPlainBranchVolume:
         "custom_components.ticker.recipient_tts_delivery._wait_for_state",
         new_callable=AsyncMock, return_value=True,
     )
-    async def test_volume_set_before_chime_and_restored_after(self, _w, _we):
+    async def test_volume_set_before_chime_and_restored_after(
+        self, _w, _we, _cast,
+    ):
         hass = _make_hass(
             entity_id="media_player.kitchen",
             features=0,
             volume_level=0.3,  # current device volume
         )
-        # Patch the settle-delay sleep to keep the test fast.
+        # Patch the settle-delay sleep to keep the test fast. Also patch
+        # _is_cast_target inside the chime module since _play_chime
+        # makes its own cast-check.
         with patch(
             "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
             new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.recipient_tts_chime._is_cast_target",
+            new_callable=AsyncMock, return_value=False,
         ):
             store = _make_store(category=None)
             recipient = _make_recipient(
@@ -264,32 +356,43 @@ class TestPlainBranchVolume:
             )
 
         calls = hass.services.async_call.call_args_list
-        # Order: volume_set(0.8), play_media(chime), tts.speak,
-        #        volume_set(restore=0.3)
-        assert calls[0][0][0] == "media_player"
+        # BUG-109 iteration 2 — non-cast simple flow:
+        # 0) volume_set(0.8)             ← single set, no jiggle
+        # 1) play_media(chime)
+        # 2) tts.speak
+        # 3) volume_set(0.3)             ← single restore, no jiggle
         assert calls[0][0][1] == "volume_set"
         assert calls[0][0][2]["volume_level"] == 0.8
-        assert calls[1][0][0] == "media_player"
         assert calls[1][0][1] == "play_media"
         assert calls[2][0][0] == "tts"
-        assert calls[3][0][0] == "media_player"
         assert calls[3][0][1] == "volume_set"
         assert calls[3][0][2]["volume_level"] == 0.3
+        # Only 2 volume_set calls total (no jiggle on non-cast)
+        vol_set_count = sum(1 for c in calls if c[0][1] == "volume_set")
+        assert vol_set_count == 2
 
     @pytest.mark.asyncio
+    @patch(
+        "custom_components.ticker.recipient_tts_delivery._is_cast_target",
+        new_callable=AsyncMock, return_value=False,
+    )
     @patch(
         "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
         new_callable=AsyncMock, return_value=True,
     )
-    async def test_no_volume_override_no_volume_calls(self, _we):
+    async def test_no_volume_override_no_volume_calls(self, _we, _cast):
         """Without an override, no volume_set calls are made."""
         hass = _make_hass(entity_id="media_player.kitchen", features=0)
         store = _make_store(category=None)
         recipient = _make_recipient(chime="media-source://x")  # no volume
 
-        await async_send_tts(
-            hass, store, recipient, "cat1", "Title", "Hello",
-        )
+        with patch(
+            "custom_components.ticker.recipient_tts_chime._is_cast_target",
+            new_callable=AsyncMock, return_value=False,
+        ):
+            await async_send_tts(
+                hass, store, recipient, "cat1", "Title", "Hello",
+            )
 
         for call in hass.services.async_call.call_args_list:
             # No call should be volume_set
@@ -297,9 +400,14 @@ class TestPlainBranchVolume:
 
 
 class TestRestoreBranchVolume:
-    """Restore delivery: snapshot vol with media snapshot, restore both."""
+    """Restore delivery (non-cast): snapshot vol with media snapshot,
+    single set override, single set restore."""
 
     @pytest.mark.asyncio
+    @patch(
+        "custom_components.ticker.recipient_tts_delivery._is_cast_target",
+        new_callable=AsyncMock, return_value=False,
+    )
     @patch(
         "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
         new_callable=AsyncMock, return_value=True,
@@ -308,7 +416,9 @@ class TestRestoreBranchVolume:
         "custom_components.ticker.recipient_tts_delivery._wait_for_state",
         new_callable=AsyncMock, return_value=True,
     )
-    async def test_volume_snapshot_with_media_snapshot(self, _w, _we):
+    async def test_volume_snapshot_with_media_snapshot(
+        self, _w, _we, _cast,
+    ):
         hass = _make_hass(
             entity_id="media_player.kitchen",
             state="playing",
@@ -320,6 +430,9 @@ class TestRestoreBranchVolume:
         with patch(
             "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
             new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.recipient_tts_chime._is_cast_target",
+            new_callable=AsyncMock, return_value=False,
         ):
             store = _make_store(category=None)
             recipient = _make_recipient(
@@ -330,9 +443,12 @@ class TestRestoreBranchVolume:
             )
 
         calls = hass.services.async_call.call_args_list
-        # Expected order:
-        # 1) volume_set(0.9), 2) play_media(chime), 3) tts.speak,
-        # 4) play_media(restore stream), 5) volume_set(0.4)
+        # BUG-109 iteration 2 — non-cast simple flow:
+        # 0) volume_set(0.9)               ← single set override
+        # 1) play_media(chime)
+        # 2) tts.speak
+        # 3) play_media(restore stream)
+        # 4) volume_set(0.4)               ← single restore
         names = [(c[0][0], c[0][1]) for c in calls]
         assert names[0] == ("media_player", "volume_set")
         assert calls[0][0][2]["volume_level"] == 0.9
@@ -343,21 +459,21 @@ class TestRestoreBranchVolume:
         assert calls[3][0][2]["media_content_id"] == "http://stream/live"
         assert names[4] == ("media_player", "volume_set")
         assert calls[4][0][2]["volume_level"] == 0.4
+        # Only 2 volume_set calls (no jiggle on non-cast)
+        vol_set_count = sum(1 for c in calls if c[0][1] == "volume_set")
+        assert vol_set_count == 2
 
 
 class TestAnnounceBranchVolume:
-    """Announce delivery: volume override applied, restored after TTS."""
+    """Announce delivery: volume override applied, restored after TTS.
+
+    BUG-109 iteration 2: Cast devices don't expose MEDIA_ANNOUNCE, so
+    the announce branch reverts to the pre-BUG-109 simple flow (single
+    set, no jiggle, no extra waits).
+    """
 
     @pytest.mark.asyncio
-    @patch(
-        "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
-        new_callable=AsyncMock, return_value=True,
-    )
-    @patch(
-        "custom_components.ticker.recipient_tts_delivery._wait_for_state",
-        new_callable=AsyncMock, return_value=True,
-    )
-    async def test_announce_volume_set_and_restore(self, _w, _we):
+    async def test_announce_volume_set_and_restore(self):
         hass = _make_hass(
             entity_id="media_player.kitchen",
             features=MEDIA_ANNOUNCE_FEATURE,
@@ -366,6 +482,9 @@ class TestAnnounceBranchVolume:
         with patch(
             "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
             new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.recipient_tts_chime._is_cast_target",
+            new_callable=AsyncMock, return_value=False,
         ):
             store = _make_store(category=None)
             recipient = _make_recipient(
@@ -377,7 +496,11 @@ class TestAnnounceBranchVolume:
 
         calls = hass.services.async_call.call_args_list
         names = [(c[0][0], c[0][1]) for c in calls]
-        # volume_set, play_media (announce), tts.speak, volume_set (restore)
+        # BUG-109 iteration 2 — announce simple flow:
+        # 0) volume_set(0.7)             ← single set override
+        # 1) play_media (announce)
+        # 2) tts.speak
+        # 3) volume_set(0.5)             ← single restore
         assert names[0] == ("media_player", "volume_set")
         assert calls[0][0][2]["volume_level"] == 0.7
         assert names[1] == ("media_player", "play_media")
@@ -385,12 +508,19 @@ class TestAnnounceBranchVolume:
         assert names[2] == ("tts", "speak")
         assert names[-1] == ("media_player", "volume_set")
         assert calls[-1][0][2]["volume_level"] == 0.5
+        # Only 2 volume_set calls — announce branch is simple flow.
+        vol_set_count = sum(1 for c in calls if c[0][1] == "volume_set")
+        assert vol_set_count == 2
 
 
 class TestVolumeFailSoft:
     """Fail-soft: volume_set failure does not abort chime+TTS."""
 
     @pytest.mark.asyncio
+    @patch(
+        "custom_components.ticker.recipient_tts_delivery._is_cast_target",
+        new_callable=AsyncMock, return_value=False,
+    )
     @patch(
         "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
         new_callable=AsyncMock, return_value=True,
@@ -400,25 +530,32 @@ class TestVolumeFailSoft:
         new_callable=AsyncMock, return_value=True,
     )
     async def test_volume_set_failure_continues_to_chime_and_tts(
-        self, _w, _we, caplog,
+        self, _w, _we, _cast, caplog,
     ):
         hass = _make_hass(
             entity_id="media_player.kitchen",
             features=0,
             volume_level=0.3,
         )
-        # First call (volume_set) raises, rest succeed
+        # BUG-109 iteration 2 — non-cast simple flow:
+        # 1) volume_set (override) RAISES
+        # 2) play_media (chime) OK
+        # 3) tts.speak OK
+        # 4) volume_set (restore) OK
         hass.services.async_call = AsyncMock(
             side_effect=[
-                HomeAssistantError("offline"),  # initial volume_set
+                HomeAssistantError("offline"),  # override (fail)
                 None,  # play_media (chime)
                 None,  # tts.speak
-                None,  # restore volume_set
+                None,  # restore
             ],
         )
         with patch(
             "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
             new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.recipient_tts_chime._is_cast_target",
+            new_callable=AsyncMock, return_value=False,
         ):
             store = _make_store(category=None)
             recipient = _make_recipient(
@@ -438,73 +575,5 @@ class TestVolumeFailSoft:
         assert result["dropped"] == []
 
 
-class TestExplicitVolumeKwarg:
-    """volume= kwarg overrides resolved value (test-chime path)."""
-
-    @pytest.mark.asyncio
-    @patch(
-        "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
-        new_callable=AsyncMock, return_value=True,
-    )
-    @patch(
-        "custom_components.ticker.recipient_tts_delivery._wait_for_state",
-        new_callable=AsyncMock, return_value=True,
-    )
-    async def test_explicit_volume_wins_over_recipient(self, _w, _we):
-        hass = _make_hass(
-            entity_id="media_player.kitchen",
-            features=0, volume_level=0.4,
-        )
-        with patch(
-            "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
-            new_callable=AsyncMock,
-        ):
-            store = _make_store(category=None)
-            recipient = _make_recipient(
-                chime="media-source://x", volume_override=0.2,  # ignored
-            )
-            await async_send_tts(
-                hass, store, recipient, "cat1", "Title", "Hello",
-                volume=0.95,
-            )
-
-        # First service call should be volume_set with 0.95, not 0.2.
-        first = hass.services.async_call.call_args_list[0]
-        assert first[0][1] == "volume_set"
-        assert first[0][2]["volume_level"] == 0.95
-
-
-class TestCategoryOverridesVolume:
-    """End-to-end: category volume_override beats recipient default."""
-
-    @pytest.mark.asyncio
-    @patch(
-        "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
-        new_callable=AsyncMock, return_value=True,
-    )
-    async def test_category_volume_wins(self, _we):
-        hass = _make_hass(
-            entity_id="media_player.kitchen",
-            features=0, volume_level=0.4,
-        )
-        with patch(
-            "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
-            new_callable=AsyncMock,
-        ):
-            with patch(
-                "custom_components.ticker.recipient_tts_delivery._wait_for_state",
-                new_callable=AsyncMock, return_value=True,
-            ):
-                store = _make_store(
-                    category={"volume_override": 0.9},
-                )
-                recipient = _make_recipient(
-                    chime="media-source://x", volume_override=0.2,
-                )
-                await async_send_tts(
-                    hass, store, recipient, "cat1", "Title", "Hello",
-                )
-
-        first = hass.services.async_call.call_args_list[0]
-        assert first[0][1] == "volume_set"
-        assert first[0][2]["volume_level"] == 0.9
+# NOTE: TestExplicitVolumeKwarg and TestCategoryOverridesVolume live in
+# ``test_f35_2_volume_delivery_jiggle.py`` (cast-branch coverage).

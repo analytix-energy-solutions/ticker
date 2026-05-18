@@ -8,6 +8,7 @@ Spec §12 cases 11–13:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -187,3 +188,181 @@ class TestWsTestChimeNoQueueInteraction:
         args = conn.send_error.call_args[0]
         assert args[1] == "test_chime_failed"
         assert "boom" in args[2]
+
+
+class TestWsTestChimeCastRestoresMedia:
+    """BUG-110 b21 (Issue 3): on cast targets ``announce=True`` is
+    silently ignored when the platform lacks MEDIA_ANNOUNCE feature
+    so the platform's auto pause/resume doesn't happen. The handler
+    snapshots prior media state and calls ``_restore_previous_media``
+    in a finally block after the chime so the user's radio resumes.
+    """
+
+    @staticmethod
+    def _cast_hass_with_playing_media(
+        content_id: str = "http://stream/live",
+        content_type: str = "music",
+    ) -> MagicMock:
+        hass = MagicMock()
+        state_obj = SimpleNamespace(
+            state="playing",
+            attributes={
+                "media_content_id": content_id,
+                "media_content_type": content_type,
+            },
+        )
+        hass.states.get = MagicMock(return_value=state_obj)
+        return hass
+
+    @pytest.mark.asyncio
+    async def test_cast_target_with_playing_media_calls_restore(self):
+        """Cast + prior state=playing -> _restore_previous_media is
+        called with the snapshotted content id / type."""
+        hass = self._cast_hass_with_playing_media()
+        conn = MagicMock()
+        with patch(
+            "custom_components.ticker.websocket.recipient_helpers._is_cast_target",
+            new_callable=AsyncMock, return_value=True,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._play_chime",
+            new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._restore_previous_media",
+            new_callable=AsyncMock, return_value=True,
+        ) as mock_restore, patch(
+            "custom_components.ticker.websocket.recipient_helpers._wait_for_state",
+            new_callable=AsyncMock, return_value=True,
+        ):
+            await ws_test_chime(hass, conn, _msg())
+        mock_restore.assert_awaited_once()
+        args = mock_restore.await_args[0]
+        assert args[1] == "media_player.kitchen"
+        assert args[2] == "http://stream/live"
+        assert args[3] == "music"
+        # Success was still reported.
+        conn.send_result.assert_called_once_with(1, {"success": True})
+
+    @pytest.mark.asyncio
+    async def test_non_cast_target_does_not_restore(self):
+        """Non-cast targets rely on the platform's MEDIA_ANNOUNCE handling
+        — the handler must NOT call _restore_previous_media."""
+        hass = self._cast_hass_with_playing_media()
+        conn = MagicMock()
+        with patch(
+            "custom_components.ticker.websocket.recipient_helpers._is_cast_target",
+            new_callable=AsyncMock, return_value=False,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._play_chime",
+            new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._restore_previous_media",
+            new_callable=AsyncMock,
+        ) as mock_restore, patch(
+            "custom_components.ticker.websocket.recipient_helpers._wait_for_state",
+            new_callable=AsyncMock,
+        ):
+            await ws_test_chime(hass, conn, _msg())
+        mock_restore.assert_not_called()
+        conn.send_result.assert_called_once_with(1, {"success": True})
+
+    @pytest.mark.asyncio
+    async def test_cast_target_idle_prior_state_skips_restore(self):
+        """Cast but prior state was idle (nothing to resume) -> no restore."""
+        hass = MagicMock()
+        hass.states.get = MagicMock(return_value=SimpleNamespace(
+            state="idle",
+            attributes={"media_content_id": None, "media_content_type": None},
+        ))
+        conn = MagicMock()
+        with patch(
+            "custom_components.ticker.websocket.recipient_helpers._is_cast_target",
+            new_callable=AsyncMock, return_value=True,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._play_chime",
+            new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._restore_previous_media",
+            new_callable=AsyncMock,
+        ) as mock_restore, patch(
+            "custom_components.ticker.websocket.recipient_helpers._wait_for_state",
+            new_callable=AsyncMock,
+        ):
+            await ws_test_chime(hass, conn, _msg())
+        mock_restore.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cast_target_no_content_id_skips_restore(self):
+        """Cast playing but content_id missing -> nothing to restore."""
+        hass = MagicMock()
+        hass.states.get = MagicMock(return_value=SimpleNamespace(
+            state="playing",
+            attributes={"media_content_id": None, "media_content_type": None},
+        ))
+        conn = MagicMock()
+        with patch(
+            "custom_components.ticker.websocket.recipient_helpers._is_cast_target",
+            new_callable=AsyncMock, return_value=True,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._play_chime",
+            new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._restore_previous_media",
+            new_callable=AsyncMock,
+        ) as mock_restore, patch(
+            "custom_components.ticker.websocket.recipient_helpers._wait_for_state",
+            new_callable=AsyncMock,
+        ):
+            await ws_test_chime(hass, conn, _msg())
+        mock_restore.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_restore_failure_logged_not_raised(self, caplog):
+        """If _restore_previous_media raises, the warning is logged and
+        the handler returns normally (success was already sent)."""
+        hass = self._cast_hass_with_playing_media()
+        conn = MagicMock()
+        with patch(
+            "custom_components.ticker.websocket.recipient_helpers._is_cast_target",
+            new_callable=AsyncMock, return_value=True,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._play_chime",
+            new_callable=AsyncMock,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._restore_previous_media",
+            new_callable=AsyncMock, side_effect=RuntimeError("net"),
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._wait_for_state",
+            new_callable=AsyncMock,
+        ):
+            with caplog.at_level("WARNING"):
+                await ws_test_chime(hass, conn, _msg())
+        assert any(
+            "failed to restore prior media" in rec.message.lower()
+            for rec in caplog.records
+        )
+        conn.send_result.assert_called_once_with(1, {"success": True})
+
+    @pytest.mark.asyncio
+    async def test_restore_runs_even_if_play_chime_fails(self):
+        """If _play_chime raises and the platform was playing, restore
+        still runs (finally clause). Mirrors how a real notification
+        flow recovers from chime errors."""
+        hass = self._cast_hass_with_playing_media()
+        conn = MagicMock()
+        with patch(
+            "custom_components.ticker.websocket.recipient_helpers._is_cast_target",
+            new_callable=AsyncMock, return_value=True,
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._play_chime",
+            new_callable=AsyncMock, side_effect=RuntimeError("boom"),
+        ), patch(
+            "custom_components.ticker.websocket.recipient_helpers._restore_previous_media",
+            new_callable=AsyncMock, return_value=True,
+        ) as mock_restore, patch(
+            "custom_components.ticker.websocket.recipient_helpers._wait_for_state",
+            new_callable=AsyncMock, return_value=True,
+        ):
+            await ws_test_chime(hass, conn, _msg())
+        mock_restore.assert_awaited_once()
+        # Error was reported (chime failure path).
+        conn.send_error.assert_called_once()

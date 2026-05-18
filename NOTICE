@@ -1,0 +1,9 @@
+Ticker
+Copyright 2024-2026 Analytix Energy Solutions
+
+This product includes software developed with AI assistance (Claude, by Anthropic).
+
+Bundled chime audio assets (subtle.wav, alert.wav, doorbell.wav and their
+Chromecast-padded variants) are synthesized and released under CC0 1.0
+Universal (Public Domain Dedication). The generation script is included
+at scripts/generate_chimes.py.

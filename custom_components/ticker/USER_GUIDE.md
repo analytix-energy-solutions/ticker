@@ -18,11 +18,12 @@ For installation and a quick overview, see the [README](../../README.md).
 8. [Notification history](#notification-history)
 9. [Self-healing delivery](#self-healing-delivery)
 10. [Admin panel](#admin-panel)
-11. [User panel](#user-panel)
-12. [Migration wizard](#migration-wizard)
-13. [Dashboard sensors](#dashboard-sensors)
-14. [Uninstalling](#uninstalling)
-15. [Version history](#version-history)
+11. [Setting up Ticker for household members](#setting-up-ticker-for-household-members)
+12. [User panel](#user-panel)
+13. [Migration wizard](#migration-wizard)
+14. [Dashboard sensors](#dashboard-sensors)
+15. [Uninstalling](#uninstalling)
+16. [Version history](#version-history)
 
 ---
 
@@ -76,7 +77,7 @@ data:
 
 ### Queue expiration
 
-Queued notifications expire after 48 hours by default. You can override this per call (in hours, maximum 48):
+Queued notifications expire after 48 hours by default. You can override this per call (in hours, minimum 1, maximum 48):
 
 ```yaml
 service: ticker.notify
@@ -121,7 +122,7 @@ data:
   navigate_to: /lovelace/cameras
 ```
 
-The value can be any HA Lovelace path (e.g., `/lovelace/0`, `/lovelace/cameras`) or a full HTTPS URL.
+The value must be a relative HA path beginning with `/` (e.g., `/lovelace/0`, `/lovelace/cameras`). Absolute URLs (`https://…`), `javascript:` URIs, and protocol-relative `//host/path` values are rejected by the validator — see the Security note below.
 
 Ticker injects the correct field per platform automatically — you do not need to set `clickAction` or `url` yourself:
 - **Android** — injects `clickAction` into the notification data.
@@ -170,6 +171,10 @@ data:
 
 When the trigger fires, Ticker calls `ticker.clear_notification` automatically against the tag of the delivered notification. Listeners are one-shot and are torn down after the first fire.
 
+> **Prerequisite:** auto-clear only takes effect when the target category has a tag mode (Category or Title) configured in the Smart sub-tab. Without a tag mode the underlying mobile_app notify service has no tag to target — Ticker registers the listener but the clear call is silently skipped (a warning is logged). Configure the category's tag mode before relying on `clear_when`.
+
+> **State trigger fires on transition only:** the entity-state trigger registers a listener for state changes that match the target state. If the entity is **already** in the target state when the notification is delivered (e.g. the washer is already `off`), the listener will never fire and the notification stays until manually dismissed. Use a different trigger entity (or pre-check the entity state in the automation) when the clear condition could already be true at delivery time.
+
 > **Important limitation:** auto-clear listeners do not survive a Home Assistant restart. If HA restarts between delivery and trigger fire, the listener is lost and the notification stays on the device until the user dismisses it manually or another call clears the tag. For notifications that must survive restarts, drive the clear from an HA automation triggered by the same condition.
 
 Auto-clear is YAML-only in v1.6.0 — the HA service UI does not render a structured editor for this field.
@@ -188,7 +193,24 @@ data:
   actions: none
 ```
 
-Omitting the `actions` parameter (the default) uses the category's configured action set if one exists.
+The `actions` parameter accepts exactly two values: `category_default` (the default — use the category's configured action set if any) or `none` (suppress action button injection entirely). Omitting the parameter is equivalent to passing `category_default`.
+
+If you want to inject your own custom buttons on a specific call, place them in the underlying notify service's payload via the `data` block (Ticker passes `data` through to the underlying mobile_app notify service):
+
+```yaml
+service: ticker.notify
+data:
+  category: alerts
+  title: "Custom buttons"
+  message: "Pick one"
+  actions: none           # suppress Ticker's category buttons
+  data:
+    actions:              # consumed by the mobile_app notify service
+      - action: SNOOZE_1H
+        title: Snooze 1h
+      - action: DISMISS
+        title: Dismiss
+```
 
 ### Per-call action set override *(v1.5.0)*
 
@@ -203,7 +225,7 @@ data:
   action_set_id: confirm_alert
 ```
 
-This overrides the category's default action set for this call only. The value must match an ID in the Action Sets library. Omitting it uses the category's configured action set, if any.
+This overrides the category's default action set for this call only. If the ID does not match a known action set, a warning is logged and the category default (if any) is used. Omitting `action_set_id` uses the category's configured action set.
 
 ---
 
@@ -233,8 +255,8 @@ When a subscription is set to Conditional, you define one or more rules that det
 
 Rules support **AND and OR logic** — you control per group whether all rules must be satisfied (AND) or any one is sufficient (OR). The condition set has two toggles that apply to the top-level result:
 
-- **Deliver when all conditions met** — Send the notification immediately when every rule is satisfied.
-- **Queue until all conditions met** — Hold the notification and release it automatically when every rule becomes satisfied.
+- **Deliver when conditions met** — Send the notification immediately when the condition tree evaluates as true (respecting your AND/OR grouping and NOT inversions).
+- **Queue until conditions met** — Hold the notification and release it automatically when the condition tree becomes true.
 
 Both toggles can be enabled at the same time. If no valid rules are configured, the subscription falls back to Always.
 
@@ -263,19 +285,19 @@ Rule: binary_sensor.tv_power = off
 The "deliver when met" and "queue until met" toggles apply to the entire set of rules, not to individual rules. For example:
 
 ```
-Rules:
+Rules (AND):
   1. Zone = Home
   2. Entity state: media_player.tv = off
 
-☑ Deliver when all conditions met
-☑ Queue until all conditions met
+☑ Deliver when conditions met
+☑ Queue until conditions met
 ```
 
-With both toggles enabled, this delivers notifications when the person is home AND the TV is off. If either condition isn't met, notifications are queued and released automatically when both are satisfied simultaneously.
+With both toggles enabled, this delivers notifications when the condition tree is true (here, both conditions because they share an AND group). When the tree evaluates false, notifications are queued and released automatically when the tree becomes true.
 
-With only "deliver when met" enabled, notifications are delivered when conditions are met but silently skipped when they aren't — no queuing.
+With only "deliver when conditions met" enabled, notifications are delivered when the tree is true but silently skipped when it isn't — no queuing.
 
-With only "queue until met" enabled, notifications are never delivered immediately but are queued and released when conditions are met.
+With only "queue until conditions met" enabled, notifications are never delivered immediately but are queued and released when the tree becomes true.
 
 ### AND/OR condition grouping *(v1.5.0)*
 
@@ -348,7 +370,7 @@ When `ticker.notify` is called, Ticker processes each person entity in Home Assi
 4. **Delivery decision** — Based on the mode:
    - **Always**: Send immediately to the person's target devices.
    - **Never**: Log as skipped, do nothing.
-   - **Conditional**: Evaluate all rules. If all are met and "deliver when met" is enabled, send immediately. If "queue until met" is enabled and not all rules are met, queue the notification. Otherwise, skip.
+   - **Conditional**: Evaluate the condition tree (AND/OR groups with optional NOT inversions). If the tree is true and "deliver when conditions met" is enabled, send immediately. If "queue until conditions met" is enabled and the tree is false, queue the notification. Otherwise, skip.
 5. **Action injection** *(v1.3.0)* — If the category has action buttons configured and the automation has not supplied its own `data.actions`, Ticker injects the action buttons automatically.
 6. **Device selection** — The person's global device preference and any per-category overrides determine which notify services receive the notification (see Device routing below).
 7. **Sensor update** — The category sensor entity is updated with the delivery results.
@@ -420,7 +442,7 @@ Where it is configured:
 
 Both dialogs include a Test Chime button that plays the chime through the chosen media_player without going through the queue, sending TTS, or producing a History entry.
 
-The chime is fail-soft: if the media_player is offline, the asset is missing, or playback fails for any reason, the failure is logged as a warning and the TTS announcement still delivers normally — the History entry is still marked as Sent. There is a 10-second cap on chime playback before TTS proceeds, so a stuck or silent chime will never block the announcement indefinitely.
+The chime is fail-soft: if the media_player is offline, the asset is missing, or playback fails for any reason, the failure is logged as a warning and the TTS announcement still delivers normally — the History entry is still marked as Sent. TTS proceeds no more than 10 seconds after the chime starts playing on platforms that expose the chime in `media_content_id`; on platforms that never expose it (or the chime can't be detected within ~1.5 s), TTS proceeds after a fixed 3-second gap. Either way, a stuck or silent chime will never block the announcement indefinitely.
 
 **Caveat — Alexa double-chime:** Some TTS engines (notably Amazon Alexa via the Alexa Media Player integration) play their own "earcon" tone before speech. If Ticker also plays a chime, the listener hears two tones in a row. Ticker does not auto-detect this — leave the chime field empty for Alexa-based recipients to avoid the double-chime.
 
@@ -436,7 +458,9 @@ Ticker ships three CC0-licensed chime assets out of the box so the feature is fu
 
 Both the recipient and category dialogs render preset chips above the chime URL field. Clicking a chip writes the chime's absolute URL into the field — bundled chimes use the same delivery path as user-supplied `media_content_id` values, so playback behaviour is identical.
 
-**Caveat — host changes stale the URL:** The stored URL includes the HA host (e.g. `http://homeassistant.local:8123/ticker_static/chimes/subtle.wav`). If you later change your HA external URL or move to a different hostname, the stored URL becomes stale and the chime stops playing. Re-pick the chip to refresh — Ticker recomposes the URL from your current HA URL each time the dialog opens.
+**Chromecast targets — pick the `(Chromecast)` variant.** Three additional bundled chimes — labelled `(Chromecast) Subtle ding`, `(Chromecast) Alert tone`, and `(Chromecast) Doorbell` — are identical to the originals but with 2.5 seconds of leading silence prepended. The Cast Default Media Receiver swallows the first 1–2 seconds when loading a new media context, which makes short chimes inaudible on a plain Chromecast target (see BUGS.md BUG-110). The `(Chromecast)` variants feed silence into that swallow window so the audible body of the chime survives. Pick the matching `(Chromecast)` variant from the preset chips on the recipient or category dialog when the target is a Chromecast / Google Cast speaker that lacks `MEDIA_ANNOUNCE` support; Ticker does not auto-detect this.
+
+**Caveat — host changes stale the URL:** The stored URL is composed from HA's **internal URL** (e.g. `http://homeassistant.local:8123/ticker_static/chimes/subtle.wav`). If you later change the HA internal URL or move to a different hostname, the stored URL becomes stale and the chime stops playing. Re-pick the chip to refresh — Ticker recomposes the URL from the current HA internal URL each time the dialog opens.
 
 If Ticker cannot resolve any HA URL (`get_url` returns nothing), the bundled chip row is hidden — you can still paste a chime URL or `media-source://` value manually.
 
@@ -450,9 +474,9 @@ Both the recipient (Devices) dialog and the category (General sub-tab) dialog in
 - **Default**: leave the slider on **Default** (button shows "Set", value reads "Default") to inherit the media_player's current volume — current behavior, no `volume_set` is called.
 - **Recipient default**: applied to every category that does not specify its own override.
 - **Category override**: when set, beats the device default for notifications in that category.
-- **Test Chime**: previews at the current slider value. Snapshot/restore happens server-side, so testing does not leave your media at the test volume.
+- **Test Chime**: previews at the current slider value. Snapshot/restore happens server-side, so testing does not leave your media at the test volume — provided the device exposes a `volume_level` attribute (i.e. is on or playing). On cold devices that don't report `volume_level`, the override is silently skipped (fail-soft) and the device's volume is not touched.
 
-The override is applied via Home Assistant's standard `media_player.volume_set` service. After setting the level, Ticker waits 200 ms before issuing the next service call — Sonos in particular needs a moment to apply a new volume on the cached connector before `play_media` starts. The previous volume is restored after TTS exits the `playing` state, regardless of whether resume-after-TTS reattached previous media.
+The override is applied via Home Assistant's standard `media_player.volume_set` service. After setting the level, Ticker briefly waits before issuing the next service call so the platform can apply the new volume — Sonos in particular needs ~200 ms to apply a new volume on the cached connector before `play_media` starts. On Chromecast targets the trailing settle is skipped because `play_media` triggers a context switch that supersedes it. The previous volume is restored after TTS finishes — for snapshot/restore and plain delivery this is after the entity exits the `playing` state; for announce mode (where the platform handles pause/resume) it is restored right after the TTS service call returns.
 
 **Fail-soft**: if `volume_set` fails (offline player, unsupported attribute, etc.), Ticker logs a warning and proceeds with chime + TTS at the device's current volume — the announcement is never blocked by a volume problem.
 
@@ -546,7 +570,7 @@ Images that fail to load are silently hidden. `media-source://` URIs show a plac
 
 ### Deep-link from phone notifications
 
-Every notification Ticker sends includes `url` and `clickAction` fields pointing to `/ticker#history`. When you tap a notification on your phone, it opens directly to the History tab in the Ticker user panel.
+Every **push** notification Ticker sends includes `url` and `clickAction` fields pointing to `/ticker#history` (or to the per-call or category `navigate_to` if set). When you tap a notification on your phone, it opens directly to the configured target. TTS and persistent notification deliveries do not receive these fields — there is no UI to tap.
 
 This is especially useful on iOS where quickly tapping a notification group can dismiss them before you read them. Ticker preserves the full history so nothing is lost.
 
@@ -572,7 +596,7 @@ Additionally, if a conditional subscription references a zone that has been dele
 
 ## Admin panel
 
-Only visible to users in the "Administrator" group. The admin panel has six tabs.
+Only visible to users in the "Administrator" group. The admin panel has eight tabs: Categories, Users, Queue, Logs, Devices, Action Sets, Automations, and Migrate.
 
 ### Categories tab
 
@@ -621,6 +645,30 @@ Scans all automations and scripts for `ticker.notify` calls and displays them in
 ### Migrate tab
 
 Run the migration wizard (see Migration wizard section below).
+
+---
+
+## Setting up Ticker for household members
+
+*Added in v1.7.0 (F-38)*
+
+Configuring Ticker for a non-technical household member normally requires them to log in to Home Assistant themselves and navigate to the user panel. The **View-as** feature lets an admin do this setup on their behalf without needing the other person's credentials.
+
+### How to use it
+
+1. Open the Ticker **user panel** while logged in as an admin.
+2. A **"Viewing as"** dropdown appears in the top-right corner of the panel header. It is only visible to admins — other users do not see it.
+3. Select a household member from the dropdown. The panel immediately re-renders showing that person's subscriptions, queue, and history.
+4. A persistent banner — "Viewing as: [Name]" — stays visible at the top of the panel so you always know whose view you are in.
+5. Make whatever changes are needed: update subscription modes, configure conditions, adjust device preferences. All changes are attributed to admin in the audit log.
+6. Click **Stop viewing** in the banner to return to your own view.
+
+### Notes
+
+- The dropdown only lists people with a linked HA person entity and discovered notify services. Service accounts and users without a person entity do not appear.
+- If your own HA account is not linked to a person entity, the panel shows a message pointing you to the dropdown — you can still assist other household members even without a personal entity.
+- Impersonation state is in-memory only. If you reload the page or navigate away, the panel returns to your own view automatically.
+- Any subscription changes made while in impersonation mode are written with `set_by=ADMIN` in the audit trail, identical to admin edits made directly via the admin Users tab.
 
 ---
 
@@ -708,7 +756,22 @@ Removing Ticker deletes all its persistent data: categories, subscriptions, user
 
 ## Version history
 
-### v1.6.0 (current)
+### v1.7.0 (current)
+
+**Added:**
+- **View-as-User** — admins can operate the user panel on another household member's behalf using a new "Viewing as" dropdown in the panel header. See [Setting up Ticker for household members](#setting-up-ticker-for-household-members).
+- **NOT operator for conditions** — toggle a NOT pill on any condition row or group to invert its result (e.g., "NOT in zone home" = person is away, "NOT 08:00–22:00" = overnight window). Works for all rule types.
+- **Pre-TTS chime** — TTS recipients can be paired with a short audio chime that plays immediately before each TTS announcement. Set at the device level in the admin Devices tab with an optional per-category override. Three bundled CC0 chime presets ship out of the box (subtle/alert/doorbell), plus matching `(Chromecast)` variants with leading silence to survive the Cast Default Media Receiver swallow window.
+- **Volume override** — a slider in the device and category dialogs sets the media_player volume for the chime+TTS pair and restores the previous level after TTS finishes. Leave on Default to inherit the device's current volume.
+- **Entity-state value suggestions** — the state field in entity-state condition rules suggests valid values for the selected entity's domain (input_select options, climate/lock/cover/media_player/alarm enums). Free-text still accepted for custom values.
+
+**Fixed:**
+- **BUG-104** — `action_set_id` parameter on `ticker.notify` (documented since v1.5.0) was rejected at the service schema layer. Now correctly accepted and forwarded to the action-set resolver. Unknown IDs log a warning and fall back to the category default.
+
+**Security:**
+- Cross-user WebSocket data disclosure (BUG-108): WebSocket handlers accepting `person_id` now enforce admin-or-self gating. A non-admin caller can no longer read another user's subscriptions, queue, or logs by supplying a foreign person_id. Existing HA access control (valid session required) was always enforced; this closes the within-session cross-user read path.
+
+### v1.6.0
 
 **Added:**
 - **Notification history search** — the user History tab has a new filter bar with full-text search, category dropdown, and a date-range picker. Filters compose with AND logic and run entirely client-side. An inline "No matches" state appears when filters reduce the list to zero while keeping the filter bar visible.

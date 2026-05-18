@@ -224,11 +224,16 @@ window.Ticker.UserSubscriptionsTab.handlers = {
       return;
     }
     try {
-      await panel._hass.callWS({
+      // F-38: when admin is impersonating, target the impersonated person.
+      const wsMsg = {
         type: 'ticker/device_preference/set',
         mode: panel._devicePrefMode,
         devices: panel._devicePrefMode === 'selected' ? panel._devicePrefDevices : [],
-      });
+      };
+      if (panel._impersonatedPersonId) {
+        wsMsg.person_id = panel._impersonatedPersonId;
+      }
+      await panel._hass.callWS(wsMsg);
       await panel._loadCurrentPerson();
       panel._initDevicePrefState();
       panel._renderTabContentPreserveScroll();

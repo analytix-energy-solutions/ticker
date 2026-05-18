@@ -5,6 +5,7 @@
 !.gitignore
 !hacs.json
 !LICENSE
+!NOTICE
 !README.md
 
 # Allow GitHub config

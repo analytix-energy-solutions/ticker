@@ -3,8 +3,13 @@
 The audit trail (set_by) must reflect:
 - SET_BY_USER when a caller edits their own subscription
 - SET_BY_ADMIN when a real admin edits someone else's subscription
-- SET_BY_USER when a non-admin caller edits someone else's subscription
-  (falls back to USER rather than mislabeling as admin)
+
+The third historical case — a non-admin editing someone else's
+subscription — was a code path that previously fell back to SET_BY_USER
+to avoid mislabeling the audit log. BUG-108 (F-38 Chunk 1) added an
+admin-or-self gate that now rejects that request with ``forbidden``
+before the set_by tagging branch is reached. The test renamed
+``test_non_admin_cross_user_edit_rejected`` asserts the new behavior.
 """
 
 from __future__ import annotations
@@ -101,9 +106,15 @@ class TestBug098SetByAudit:
         assert set_by == SET_BY_ADMIN
 
     @pytest.mark.asyncio
-    async def test_non_admin_cross_user_edit_tagged_user(self):
-        """Non-admin caller editing another user's sub is SET_BY_USER
-        (must not be mislabeled as ADMIN)."""
+    async def test_non_admin_cross_user_edit_rejected(self):
+        """BUG-108 (F-38 Chunk 1): non-admin cross-user edits must be
+        rejected with ``forbidden`` before the store is touched.
+
+        Supersedes the pre-BUG-108 test
+        ``test_non_admin_cross_user_edit_tagged_user`` which asserted
+        SET_BY_USER fallback. That code path is now unreachable by
+        design.
+        """
         hass = MagicMock()
         store = _make_store()
         conn = _make_conn(user_id="uid_regular", is_admin=False)
@@ -118,8 +129,8 @@ class TestBug098SetByAudit:
         ):
             await ws_set_subscription(hass, conn, _base_msg())
 
-        set_by = store.async_set_subscription.call_args[1]["set_by"]
-        assert set_by == SET_BY_USER, (
-            "BUG-098: non-admin cross-user edits must fall back to "
-            "SET_BY_USER, not be mislabeled as admin"
-        )
+        # The admin gate rejects the request — store must not be touched.
+        store.async_set_subscription.assert_not_awaited()
+        conn.send_error.assert_called_once()
+        args = conn.send_error.call_args[0]
+        assert args[1] == "forbidden"

@@ -212,10 +212,21 @@ window.Ticker.AdminDataLoader = {
     try {
       const states = panel._hass.states;
       const all = Object.keys(states);
-      panel._entities = all.map(id => ({
-        entity_id: id,
-        name: states[id].attributes.friendly_name || id,
-      })).sort((a, b) => a.name.localeCompare(b.name));
+      // F-37: enrich with domain/state/options/hvac_modes/device_class so the
+      // conditions UI can suggest valid state values per entity type.
+      // Missing attributes resolve to undefined (no crash).
+      panel._entities = all.map(id => {
+        const attrs = states[id].attributes || {};
+        return {
+          entity_id: id,
+          name: attrs.friendly_name || id,
+          domain: id.split('.', 1)[0],
+          state: states[id].state,
+          options: attrs.options,
+          hvac_modes: attrs.hvac_modes,
+          device_class: attrs.device_class,
+        };
+      }).sort((a, b) => a.name.localeCompare(b.name));
       panel._scripts = panel._entities.filter(e => e.entity_id.startsWith('script.'));
 
       // Build sidebar panels list from hass.panels (F-22b)

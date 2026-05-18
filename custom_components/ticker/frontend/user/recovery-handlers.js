@@ -121,4 +121,68 @@ window.Ticker.UserRecoveryHandlers = {
       composed: true,
     }));
   },
+
+  /**
+   * F-26 + BUG-040: Update a history filter field and re-render the history
+   * tab without losing scroll position. Captures the currently focused input
+   * (id + selection range) before re-render and restores it afterwards so
+   * the search box keeps focus across keystrokes. Extracted from
+   * ticker-panel.js for F-38 to keep that file under the 500-line cap.
+   * @param {TickerPanel} panel - The panel instance.
+   * @param {string} field - One of historySearch, historyCategory, historyDateFrom, historyDateTo.
+   * @param {string} value - New value.
+   */
+  /**
+   * FIX-002 (F-38): Show a transient message in the panel's #message-area.
+   * Extracted from ticker-panel.js's _showError/_showSuccess to keep that
+   * file under the 500-line cap. Success messages auto-hide after 3s,
+   * errors after 10s — matches the original behavior exactly.
+   * @param {TickerPanel} panel - The panel instance.
+   * @param {string} text - Message text (already user-facing).
+   * @param {'error'|'success'} kind - Message kind.
+   */
+  setMessage(panel, text, kind) {
+    if (!panel._els || !panel._els.messageArea) return;
+    const area = panel._els.messageArea;
+    area.textContent = text;
+    area.className = `message ${kind}-message`;
+    area.style.display = 'block';
+    const timeout = kind === 'error' ? 10000 : 3000;
+    setTimeout(() => { area.style.display = 'none'; }, timeout);
+  },
+
+  setHistoryFilter(panel, field, value) {
+    const allowed = ['historySearch', 'historyCategory', 'historyDateFrom', 'historyDateTo'];
+    if (!allowed.includes(field)) return;
+    const key = '_' + field;
+    panel[key] = value || '';
+
+    // Save focus state from the shadow root's active element.
+    const active = panel.shadowRoot?.activeElement;
+    let focusInfo = null;
+    if (active && active.id && active.id.startsWith('ticker-history-')) {
+      focusInfo = { id: active.id };
+      // Only text-like inputs expose selection range
+      if (active.tagName === 'INPUT' && (active.type === 'search' || active.type === 'text')) {
+        focusInfo.selStart = active.selectionStart;
+        focusInfo.selEnd = active.selectionEnd;
+      }
+    }
+
+    panel._renderTabContentPreserveScroll();
+
+    if (focusInfo) {
+      const restored = panel.shadowRoot?.getElementById(focusInfo.id);
+      if (restored) {
+        restored.focus();
+        if (focusInfo.selStart != null && typeof restored.setSelectionRange === 'function') {
+          try {
+            restored.setSelectionRange(focusInfo.selStart, focusInfo.selEnd);
+          } catch {
+            // setSelectionRange throws on some input types — safe to ignore
+          }
+        }
+      }
+    }
+  },
 };

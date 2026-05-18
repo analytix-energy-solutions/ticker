@@ -14,7 +14,9 @@ from homeassistant.core import HomeAssistant
 from ..const import DEVICE_MODE_ALL, DEVICE_MODE_SELECTED, MAX_LOG_ENTRIES
 from ..discovery import async_discover_notify_services
 from .validation import (
+    _resolve_caller_person_id,
     get_store,
+    require_admin_for_cross_person,
     validate_category_id,
     validate_entity_id,
 )
@@ -98,6 +100,7 @@ async def ws_get_devices(
         vol.Required("type"): "ticker/device_preference/set",
         vol.Required("mode"): vol.In([DEVICE_MODE_ALL, DEVICE_MODE_SELECTED]),
         vol.Optional("devices"): [str],
+        vol.Optional("person_id"): str,
     }
 )
 @websocket_api.async_response
@@ -106,21 +109,17 @@ async def ws_set_device_preference(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Set device preference for the current user."""
+    """Set device preference for a person.
+
+    F-38 Decision 15: optional admin-only ``person_id`` targets another
+    user. When omitted, the caller's own person is used. Non-admin callers
+    passing a foreign ``person_id`` receive ``forbidden``.
+    """
     store = get_store(hass)
 
-    user = connection.user
-    if not user:
-        connection.send_error(
-            msg["id"],
-            "no_user",
-            "No user associated with this connection",
-        )
-        return
-
-    user_id = user.id
     mode = msg["mode"]
     devices = msg.get("devices", [])
+    requested_pid = msg.get("person_id")
 
     # Validate: if mode is 'selected', devices cannot be empty
     if mode == DEVICE_MODE_SELECTED and not devices:
@@ -131,20 +130,15 @@ async def ws_set_device_preference(
         )
         return
 
-    # Find the person for this user
-    discovered_users = await async_discover_notify_services(hass)
-    person_id = None
-    discovered_services = set()
+    # F-38 §6.4: admin gate for cross-user writes.
+    ok, caller_pid = await require_admin_for_cross_person(
+        hass, connection, msg, requested_pid
+    )
+    if not ok:
+        return
+    target_person_id = requested_pid or caller_pid
 
-    for pid, user_data in discovered_users.items():
-        if user_data.get("user_id") == user_id:
-            person_id = pid
-            discovered_services = {
-                svc["service"] for svc in user_data.get("notify_services", [])
-            }
-            break
-
-    if not person_id:
+    if not target_person_id:
         connection.send_error(
             msg["id"],
             "no_person",
@@ -152,8 +146,14 @@ async def ws_set_device_preference(
         )
         return
 
-    # Validate that all selected devices exist in discovery
+    # Validate that all selected devices exist in discovery for target person
     if mode == DEVICE_MODE_SELECTED:
+        discovered_users = await async_discover_notify_services(hass)
+        target_data = discovered_users.get(target_person_id)
+        discovered_services = {
+            svc["service"]
+            for svc in (target_data or {}).get("notify_services", [])
+        }
         for device_service in devices:
             if device_service not in discovered_services:
                 connection.send_error(
@@ -165,7 +165,7 @@ async def ws_set_device_preference(
 
     # Save the preference
     updated_user = await store.async_set_device_preference(
-        person_id=person_id,
+        person_id=target_person_id,
         mode=mode,
         devices=devices if mode == DEVICE_MODE_SELECTED else [],
     )
@@ -251,6 +251,23 @@ async def ws_get_queue(
             connection.send_error(msg["id"], "invalid_person_id", error)
             return
 
+    # BUG-108: gate cross-user read on admin-or-self. When a non-admin caller
+    # omits person_id, substitute their own so the handler does not fall
+    # through to the household-wide branch and leak other users' entries.
+    ok, caller_pid = await require_admin_for_cross_person(
+        hass, connection, msg, person_id
+    )
+    if not ok:
+        return
+
+    if not person_id and not connection.user.is_admin:
+        if caller_pid is None:
+            connection.send_error(
+                msg["id"], "forbidden", "Caller has no linked person"
+            )
+            return
+        person_id = caller_pid
+
     if person_id:
         queue = store.get_queue_for_person(person_id)
     else:
@@ -283,6 +300,11 @@ async def ws_clear_queue(
         connection.send_error(msg["id"], "invalid_person_id", error)
         return
 
+    # BUG-108: gate cross-user write on admin-or-self
+    ok, _ = await require_admin_for_cross_person(hass, connection, msg, person_id)
+    if not ok:
+        return
+
     count = await store.async_clear_queue_for_person(person_id)
 
     connection.send_result(msg["id"], {"cleared": count})
@@ -308,6 +330,40 @@ async def ws_remove_queue_entry(
     if not queue_id or len(queue_id) > 50:
         connection.send_error(msg["id"], "invalid_queue_id", "Invalid queue ID")
         return
+
+    # BUG-108: look up the entry's owner and gate on admin-or-self.
+    # The handler takes only queue_id, so we must resolve the target
+    # person_id from the queue entry itself before deciding access.
+    entry = store.get_queue().get(queue_id)
+    if entry is None:
+        connection.send_error(
+            msg["id"],
+            "not_found",
+            f"Queue entry '{queue_id}' not found",
+        )
+        return
+
+    entry_person_id = entry.get("person_id")
+    user = connection.user
+    is_admin = bool(user and user.is_admin)
+    if not is_admin:
+        # Collapse the cross-user info leak: a non-admin caller cannot
+        # distinguish "entry exists but owned by someone else" from
+        # "entry doesn't exist". Both return not_found.
+        caller_pid = await _resolve_caller_person_id(hass, connection)
+        if entry_person_id != caller_pid:
+            connection.send_error(
+                msg["id"],
+                "not_found",
+                f"Queue entry '{queue_id}' not found",
+            )
+            return
+    else:
+        ok, _ = await require_admin_for_cross_person(
+            hass, connection, msg, entry_person_id
+        )
+        if not ok:
+            return
 
     success = await store.async_remove_from_queue(queue_id)
 
@@ -368,6 +424,23 @@ async def ws_get_logs(
     if outcome and not re.match(r"^[a-z_]+$", outcome):
         connection.send_error(msg["id"], "invalid_outcome", "Invalid outcome filter")
         return
+
+    # BUG-108: gate cross-user read on admin-or-self. When a non-admin caller
+    # omits person_id, substitute their own so the handler does not return
+    # logs across the entire household (even when filtering by category).
+    ok, caller_pid = await require_admin_for_cross_person(
+        hass, connection, msg, person_id
+    )
+    if not ok:
+        return
+
+    if not person_id and not connection.user.is_admin:
+        if caller_pid is None:
+            connection.send_error(
+                msg["id"], "forbidden", "Caller has no linked person"
+            )
+            return
+        person_id = caller_pid
 
     logs = store.get_logs(
         limit=msg.get("limit", MAX_LOG_ENTRIES),

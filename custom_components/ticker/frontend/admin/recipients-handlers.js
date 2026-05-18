@@ -174,9 +174,8 @@ window.Ticker.AdminRecipientsTab.handlers = {
     const conditionsEl = container.querySelector('#dlg-device-conditions');
     if (conditionsEl) {
       conditionsEl.zones = [];
-      conditionsEl.entities = panel._hass
-        ? Object.keys(panel._hass.states).map(id => ({ entity_id: id }))
-        : [];
+      // F-37: pass the enriched entity array so state suggestions work.
+      conditionsEl.entities = panel._entities || [];
     }
   },
 
@@ -208,9 +207,8 @@ window.Ticker.AdminRecipientsTab.handlers = {
         }
       }
       conditionsEl.zones = [];
-      conditionsEl.entities = panel._hass
-        ? Object.keys(panel._hass.states).map(id => ({ entity_id: id }))
-        : [];
+      // F-37: pass the enriched entity array so state suggestions work.
+      conditionsEl.entities = panel._entities || [];
     }
   },
 
