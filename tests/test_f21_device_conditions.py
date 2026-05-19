@@ -187,6 +187,7 @@ class TestDeviceConditionGate:
         hass = _make_hass_for_service()
         recipients = {
             "r1": {
+                "recipient_id": "r1",
                 "name": "Device",
                 "enabled": True,
                 "conditions": {
@@ -268,6 +269,7 @@ class TestDeviceConditionGate:
         hass = _make_hass_for_service()
         recipients = {
             "r1": {
+                "recipient_id": "r1",
                 "name": "Device",
                 "enabled": True,
                 # No "conditions" key at all
@@ -293,6 +295,7 @@ class TestDeviceConditionGate:
         hass = _make_hass_for_service()
         recipients = {
             "r1": {
+                "recipient_id": "r1",
                 "name": "Device",
                 "enabled": True,
                 "conditions": {"rules": []},

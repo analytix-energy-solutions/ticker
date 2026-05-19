@@ -25,6 +25,7 @@ class TickerPanel extends HTMLElement {
     this._zones = [];
     this._queue = [];
     this._devices = [];
+    this._linkedRecipients = [];
     this._entities = [];
     this._activeTab = window.location.hash === '#history' ? 'history' : 'subscriptions';
     this._loading = true;
@@ -253,11 +254,18 @@ class TickerPanel extends HTMLElement {
 
   async _loadDevices() {
     try {
-      const result = await this._hass.callWS({ type: 'ticker/devices' });
+      // F-39 chunk 5: pass person_id when impersonating (admin view-as parity
+      // with _loadSubscriptions). Response also carries linked_recipients
+      // — locked, admin-managed device entries surfaced read-only.
+      const req = { type: 'ticker/devices' };
+      if (this._impersonatedPersonId) req.person_id = this._impersonatedPersonId;
+      const result = await this._hass.callWS(req);
       this._devices = result.devices || [];
+      this._linkedRecipients = result.linked_recipients || [];
     } catch (err) {
       console.error('Failed to load devices:', err);
       this._devices = [];
+      this._linkedRecipients = [];
     }
   }
 
@@ -339,6 +347,7 @@ class TickerPanel extends HTMLElement {
       categories: this._categories,
       subscriptions: this._subscriptions,
       devices: this._devices,
+      linkedRecipients: this._linkedRecipients,
       zones: this._zones,
       entities: this._entities,
       queue: this._queue,

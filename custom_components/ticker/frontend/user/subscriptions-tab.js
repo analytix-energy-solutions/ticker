@@ -92,18 +92,26 @@ window.Ticker.UserSubscriptionsTab = {
 
   /**
    * Render device preference section.
+   *
+   * F-39 chunk 5 (v1.8.0b3): also renders admin-managed linked recipients
+   * as locked checkbox rows AFTER the user's own-device rows. Visibility
+   * guard now counts own devices + linked recipients together. When the
+   * user has zero own devices, the All/Selected radio group is hidden —
+   * only the locked list is shown.
    */
   _renderDevicePreference(person, state) {
     const { esc, escAttr } = window.Ticker.utils;
     const { devices, devicePrefMode, devicePrefDevices, devicePrefDirty } = state;
+    const linkedRecipients = state.linkedRecipients || [];
 
-    if (devices.length < 2) {
+    if (devices.length + linkedRecipients.length < 2) {
       return '';
     }
 
     const isAllMode = devicePrefMode === 'all';
     const isSelectedMode = devicePrefMode === 'selected';
     const disabled = !person.enabled;
+    const hasOwnDevices = devices.length > 0;
 
     const deviceCheckboxes = devices.map(device => {
       const escService = escAttr(device.service);
@@ -122,6 +130,16 @@ window.Ticker.UserSubscriptionsTab = {
       `;
     }).join('');
 
+    // F-39 chunk 5: locked rows for admin-managed (user_link) recipients.
+    // Always visible in BOTH "All" and "Selected" modes — these devices
+    // are not part of the user's own device-preference selection.
+    const lockedRows = linkedRecipients.map(r => `
+      <label class="device-checkbox disabled">
+        <input type="checkbox" checked disabled>
+        ${esc(r.name || r.recipient_id || '')} (admin-managed)
+      </label>
+    `).join('');
+
     const showValidationWarning = isSelectedMode && devicePrefDevices.length === 0;
     const validationWarning = showValidationWarning
       ? '<div class="warning-banner">Select at least one device to save</div>'
@@ -135,26 +153,44 @@ window.Ticker.UserSubscriptionsTab = {
       </div>
     ` : '';
 
+    // Radio group only renders when the user has own devices to choose
+    // between. With zero own devices there's nothing for "All vs Selected"
+    // to act on — just show the locked list.
+    const radioGroup = hasOwnDevices ? `
+      <div class="radio-group">
+        <label class="radio-option">
+          <input type="radio" name="device-pref-mode" value="all"
+            ${isAllMode ? 'checked' : ''}
+            ${disabled ? 'disabled' : ''}
+            onchange="window.Ticker.UserSubscriptionsTab.handlers.handleDevicePrefModeChange(window.Ticker._userPanel, 'all')">
+          Send to all devices
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="device-pref-mode" value="selected"
+            ${isSelectedMode ? 'checked' : ''}
+            ${disabled ? 'disabled' : ''}
+            onchange="window.Ticker.UserSubscriptionsTab.handlers.handleDevicePrefModeChange(window.Ticker._userPanel, 'selected')">
+          Selected devices only
+        </label>
+      </div>
+    ` : '';
+
+    // In "All" mode the user's own devices are not listed (they implicitly
+    // all receive). In "Selected" mode the user picks among own devices.
+    // Locked linked-recipient rows always render, AFTER own-device rows.
+    const ownDeviceList = (hasOwnDevices && isSelectedMode)
+      ? deviceCheckboxes
+      : '';
+    const deviceListContent = ownDeviceList + lockedRows;
+    const deviceList = deviceListContent
+      ? `<div class="device-list">${deviceListContent}</div>`
+      : '';
+
     return `
       <div class="device-section">
         <div class="device-section-title">My Devices</div>
-        <div class="radio-group">
-          <label class="radio-option">
-            <input type="radio" name="device-pref-mode" value="all"
-              ${isAllMode ? 'checked' : ''}
-              ${disabled ? 'disabled' : ''}
-              onchange="window.Ticker.UserSubscriptionsTab.handlers.handleDevicePrefModeChange(window.Ticker._userPanel, 'all')">
-            Send to all devices
-          </label>
-          <label class="radio-option">
-            <input type="radio" name="device-pref-mode" value="selected"
-              ${isSelectedMode ? 'checked' : ''}
-              ${disabled ? 'disabled' : ''}
-              onchange="window.Ticker.UserSubscriptionsTab.handlers.handleDevicePrefModeChange(window.Ticker._userPanel, 'selected')">
-            Selected devices only
-          </label>
-        </div>
-        ${isSelectedMode ? `<div class="device-list">${deviceCheckboxes}</div>` : ''}
+        ${radioGroup}
+        ${deviceList}
         ${validationWarning}
         ${actions}
       </div>

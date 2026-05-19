@@ -15,6 +15,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntryType
+from homeassistant.helpers.entity_registry import (
+    EVENT_ENTITY_REGISTRY_UPDATED,
+)
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers import config_validation as cv
@@ -79,6 +82,8 @@ class TickerData:
     unsub_arrival: Callable[[], None] | None = None
     unsub_actions: Callable[[], None] | None = None
     unsub_expired_sweep: Callable[[], None] | None = None
+    # F-39: entity-registry listener for person removal -> orphan fallback
+    unsub_person_removed: Callable[[], None] | None = None
     update_service_schema: Callable[[], None] | None = None
     condition_listener_manager: ConditionListenerManager | None = None
     # F-30: auto-clear trigger registry (in-memory, does not survive restart).
@@ -220,6 +225,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
         timedelta(seconds=EXPIRED_QUEUE_SWEEP_INTERVAL),
     )
 
+    # F-39: Listen for person entity removal so any recipient linked to
+    # that person can apply orphan fallback (copy current subs into the
+    # recipient's own rows, then clear user_link). Pattern mirrors the
+    # arrival.py registry listener — event bus filter in the callback.
+    async def _handle_entity_registry_update(event) -> None:
+        data = event.data
+        if (
+            data.get("action") == "remove"
+            and isinstance(data.get("entity_id"), str)
+            and data["entity_id"].startswith("person.")
+        ):
+            try:
+                await store.async_handle_person_removed(data["entity_id"])
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception(
+                    "F-39 orphan fallback failed for %s",
+                    data["entity_id"],
+                )
+
+    runtime_data.unsub_person_removed = hass.bus.async_listen(
+        EVENT_ENTITY_REGISTRY_UPDATED, _handle_entity_registry_update,
+    )
+
     # Register cleanup via async_on_unload
     entry.async_on_unload(
         lambda: _cleanup_entry(hass, entry)
@@ -259,6 +287,11 @@ def _cleanup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     if runtime_data.unsub_expired_sweep:
         runtime_data.unsub_expired_sweep()
         runtime_data.unsub_expired_sweep = None
+
+    # F-39: Cancel person-removal entity-registry listener
+    if runtime_data.unsub_person_removed:
+        runtime_data.unsub_person_removed()
+        runtime_data.unsub_person_removed = None
 
     # F-30: tear down any still-pending auto-clear listeners.
     if runtime_data.auto_clear is not None:

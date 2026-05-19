@@ -320,7 +320,7 @@ class TestDispatchForwardsToFourDownstreams:
         hass = _make_hass()
         store = _make_store(["alerts"])
         store.get_recipients.return_value = {
-            "phone": {"enabled": True, "name": "Phone"}
+            "phone": {"recipient_id": "phone", "enabled": True, "name": "Phone"}
         }
         store.get_subscription_mode.return_value = "always"
         handler = await _get_handler(hass)
@@ -344,7 +344,7 @@ class TestDispatchForwardsToFourDownstreams:
         hass = _make_hass()
         store = _make_store(["alerts"])
         store.get_recipients.return_value = {
-            "phone": {"enabled": True, "name": "Phone"}
+            "phone": {"recipient_id": "phone", "enabled": True, "name": "Phone"}
         }
         store.get_subscription_mode.return_value = "conditional"
         handler = await _get_handler(hass)

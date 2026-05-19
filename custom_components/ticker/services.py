@@ -40,6 +40,7 @@ from .user_notify import async_handle_conditional_notification, async_send_notif
 from .recipient_notify import (
     async_send_to_recipient,
     async_handle_conditional_recipient,
+    resolve_effective_subscription_pid,
 )
 from .sensor import get_category_sensor
 
@@ -339,7 +340,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 continue
 
             r_person_id = f"recipient:{r_id}"
-
             # F-21: Device-level condition gate (before subscription mode)
             device_conditions = r_data.get("conditions")
             if device_conditions and (
@@ -375,13 +375,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     )
                     continue
 
-            r_mode = store.get_subscription_mode(r_person_id, category_id)
-
+            # F-39: swap effective person_id when user_link is set; logging
+            # and queueing still use r_person_id (recipient attribution).
+            sub_pid = resolve_effective_subscription_pid(r_data)
+            r_mode = store.get_subscription_mode(sub_pid, category_id)
             _LOGGER.debug(
-                "Recipient %s subscription mode for %s: %s",
-                r_id, category_id, r_mode,
+                "Recipient %s mode for %s: %s (effective_pid=%s)",
+                r_id, category_id, r_mode, sub_pid,
             )
-
             if r_mode == MODE_NEVER:
                 _LOGGER.debug("Skipping recipient %s (mode: never)", r_id)
                 await store.async_add_log(
@@ -396,7 +397,6 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 )
                 delivery_results["dropped"].append(f"{r_person_id}: mode never")
                 continue
-
             if r_mode == MODE_ALWAYS:
                 results = await async_send_to_recipient(
                     hass, store, r_data, category_id, title, message, data,

@@ -632,6 +632,31 @@ View the notification log with outcome badges (sent, queued, skipped, snoozed, f
 
 Create, edit, and delete device recipients — shared notification targets not tied to any person entity. Each device has a name, icon, enabled toggle, device type (Push or TTS), and one or more assigned notify services or a media player entity. Subscriptions and conditions per category are configured in the same accordion layout as the Users tab.
 
+#### Linking a device to a user *(v1.8.0)*
+
+For shared devices that should follow a specific household member's notification preferences — e.g. a hallway tablet that should match Mom's subscriptions — link the device to that person instead of mirroring every category by hand.
+
+**When to use it:** a device that lives in or near one person's space and should fire only when that person's own subscription rules say it would. Pairs well with F-21 device-level conditions: link mirrors **subscriptions**, device-conditions still gate the device globally.
+
+**How to enable:**
+
+1. Open the admin **Devices** tab. Device foldouts open expanded by default so the link controls are visible without clicking.
+2. At the top of the foldout, set **Link mode** to **Linked to user**.
+3. Pick a person from the user dropdown. Selecting a user fires the link immediately; switching back to **Standalone** clears it.
+
+**What gets mirrored:** the **per-category subscription set** — every category's mode (Always / Never / Conditional) and the conditions blob on conditional rows. When linked, the per-category rows on the device card render read-only with a "Mirroring &lt;name&gt; — edit in user panel" notice. Changes to the linked user's subscriptions in the user panel take effect immediately on the linked device's delivery.
+
+**What stays device-local:** the device-level conditions tab (F-21) remains editable in the device dialog and continues to act as a global gate — if the device-conditions are not met, the notification is skipped regardless of the linked user's mode. Volume override, chime, notify services, navigation target, icon, name, and enabled toggle are also device-local and unaffected by the link.
+
+**Edge cases:**
+
+- **User mode = Never:** the device is skipped, even if the device's own conditions are met. Never wins.
+- **User mode = Always + device-conditions unmet:** the device is skipped on the device-condition gate. Linking does not bypass F-21.
+- **Linked person is renamed in HA (entity ID unchanged):** no effect — the link stores the entity ID.
+- **Linked person entity is deleted from HA:** the device automatically applies an orphan fallback — the person's then-current subscriptions are copied into the device's own subscription rows (tagged `set_by=orphan_fallback` in the audit), the link is cleared, and the device reverts to Standalone with its last-known subscription set frozen on disk. Delivery is never silently broken.
+
+The user panel never exposes the link — household members can't see or change which devices mirror them. The link is an admin-only configuration.
+
 ### Action Sets tab *(v1.5.0)*
 
 Create, edit, and delete reusable action button sets from a central library. Each action set has a name, a slug ID, and up to 3 action buttons (Script, Snooze, or Dismiss). The "Used by" column shows which categories reference each set. Action sets that are referenced by one or more categories cannot be deleted until all references are removed.
@@ -681,6 +706,8 @@ Available to all users. The user panel has three tabs.
 View and change your subscription preferences per category. For each category, choose Always, Never, or Conditional and configure rules. Categories disabled by an admin are hidden entirely.
 
 This tab also shows your global device preference ("Send to all devices" or "Selected devices only") and lets you configure per-category device overrides.
+
+**Admin-managed devices** *(v1.8.0)* — If your administrator has linked one or more shared device recipients to your account (for example, a hallway tablet or shared speaker), those devices appear in the My Devices section below your own devices, labeled `(admin-managed)`. They are shown as locked, checked rows: they always receive your notifications when your subscription mode and conditions allow delivery, and the user panel cannot disable them. To change which devices are linked to you, ask your administrator to edit the device in the admin Devices tab.
 
 ### Queue tab
 

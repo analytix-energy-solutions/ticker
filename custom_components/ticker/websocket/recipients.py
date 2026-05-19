@@ -20,6 +20,7 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from ..const import (
+    ATTR_USER_LINK,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
     DEVICE_TYPES,
@@ -59,6 +60,38 @@ _VOLUME_SCHEMA = vol.Any(
 )
 
 
+def _build_subscription_map(
+    subs: dict[str, dict[str, Any]],
+    categories: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Merge per-(person|recipient) sub rows with category defaults.
+
+    Shared by the recipient's own ``subscriptions`` block and the F-39
+    ``linked_user_subscriptions`` snapshot so both views share the exact
+    same merge logic — only the source ``subs`` differ (keyed by recipient
+    vs by person).
+    """
+    subscription_map: dict[str, dict[str, Any]] = {}
+    for cat_id in categories:
+        if cat_id in subs:
+            sub = subs[cat_id]
+            entry: dict[str, Any] = {
+                "mode": sub.get("mode", MODE_ALWAYS),
+            }
+            if sub.get("mode") == MODE_CONDITIONAL:
+                entry["conditions"] = sub.get("conditions", {})
+            subscription_map[cat_id] = entry
+        else:
+            category = categories[cat_id]
+            default_mode = category.get("default_mode", MODE_ALWAYS)
+            entry = {"mode": default_mode}
+            if (default_mode == MODE_CONDITIONAL
+                    and "default_conditions" in category):
+                entry["conditions"] = category["default_conditions"]
+            subscription_map[cat_id] = entry
+    return subscription_map
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {vol.Required("type"): "ticker/get_recipients"}
@@ -69,7 +102,14 @@ async def ws_get_recipients(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Get all recipients with their subscriptions merged in."""
+    """Get all recipients with their subscriptions merged in.
+
+    F-39: each recipient response also carries:
+    - ``user_link``: the linked person entity ID, or null.
+    - ``linked_user_name``: the linked person's friendly_name, or null.
+    - ``linked_user_subscriptions``: denormalized snapshot of the linked
+      user's per-category modes (same shape as ``subscriptions``), or null.
+    """
     store = get_store(hass)
     recipients = store.get_recipients()
     categories = store.get_categories()
@@ -77,25 +117,27 @@ async def ws_get_recipients(
     result = []
     for recipient_id, recipient in recipients.items():
         subs = store.get_subscriptions_for_recipient(recipient_id)
-        subscription_map: dict[str, dict[str, Any]] = {}
-        for cat_id in categories:
-            if cat_id in subs:
-                sub = subs[cat_id]
-                entry: dict[str, Any] = {
-                    "mode": sub.get("mode", MODE_ALWAYS),
-                }
-                if sub.get("mode") == MODE_CONDITIONAL:
-                    entry["conditions"] = sub.get("conditions", {})
-                subscription_map[cat_id] = entry
-            else:
-                category = categories[cat_id]
-                default_mode = category.get("default_mode", MODE_ALWAYS)
-                entry = {"mode": default_mode}
-                if (default_mode == MODE_CONDITIONAL
-                        and "default_conditions" in category):
-                    entry["conditions"] = category["default_conditions"]
-                subscription_map[cat_id] = entry
-        result.append({**recipient, "subscriptions": subscription_map})
+        subscription_map = _build_subscription_map(subs, categories)
+
+        user_link = recipient.get(ATTR_USER_LINK)
+        linked_user_name: str | None = None
+        linked_user_subscriptions: dict[str, dict[str, Any]] | None = None
+        if user_link:
+            state = hass.states.get(user_link)
+            if state is not None:
+                linked_user_name = state.attributes.get("friendly_name")
+            user_subs = store.get_subscriptions_for_person(user_link)
+            linked_user_subscriptions = _build_subscription_map(
+                user_subs, categories,
+            )
+
+        result.append({
+            **recipient,
+            "subscriptions": subscription_map,
+            "user_link": user_link,
+            "linked_user_name": linked_user_name,
+            "linked_user_subscriptions": linked_user_subscriptions,
+        })
 
     connection.send_result(msg["id"], {"recipients": result})
 

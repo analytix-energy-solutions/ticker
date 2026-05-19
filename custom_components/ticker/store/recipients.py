@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -11,12 +12,14 @@ if TYPE_CHECKING:
     from homeassistant.helpers.storage import Store
 
 from ..const import (
+    ATTR_USER_LINK,
     DELIVERY_FORMAT_RICH,
     DELIVERY_FORMAT_TTS,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
     DEVICE_TYPES,
     RECIPIENT_DELIVERY_FORMATS,
+    SET_BY_ORPHAN_FALLBACK,
     TTS_BUFFER_DELAY_DEFAULT,
 )
 
@@ -329,6 +332,94 @@ class RecipientMixin:
         status = "enabled" if enabled else "disabled"
         _LOGGER.info("Recipient %s %s", recipient_id, status)
         return self._recipients[recipient_id]
+
+    async def async_set_recipient_user_link(
+        self, recipient_id: str, person_id: str | None
+    ) -> dict[str, Any]:
+        """Set or clear the user_link on a recipient (F-39).
+
+        Sparse storage: writes ``recipient[ATTR_USER_LINK] = person_id``
+        when given, pops the key when None (Standalone). Updates
+        ``updated_at`` and persists. The chunk-2 resolver uses this field
+        to swap the effective person_id for subscription lookup; the F-21
+        device-condition gate remains the sole device-condition site.
+
+        Raises ValueError if recipient_id is unknown.
+        """
+        if recipient_id not in self._recipients:
+            raise ValueError(f"Recipient '{recipient_id}' not found")
+
+        recipient = self._recipients[recipient_id]
+        if person_id is None:
+            recipient.pop(ATTR_USER_LINK, None)
+        else:
+            recipient[ATTR_USER_LINK] = person_id
+
+        recipient["updated_at"] = datetime.now(timezone.utc).isoformat()
+        await self.async_save_recipients()
+        _LOGGER.info(
+            "Recipient %s user_link %s",
+            recipient_id,
+            f"set to {person_id}" if person_id else "cleared",
+        )
+        return recipient
+
+    async def async_handle_person_removed(self, person_id: str) -> int:
+        """Orphan-fallback for F-39 when a linked person is removed.
+
+        For each recipient linked to ``person_id``: copy the person's
+        current subscriptions into the recipient's own rows tagged
+        ``set_by=SET_BY_ORPHAN_FALLBACK`` (conditions deep-copied), then
+        clear ``user_link`` so the recipient reverts to Standalone with
+        last-known subs. Logs a WARNING per recipient. Returns count.
+        """
+        affected_recipient_ids = [
+            rid
+            for rid, recipient in self._recipients.items()
+            if recipient.get(ATTR_USER_LINK) == person_id
+        ]
+        if not affected_recipient_ids:
+            return 0
+
+        # Snapshot the user's subscriptions once for all affected recipients.
+        # get_subscriptions_for_person returns {cat_id: subscription_dict}.
+        source_subs = self.get_subscriptions_for_person(  # type: ignore[attr-defined]
+            person_id
+        )
+
+        for rid in affected_recipient_ids:
+            for cat_id, sub in source_subs.items():
+                # Deep-copy conditions so the recipient's stored row owns
+                # an independent snapshot — mutations of source_subs must
+                # not leak into the recipient's data, and vice versa.
+                conditions = sub.get("conditions")
+                if conditions is not None:
+                    conditions = copy.deepcopy(conditions)
+                await self.async_set_subscription(  # type: ignore[attr-defined]
+                    person_id=f"recipient:{rid}",
+                    category_id=cat_id,
+                    mode=sub.get("mode"),
+                    conditions=conditions,
+                    set_by=SET_BY_ORPHAN_FALLBACK,
+                )
+
+            # Clear user_link — recipient reverts to Standalone with the
+            # subs we just seeded.
+            self._recipients[rid].pop(ATTR_USER_LINK, None)
+            self._recipients[rid]["updated_at"] = (
+                datetime.now(timezone.utc).isoformat()
+            )
+            _LOGGER.warning(
+                "F-39 orphan fallback: recipient %s was linked to %s "
+                "(removed) — copied %d subscription(s) into recipient "
+                "rows and cleared user_link",
+                rid,
+                person_id,
+                len(source_subs),
+            )
+
+        await self.async_save_recipients()
+        return len(affected_recipient_ids)
 
     @staticmethod
     def migrate_recipient_data(

@@ -19,6 +19,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    ATTR_USER_LINK,
     DEFAULT_EXPIRATION_HOURS,
     DEFAULT_NAVIGATE_TO,
     DELIVERY_FORMAT_PLAIN,
@@ -52,6 +53,32 @@ _LOGGER = logging.getLogger(__name__)
 
 # Formats that do not support action buttons (push device only)
 _NO_ACTION_FORMATS = {DELIVERY_FORMAT_PERSISTENT}
+
+
+def resolve_effective_subscription_pid(recipient: dict[str, Any]) -> str:
+    """Return the person_id-style key used for subscription lookup (F-39).
+
+    When the recipient has a ``user_link``, the linked person's
+    subscriptions are used (mirroring), so this returns that person entity
+    id. Otherwise the recipient's own subscription rows are used, keyed
+    as ``recipient:{recipient_id}``.
+
+    Device-local conditions are enforced separately by the upstream F-21
+    gate in ``services.py`` — this helper only swaps the lookup key.
+    It performs no I/O and never raises.
+
+    Args:
+        recipient: Recipient dict from the store. Must contain
+            ``recipient_id``; may contain ``user_link``.
+
+    Returns:
+        The effective person_id key to pass to
+        ``store.get_subscription_mode`` / ``store.get_subscription_conditions``.
+    """
+    user_link = recipient.get(ATTR_USER_LINK)
+    if user_link:
+        return user_link
+    return f"recipient:{recipient['recipient_id']}"
 
 
 async def async_send_to_recipient(
@@ -324,10 +351,15 @@ async def async_handle_conditional_recipient(
 
     recipient_id = recipient["recipient_id"]
     recipient_name = recipient.get("name", recipient_id)
+    # person_id is used for logging/queueing — always attributed to the
+    # recipient even when user_link is set (queue lives under recipient).
     person_id = f"recipient:{recipient_id}"
+    # effective_pid is used for subscription lookup — swaps to the linked
+    # user's key when ATTR_USER_LINK is set (F-39 mirroring).
+    effective_pid = resolve_effective_subscription_pid(recipient)
     image_url = data.get("image") if data else None
 
-    conditions = store.get_subscription_conditions(person_id, category_id)
+    conditions = store.get_subscription_conditions(effective_pid, category_id)
 
     # BUG-085: check both condition_tree and rules (F-2b migration
     # removes the legacy rules key in favor of condition_tree).

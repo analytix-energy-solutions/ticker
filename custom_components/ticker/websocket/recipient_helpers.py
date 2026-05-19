@@ -16,6 +16,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 
 from ..const import (
+    ATTR_USER_LINK,
     DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_PERSISTENT,
     DELIVERY_FORMAT_RICH,
@@ -439,6 +440,32 @@ async def ws_test_chime(
                     "Test chime: failed to restore prior media on %s: %s",
                     entity_id, err,
                 )
+
+
+def _collect_linked_recipients(store: Any, person_id: str) -> list[dict[str, Any]]:
+    """Return [{recipient_id, name}] of recipients linked to ``person_id``.
+
+    F-39 chunk 5 (v1.8.0b3): surfaces admin-managed device recipients in the
+    user panel as locked entries. Sorted ascending by display name (case-
+    insensitive). Returns an empty list when the store has no recipients or
+    none are linked to the given person_id.
+    """
+    result: list[dict[str, Any]] = []
+    recipients = store.get_recipients() if store is not None else None
+    if not recipients:
+        return result
+    # store.get_recipients() returns a dict keyed by recipient_id.
+    iterable = recipients.values() if isinstance(recipients, dict) else recipients
+    for r in iterable:
+        if not isinstance(r, dict):
+            continue
+        if r.get(ATTR_USER_LINK) == person_id:
+            result.append({
+                "recipient_id": r.get("recipient_id", ""),
+                "name": r.get("name", ""),
+            })
+    result.sort(key=lambda x: (x.get("name") or "").lower())
+    return result
 
 
 # ``ws_get_bundled_chimes`` was extracted to ``chime_helpers.py`` in

@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 
 from ..const import DEVICE_MODE_ALL, DEVICE_MODE_SELECTED, MAX_LOG_ENTRIES
 from ..discovery import async_discover_notify_services
+from .recipient_helpers import _collect_linked_recipients
 from .validation import (
     _resolve_caller_person_id,
     get_store,
@@ -61,6 +62,7 @@ async def ws_get_zones(
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/devices",
+        vol.Optional("person_id"): str,
     }
 )
 @websocket_api.async_response
@@ -69,30 +71,33 @@ async def ws_get_devices(
     connection: websocket_api.ActiveConnection,
     msg: dict[str, Any],
 ) -> None:
-    """Get discovered devices with friendly names for the current user."""
-    user = connection.user
-    if not user:
-        connection.send_error(
-            msg["id"],
-            "no_user",
-            "No user associated with this connection",
-        )
-        return
+    """Get discovered devices and admin-managed linked recipients.
 
-    user_id = user.id
+    F-39 chunk 5 (v1.8.0b3): response extended with ``linked_recipients``
+    (sorted by name). Optional admin-only ``person_id`` lets the user-panel
+    view-as flow query devices for another household member.
+    """
+    requested_pid = msg.get("person_id")
+    ok, caller_pid = await require_admin_for_cross_person(
+        hass, connection, msg, requested_pid
+    )
+    if not ok:
+        return
+    target_pid = requested_pid or caller_pid
 
     discovered_users = await async_discover_notify_services(hass)
+    devices: list[Any] = []
+    if target_pid and target_pid in discovered_users:
+        devices = discovered_users[target_pid].get("notify_services", []) or []
 
-    # Find the person for this user
-    for person_id, user_data in discovered_users.items():
-        if user_data.get("user_id") == user_id:
-            # Return the notify services with their friendly names
-            devices = user_data.get("notify_services", [])
-            connection.send_result(msg["id"], {"devices": devices})
-            return
+    linked_recipients: list[dict[str, Any]] = []
+    if target_pid:
+        linked_recipients = _collect_linked_recipients(get_store(hass), target_pid)
 
-    # No person found for this user
-    connection.send_result(msg["id"], {"devices": []})
+    connection.send_result(msg["id"], {
+        "devices": devices,
+        "linked_recipients": linked_recipients,
+    })
 
 
 @websocket_api.websocket_command(
