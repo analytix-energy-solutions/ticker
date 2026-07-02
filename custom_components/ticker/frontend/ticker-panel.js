@@ -62,6 +62,19 @@ class TickerPanel extends HTMLElement {
   }
 
   connectedCallback() {
+    // Tap-to-History: honor the #history deep-link on (re)mount and on later
+    // hash navigations so notification taps reliably land on the History tab
+    // instead of the default Subscriptions tab.
+    if (window.location.hash === '#history') this._activeTab = 'history';
+    if (!this._hashHandler) {
+      this._hashHandler = () => {
+        if (window.location.hash === '#history') {
+          if (this._initialized && this._els) this._switchTab('history');
+          else this._activeTab = 'history';
+        }
+      };
+      window.addEventListener('hashchange', this._hashHandler);
+    }
     if (!this._initialized && this._hass) {
       this._initialized = true;
       this._initialize();
@@ -76,6 +89,10 @@ class TickerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this._hashHandler) {
+      window.removeEventListener('hashchange', this._hashHandler);
+      this._hashHandler = null;
+    }
     if (this._visibilityHandler) {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
