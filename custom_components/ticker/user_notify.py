@@ -317,7 +317,7 @@ async def async_send_notification(
         final_devices,
     )
 
-    for service_id in final_devices:
+    async def _send_to_device(service_id: str) -> None:
         service_info = service_lookup.get(service_id, {})
         service_name_display = service_info.get("name", service_id)
         domain, service_name = service_id.split(".", 1)
@@ -465,5 +465,16 @@ async def async_send_notification(
                 image_url=image_url,
             )
             results["dropped"].append(f"{service_id}: {err}")
+
+    # Fan out to all target devices concurrently instead of awaiting each
+    # notify.* call sequentially. Each _send_to_device coroutine owns its own
+    # try/except and appends to the shared `results` dict; asyncio is
+    # single-threaded so the list appends are safe. return_exceptions=True
+    # ensures an unexpected error in one device cannot abort the others.
+    if final_devices:
+        await asyncio.gather(
+            *(_send_to_device(service_id) for service_id in final_devices),
+            return_exceptions=True,
+        )
 
     return results
