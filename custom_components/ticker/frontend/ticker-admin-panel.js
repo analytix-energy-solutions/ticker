@@ -73,6 +73,8 @@ class TickerAdminPanel extends HTMLElement {
     // DOM cache
     this._els = {};
     this._dependenciesLoaded = false;
+    // BUG-111: HA-reported narrow state, drives the sidebar toggle button.
+    this._narrow = false;
 
     // BUG-040: Scroll preservation
     this._scrollPositions = {};
@@ -85,6 +87,18 @@ class TickerAdminPanel extends HTMLElement {
       this._initialized = true;
       this._init();
     }
+  }
+
+  // BUG-111: HA passes `narrow` to panel_custom elements. Custom panels must
+  // render their own sidebar toggle; capture narrow so we can show the menu
+  // button (see _applyNarrow) only when the sidebar is a drawer (mobile).
+  set narrow(value) {
+    this._narrow = !!value;
+    this._applyNarrow();
+  }
+
+  get narrow() {
+    return this._narrow;
   }
 
   connectedCallback() {
@@ -210,6 +224,11 @@ class TickerAdminPanel extends HTMLElement {
       ${css}
       <div class="container-wide">
         <div class="header">
+          <button class="menu-button" id="ticker-admin-menu-button" type="button"
+            aria-label="Open sidebar menu" title="Menu"
+            onclick="window.Ticker._adminPanel._toggleMenu()">
+            <svg viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"></path></svg>
+          </button>
           ${logo}
           <h1>Ticker Admin</h1>
         </div>
@@ -223,9 +242,29 @@ class TickerAdminPanel extends HTMLElement {
       tabs: this.shadowRoot.getElementById('tabs'),
       message: this.shadowRoot.getElementById('message'),
       content: this.shadowRoot.getElementById('tab-content'),
+      menuButton: this.shadowRoot.getElementById('ticker-admin-menu-button'),
     };
+    // BUG-111: reflect the current narrow state onto the freshly-built button
+    // (narrow may have been set before this structure existed).
+    this._applyNarrow();
 
     this._renderTabs();
+  }
+
+  // BUG-111: show the hamburger only when HA reports narrow (sidebar is a
+  // drawer). When wide the sidebar is docked, so display:none keeps the logo
+  // flush-left with no layout shift.
+  _applyNarrow() {
+    const btn = this._els?.menuButton;
+    if (btn) btn.classList.toggle('visible', this._narrow);
+  }
+
+  // BUG-111: dispatch HA's global sidebar-toggle event. bubbles + composed so
+  // it escapes this panel's shadow root and reaches <home-assistant-main>.
+  _toggleMenu() {
+    this.dispatchEvent(
+      new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }),
+    );
   }
 
   _renderTabs() {
