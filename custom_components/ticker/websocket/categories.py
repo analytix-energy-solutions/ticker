@@ -321,7 +321,7 @@ async def ws_update_category(
         action_set_id=action_set_id,
         navigate_to=navigate_to,
         expose_in_sensor=expose_in_sensor,
-        android_channel=android_channel
+        android_channel=android_channel,
     )
     if chime_id_present:
         # Pass empty string to explicitly clear; non-empty to set
