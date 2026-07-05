@@ -63,6 +63,43 @@ window.Ticker.styles = {
       width: 40px;
       height: 40px;
     }
+    /* BUG-111: Sidebar toggle for narrow/portrait mode. Custom panels must
+       render their own menu button; without it there is no way to open the
+       HA sidebar drawer on mobile portrait. Hidden by default (sidebar is
+       docked on wide layouts); shown via .visible when HA reports narrow. */
+    .menu-button {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      flex: 0 0 auto;
+      width: 40px;
+      height: 40px;
+      margin-left: -8px;
+      padding: 8px;
+      border: none;
+      background: none;
+      color: var(--text-primary);
+      border-radius: 50%;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .menu-button.visible {
+      display: inline-flex;
+    }
+    .menu-button:hover {
+      background: var(--ticker-500-alpha-8, rgba(6, 182, 212, 0.08));
+    }
+    .menu-button:focus-visible {
+      outline: 2px solid var(--ticker-500);
+      outline-offset: 2px;
+    }
+    .menu-button svg {
+      display: block;
+      width: 24px;
+      height: 24px;
+      fill: currentColor;
+    }
   `,
 
   /** Tabs navigation */

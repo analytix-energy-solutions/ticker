@@ -37,6 +37,8 @@ class TickerPanel extends HTMLElement {
     this._devicePrefDirty = false;
     this._dependenciesLoaded = false;
     this._els = null;
+    // BUG-111: HA-reported narrow state, drives the sidebar toggle button.
+    this._narrow = false;
     // BUG-040: Scroll/focus preservation
     this._scrollPositions = {};
     this._pendingScrollRestore = null;
@@ -60,6 +62,18 @@ class TickerPanel extends HTMLElement {
       this._initialized = true;
       this._initialize();
     }
+  }
+
+  // BUG-111: HA passes `narrow` to panel_custom elements. Custom panels must
+  // render their own sidebar toggle; capture narrow so we can show the menu
+  // button (see _applyNarrow) only when the sidebar is a drawer (mobile).
+  set narrow(value) {
+    this._narrow = !!value;
+    this._applyNarrow();
+  }
+
+  get narrow() {
+    return this._narrow;
   }
 
   connectedCallback() {
@@ -166,7 +180,12 @@ class TickerPanel extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>${allStyles}</style>
       <div class="container">
-        <div class="header">${logoSvg}<h1>Ticker</h1><div id="view-as-slot"></div></div>
+        <div class="header">
+          <button class="menu-button" id="ticker-menu-button" type="button"
+            aria-label="Open sidebar menu" title="Menu"
+            onclick="window.Ticker._userPanel._toggleMenu()">
+            <svg viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"></path></svg>
+          </button>${logoSvg}<h1>Ticker</h1><div id="view-as-slot"></div></div>
         <div id="view-as-banner-slot"></div>
         <div id="message-area" class="message"></div>
         <div id="loading-area"></div>
@@ -182,7 +201,27 @@ class TickerPanel extends HTMLElement {
       tabContent: this.shadowRoot.getElementById('tab-content'),
       viewAsSlot: this.shadowRoot.getElementById('view-as-slot'),
       viewAsBannerSlot: this.shadowRoot.getElementById('view-as-banner-slot'),
+      menuButton: this.shadowRoot.getElementById('ticker-menu-button'),
     };
+    // BUG-111: reflect the current narrow state onto the freshly-built button
+    // (narrow may have been set before this structure existed).
+    this._applyNarrow();
+  }
+
+  // BUG-111: show the hamburger only when HA reports narrow (sidebar is a
+  // drawer). When wide the sidebar is docked, so display:none keeps the logo
+  // flush-left with no layout shift.
+  _applyNarrow() {
+    const btn = this._els?.menuButton;
+    if (btn) btn.classList.toggle('visible', this._narrow);
+  }
+
+  // BUG-111: dispatch HA's global sidebar-toggle event. bubbles + composed so
+  // it escapes this panel's shadow root and reaches <home-assistant-main>.
+  _toggleMenu() {
+    this.dispatchEvent(
+      new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }),
+    );
   }
 
   async _loadData() {
