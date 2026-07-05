@@ -18,6 +18,23 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
   render(state) {
     const { recipients } = state;
 
+    // F-39 chunk 3: auto-expand each enabled device exactly once per
+    // session, the first time it appears in a render. New devices
+    // (created or just enabled) get the auto-expand on the next render,
+    // while devices the admin has manually collapsed stay collapsed
+    // because they're already in `_autoExpandedRecipientIds`.
+    const panel = window.Ticker._adminPanel;
+    if (panel && panel._expandedRecipients && Array.isArray(recipients)) {
+      panel._autoExpandedRecipientIds =
+        panel._autoExpandedRecipientIds || new Set();
+      for (const r of recipients) {
+        if (!r || !r.enabled) continue;
+        if (panel._autoExpandedRecipientIds.has(r.recipient_id)) continue;
+        panel._expandedRecipients.add(r.recipient_id);
+        panel._autoExpandedRecipientIds.add(r.recipient_id);
+      }
+    }
+
     if (!recipients || !recipients.length) {
       return `
         <div class="card">
@@ -119,9 +136,88 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
       </div>
     `;
 
-    const accordion = expanded ? this._renderRecipientSubscriptions(state, r) : '';
+    const accordion = expanded ? this._renderAccordion(state, r) : '';
 
     return `<div class="list-item ${r.enabled ? '' : 'disabled'}">${header}${accordion}</div>`;
+  },
+
+  /**
+   * F-39 chunk 3: Compose the accordion body. The link-mode controls
+   * always render at the top; the body underneath is either the
+   * editable subscription rows (Standalone) or the read-only mirror
+   * view (Linked to user).
+   * @param {Object} state - Panel state
+   * @param {Object} r - Recipient object
+   * @returns {string} HTML string
+   */
+  _renderAccordion(state, r) {
+    const linkControls = this._renderLinkModeControls(state, r);
+    const body = r.user_link
+      ? window.Ticker.AdminRecipientsMirror.render(state, r)
+      : this._renderRecipientSubscriptions(state, r);
+    // Link controls render as a sibling block above the existing body
+    // (which keeps its own `.accordion-content` wrapper so the
+    // subscriptions renderer and the mirror renderer stay independent).
+    return `${linkControls}${body}`;
+  },
+
+  /**
+   * F-39 chunk 3: Render the link-mode selector + (when linked) the
+   * user picker. Renders BEFORE the category list.
+   * @param {Object} state - Panel state
+   * @param {Object} r - Recipient object
+   * @returns {string} HTML string
+   */
+  _renderLinkModeControls(state, r) {
+    const { esc, escAttr } = window.Ticker.utils;
+    const panel = window.Ticker._adminPanel;
+    const escRid = escAttr(r.recipient_id);
+    // FIX-001: a recipient is "linked" either because the backend says
+    // so (r.user_link set) OR because the admin just switched the
+    // dropdown to "Linked to user" and hasn't picked a person yet
+    // (tracked in panel._pendingLinkRecipients).
+    const pending = !!(panel && panel._pendingLinkRecipients
+      && panel._pendingLinkRecipients.has(r.recipient_id));
+    const isLinked = !!r.user_link || pending;
+    const linkedPersonId = r.user_link || '';
+
+    const users = (state.users || []).slice().sort((a, b) =>
+      (a.name || a.person_id || '').localeCompare(b.name || b.person_id || '')
+    );
+
+    const userOptions = users.map(u => {
+      const pid = escAttr(u.person_id || '');
+      const pname = esc(u.name || u.person_id || '');
+      const sel = u.person_id === linkedPersonId ? 'selected' : '';
+      return `<option value="${pid}" ${sel}>${pname}</option>`;
+    }).join('');
+
+    const linkedToBlock = isLinked ? `
+      <label class="subscription-label" style="margin-left:12px">User:</label>
+      <select class="subscription-select" style="min-width:160px"
+        onchange="window.Ticker.AdminRecipientsTab.handlers.handleUserPickerChange(window.Ticker._adminPanel, '${escRid}', this.value)"
+        onclick="event.stopPropagation()">
+        <option value="" ${!linkedPersonId ? 'selected' : ''}>— select user —</option>
+        ${userOptions}
+      </select>
+    ` : '';
+
+    return `
+      <div class="accordion-content"
+        style="padding-bottom:0;border-bottom:1px solid var(--divider)">
+        <div class="subscription-row"
+          style="flex-wrap:wrap;align-items:center">
+          <span class="subscription-label">Link mode:</span>
+          <select class="subscription-select" style="min-width:160px"
+            onchange="window.Ticker.AdminRecipientsTab.handlers.handleLinkModeChange(window.Ticker._adminPanel, '${escRid}', this.value)"
+            onclick="event.stopPropagation()">
+            <option value="standalone" ${!isLinked ? 'selected' : ''}>Standalone</option>
+            <option value="linked" ${isLinked ? 'selected' : ''}>Linked to user</option>
+          </select>
+          ${linkedToBlock}
+        </div>
+      </div>
+    `;
   },
 
   /**
@@ -238,6 +334,9 @@ Object.assign(window.Ticker.AdminRecipientsTab, {
 
     for (const r of panel._recipients) {
       if (!r.enabled || !panel._expandedRecipients.has(r.recipient_id)) continue;
+      // F-39 chunk 3: linked recipients render a read-only mirror — no
+      // editable conditions UI elements to wire up.
+      if (r.user_link) continue;
       const subs = r.subscriptions || {};
 
       for (const [catId, sub] of Object.entries(subs)) {

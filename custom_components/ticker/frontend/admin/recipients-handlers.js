@@ -403,6 +403,10 @@ window.Ticker.AdminRecipientsTab.handlers = {
     }
   },
 
+  // F-39 chunk 3: handleLinkModeChange and handleUserPickerChange live
+  // in admin/recipients-link-handlers.js to keep this file under the
+  // 500-line cap. Both extend window.Ticker.AdminRecipientsTab.handlers.
+
   async confirmDelete(panel, recipientId) {
     const r = panel._recipients.find(x => x.recipient_id === recipientId);
     const recipientName = r ? r.name : recipientId;

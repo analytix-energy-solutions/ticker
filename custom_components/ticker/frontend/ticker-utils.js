@@ -142,3 +142,75 @@ window.Ticker.utils = {
       .replace(/_+/g, '_');
   },
 };
+
+/**
+ * Sidebar toggle for the panel_custom panels (BUG-111 / GitHub #51, @danswett).
+ *
+ * HA renders no toolbar for custom panels, so on mobile portrait there is no
+ * hamburger to open the sidebar drawer. Both the user and admin panels share
+ * this concern; it lives here (loaded by both) so the near-full panel and
+ * style files stay under the 500-line limit. Colors use brand tokens and the
+ * SVG uses currentColor per branding/README.md. The button is hidden by
+ * default and revealed via .visible only when HA reports the panel as narrow.
+ */
+window.Ticker.SidebarToggle = {
+  /** Raw inline hamburger SVG (currentColor). */
+  ICON: '<svg viewBox="0 0 24 24"><path d="M3,6H21V8H3V6M3,11H21V13H3V11M3,16H21V18H3V16Z"></path></svg>',
+
+  /** Scoped CSS injected into each panel's shadow root <style> block. */
+  STYLE: `
+    .menu-button {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      flex: 0 0 auto;
+      width: 40px;
+      height: 40px;
+      margin-left: -8px;
+      padding: 8px;
+      border: none;
+      background: none;
+      color: var(--text-primary);
+      border-radius: 50%;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .menu-button.visible { display: inline-flex; }
+    .menu-button:hover { background: var(--ticker-500-alpha-8, rgba(6, 182, 212, 0.08)); }
+    .menu-button:focus-visible { outline: 2px solid var(--ticker-500); outline-offset: 2px; }
+    .menu-button svg { display: block; width: 24px; height: 24px; fill: currentColor; }
+  `,
+
+  /**
+   * Header hamburger button markup. Prepend as the first header child.
+   * @returns {string} - HTML string for the menu button
+   */
+  buttonHtml() {
+    return `<button class="menu-button" type="button" title="Menu"`
+      + ` aria-label="Open sidebar menu"`
+      + ` onclick="window.Ticker.SidebarToggle.toggleMenu(this)">${this.ICON}</button>`;
+  },
+
+  /**
+   * Reflect HA's narrow state onto the button. Null-safe: narrow may be set
+   * before the shadow DOM is built, so callers also re-invoke after render.
+   * @param {HTMLElement} panel - The panel custom element
+   * @param {boolean} narrow - HA-reported narrow flag
+   */
+  applyNarrow(panel, narrow) {
+    const btn = panel.shadowRoot && panel.shadowRoot.querySelector('.menu-button');
+    if (btn) btn.classList.toggle('visible', !!narrow);
+  },
+
+  /**
+   * Dispatch HA's global sidebar-toggle event from the in-shadow button.
+   * composed:true lets it cross the shadow boundary up to <home-assistant-main>.
+   * @param {HTMLElement} btn - The clicked button (event dispatch source)
+   */
+  toggleMenu(btn) {
+    btn.dispatchEvent(
+      new CustomEvent('hass-toggle-menu', { bubbles: true, composed: true }),
+    );
+  },
+};

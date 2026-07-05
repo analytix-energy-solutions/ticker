@@ -73,6 +73,8 @@ class TickerAdminPanel extends HTMLElement {
     // DOM cache
     this._els = {};
     this._dependenciesLoaded = false;
+    // BUG-111: HA-reported narrow state, drives the sidebar toggle button.
+    this._narrow = false;
 
     // BUG-040: Scroll preservation
     this._scrollPositions = {};
@@ -85,6 +87,12 @@ class TickerAdminPanel extends HTMLElement {
       this._initialized = true;
       this._init();
     }
+  }
+
+  // BUG-111: reflect HA's `narrow` onto the shared in-shadow sidebar hamburger.
+  set narrow(value) {
+    this._narrow = !!value;
+    if (window.Ticker.SidebarToggle) window.Ticker.SidebarToggle.applyNarrow(this, this._narrow);
   }
 
   connectedCallback() {
@@ -169,7 +177,9 @@ class TickerAdminPanel extends HTMLElement {
       `${base}/admin/categories-handlers.js`,
       `${base}/admin/users-tab.js`,
       `${base}/admin/recipients-tab.js`,
+      `${base}/admin/recipients-mirror.js`,
       `${base}/admin/recipients-handlers.js`,
+      `${base}/admin/recipients-link-handlers.js`,
       `${base}/admin/recipients-volume.js`,
       `${base}/admin/recipients-dialog.js`,
       `${base}/admin/queue-tab.js`,
@@ -202,7 +212,7 @@ class TickerAdminPanel extends HTMLElement {
 
   _createStructure() {
     const styles = window.Ticker.styles;
-    const css = `<style>${styles.getCommonStyles()}</style>`;
+    const css = `<style>${styles.getCommonStyles()}\n${window.Ticker.SidebarToggle.STYLE}</style>`;
 
     const logo = styles.logoSvg;
 
@@ -210,6 +220,7 @@ class TickerAdminPanel extends HTMLElement {
       ${css}
       <div class="container-wide">
         <div class="header">
+          ${window.Ticker.SidebarToggle.buttonHtml()}
           ${logo}
           <h1>Ticker Admin</h1>
         </div>
@@ -224,6 +235,7 @@ class TickerAdminPanel extends HTMLElement {
       message: this.shadowRoot.getElementById('message'),
       content: this.shadowRoot.getElementById('tab-content'),
     };
+    window.Ticker.SidebarToggle.applyNarrow(this, this._narrow);  // honor early-set narrow
 
     this._renderTabs();
   }

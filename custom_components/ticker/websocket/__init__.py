@@ -62,7 +62,10 @@ from .recipients import (
     ws_update_recipient,
     ws_delete_recipient,
 )
-from .recipient_subscriptions import ws_set_recipient_subscription
+from .recipient_subscriptions import (
+    ws_set_recipient_subscription,
+    ws_set_recipient_user_link,
+)
 from .recipient_helpers import (
     ws_get_available_notify_services,
     ws_get_bundled_chimes,
@@ -139,6 +142,8 @@ async def async_setup_websocket_api(hass: HomeAssistant) -> None:
     websocket_api.async_register_command(hass, ws_update_recipient)
     websocket_api.async_register_command(hass, ws_delete_recipient)
     websocket_api.async_register_command(hass, ws_set_recipient_subscription)
+    # F-39: Device-User link
+    websocket_api.async_register_command(hass, ws_set_recipient_user_link)
     websocket_api.async_register_command(hass, ws_get_available_notify_services)
     websocket_api.async_register_command(hass, ws_get_tts_options)
     websocket_api.async_register_command(hass, ws_test_recipient)

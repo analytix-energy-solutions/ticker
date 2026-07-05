@@ -377,6 +377,14 @@ async def async_send_notification(
         if data and data.get("critical"):
             inject_critical_payload(service_data, delivery_format)
 
+        # Android channel: per-category notification routing (Android only)
+        android_channel = (category or {}).get("android_channel")
+        if android_channel and delivery_format == DELIVERY_FORMAT_RICH:
+            if "data" not in service_data:
+                service_data["data"] = {}
+            if "channel" not in service_data["data"]:
+                service_data["data"]["channel"] = android_channel
+
         try:
             await asyncio.wait_for(
                 hass.services.async_call(

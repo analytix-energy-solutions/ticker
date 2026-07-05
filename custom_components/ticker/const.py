@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -24,6 +24,10 @@ DEFAULT_SUBSCRIPTION_MODE = MODE_ALWAYS
 # Subscription set_by values (tracks who set the subscription)
 SET_BY_USER = "user"
 SET_BY_ADMIN = "admin"
+# F-39: tag for subscriptions seeded into a recipient row when its linked
+# person entity is removed (orphan fallback). The recipient reverts to
+# Standalone with its last-known subs preserved.
+SET_BY_ORPHAN_FALLBACK = "orphan_fallback"
 
 # Device preference modes
 DEVICE_MODE_ALL = "all"
@@ -110,6 +114,15 @@ STORAGE_KEY_RECIPIENTS = f"{DOMAIN}_recipients"
 MAX_RECIPIENT_ID_LENGTH = 64
 MAX_RECIPIENT_NAME_LENGTH = 100
 MAX_NOTIFY_SERVICES = 10
+
+# F-39: Device-User Subscription Link
+# A recipient (device) may optionally be linked to a person entity. When
+# linked, the User-link resolver (chunk 2) swaps the effective person_id
+# during subscription lookup so the recipient mirrors that user's subs +
+# modes (read-only on the admin device side). The upstream device-condition
+# gate (F-21) remains the sole device-condition enforcement site. Storage
+# is sparse: the key is absent when not linked (Standalone behavior).
+ATTR_USER_LINK = "user_link"
 
 # Device type constants (F-18 device type discriminator)
 DEVICE_TYPE_PUSH = "push"

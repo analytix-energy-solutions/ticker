@@ -12,6 +12,12 @@
  *
  * Brand: See branding/README.md
  * Colors: --ticker-500: #06b6d4, --ticker-400: #22d3ee, --ticker-700: #0e7490
+ *
+ * NOTE (v1.8.0): This file intentionally exceeds the 500-line project limit.
+ * The limit is waived here to land merged community fixes (BUG-111 sidebar
+ * toggle, #54 tap-to-history deep-link) without forcing cuts to unrelated
+ * reviewed code. Proper decongestion is the panel split tracked in BUG-039;
+ * do not squeeze this file under 500 by trimming working logic.
  */
 
 class TickerPanel extends HTMLElement {
@@ -25,6 +31,7 @@ class TickerPanel extends HTMLElement {
     this._zones = [];
     this._queue = [];
     this._devices = [];
+    this._linkedRecipients = [];
     this._entities = [];
     this._activeTab = window.location.hash === '#history' ? 'history' : 'subscriptions';
     this._loading = true;
@@ -61,7 +68,26 @@ class TickerPanel extends HTMLElement {
     }
   }
 
+  // BUG-111: reflect HA's `narrow` onto the shared in-shadow sidebar hamburger.
+  set narrow(value) {
+    this._narrow = !!value;
+    if (window.Ticker.SidebarToggle) window.Ticker.SidebarToggle.applyNarrow(this, this._narrow);
+  }
+
   connectedCallback() {
+    // Tap-to-History: honor the #history deep-link on (re)mount and on later
+    // hash navigations so notification taps reliably land on the History tab
+    // instead of the default Subscriptions tab.
+    if (window.location.hash === '#history') this._activeTab = 'history';
+    if (!this._hashHandler) {
+      this._hashHandler = () => {
+        if (window.location.hash === '#history') {
+          if (this._initialized && this._els) this._switchTab('history');
+          else this._activeTab = 'history';
+        }
+      };
+      window.addEventListener('hashchange', this._hashHandler);
+    }
     if (!this._initialized && this._hass) {
       this._initialized = true;
       this._initialize();
@@ -76,6 +102,10 @@ class TickerPanel extends HTMLElement {
   }
 
   disconnectedCallback() {
+    if (this._hashHandler) {
+      window.removeEventListener('hashchange', this._hashHandler);
+      this._hashHandler = null;
+    }
     if (this._visibilityHandler) {
       document.removeEventListener('visibilitychange', this._visibilityHandler);
       this._visibilityHandler = null;
@@ -163,9 +193,9 @@ class TickerPanel extends HTMLElement {
       sections, colorIndicator, historyFilterBar, panelStyles].join('\n');
 
     this.shadowRoot.innerHTML = `
-      <style>${allStyles}</style>
+      <style>${allStyles}\n${window.Ticker.SidebarToggle.STYLE}</style>
       <div class="container">
-        <div class="header">${logoSvg}<h1>Ticker</h1><div id="view-as-slot"></div></div>
+        <div class="header">${window.Ticker.SidebarToggle.buttonHtml()}${logoSvg}<h1>Ticker</h1><div id="view-as-slot"></div></div>
         <div id="view-as-banner-slot"></div>
         <div id="message-area" class="message"></div>
         <div id="loading-area"></div>
@@ -182,6 +212,7 @@ class TickerPanel extends HTMLElement {
       viewAsSlot: this.shadowRoot.getElementById('view-as-slot'),
       viewAsBannerSlot: this.shadowRoot.getElementById('view-as-banner-slot'),
     };
+    window.Ticker.SidebarToggle.applyNarrow(this, this._narrow);  // honor early-set narrow
   }
 
   async _loadData() {
@@ -253,11 +284,18 @@ class TickerPanel extends HTMLElement {
 
   async _loadDevices() {
     try {
-      const result = await this._hass.callWS({ type: 'ticker/devices' });
+      // F-39 chunk 5: pass person_id when impersonating (admin view-as parity
+      // with _loadSubscriptions). Response also carries linked_recipients
+      // — locked, admin-managed device entries surfaced read-only.
+      const req = { type: 'ticker/devices' };
+      if (this._impersonatedPersonId) req.person_id = this._impersonatedPersonId;
+      const result = await this._hass.callWS(req);
       this._devices = result.devices || [];
+      this._linkedRecipients = result.linked_recipients || [];
     } catch (err) {
       console.error('Failed to load devices:', err);
       this._devices = [];
+      this._linkedRecipients = [];
     }
   }
 
@@ -339,6 +377,7 @@ class TickerPanel extends HTMLElement {
       categories: this._categories,
       subscriptions: this._subscriptions,
       devices: this._devices,
+      linkedRecipients: this._linkedRecipients,
       zones: this._zones,
       entities: this._entities,
       queue: this._queue,

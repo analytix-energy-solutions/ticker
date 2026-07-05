@@ -1,4 +1,7 @@
-"""Recipient subscription WebSocket command for Ticker integration (F-18).
+"""Recipient subscription WebSocket commands for Ticker integration.
+
+F-18: ``ws_set_recipient_subscription`` (per-category mode).
+F-39: ``ws_set_recipient_user_link`` (link/unlink a recipient to a person).
 
 Extracted from recipients.py to comply with the 500-line hard limit.
 Mirrors how subscriptions.py exists alongside the user-side handlers.
@@ -7,6 +10,7 @@ Mirrors how subscriptions.py exists alongside the user-side handlers.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
@@ -21,6 +25,9 @@ from ..const import (
     SET_BY_ADMIN,
 )
 from .validation import get_store, validate_category_id
+
+# F-39: person entity IDs must start with "person.".
+_PERSON_ID_PATTERN = re.compile(r"^person\.[a-z0-9_]+$")
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -77,3 +84,61 @@ async def ws_set_recipient_subscription(
         set_by=SET_BY_ADMIN,
     )
     connection.send_result(msg["id"], {"subscription": subscription})
+
+
+@websocket_api.require_admin
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "ticker/set_recipient_user_link",
+        vol.Required("recipient_id"): str,
+        vol.Required("person_id"): vol.Any(None, str),
+    }
+)
+@websocket_api.async_response
+async def ws_set_recipient_user_link(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Set or clear the user_link on a recipient (F-39, admin-only).
+
+    When ``person_id`` is a string, it must match ``^person\\.`` AND resolve
+    to a non-None state in HA. ``None`` clears the link (recipient reverts
+    to Standalone — subscription rows are NOT modified here; that path is
+    only used during orphan fallback in ``async_handle_person_removed``).
+    """
+    store = get_store(hass)
+
+    recipient_id = msg["recipient_id"]
+    if store.get_recipient(recipient_id) is None:
+        connection.send_error(
+            msg["id"], "recipient_not_found",
+            f"Recipient '{recipient_id}' not found",
+        )
+        return
+
+    person_id = msg["person_id"]
+    if person_id is not None:
+        if not isinstance(person_id, str) or not _PERSON_ID_PATTERN.match(person_id):
+            connection.send_error(
+                msg["id"], "invalid_person_id",
+                "person_id must be a 'person.*' entity ID",
+            )
+            return
+        if hass.states.get(person_id) is None:
+            connection.send_error(
+                msg["id"], "invalid_person_id",
+                f"Person entity '{person_id}' not found",
+            )
+            return
+
+    try:
+        recipient = await store.async_set_recipient_user_link(
+            recipient_id, person_id,
+        )
+    except ValueError as err:
+        # Defensive — recipient existence already verified above.
+        connection.send_error(msg["id"], "recipient_not_found", str(err))
+        return
+
+    connection.send_result(msg["id"], {"recipient": recipient})
