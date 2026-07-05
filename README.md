@@ -88,6 +88,11 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
+### v1.8.0
+
+- **Device-User Subscription Link** — admins can link a device recipient to a household member from the admin Devices tab; the linked device's per-category subscriptions then mirror that user's modes and conditions automatically. Device-level settings (conditions, volume, chime, notify services) stay device-local (F-39, closes GitHub #22, @meyerluk).
+- **Editable categories fix** — categories could not be edited or saved after creation; the save failed silently because the `android_channel` field was rejected by the update schema (GitHub #46). Thanks to community contributor **@jesfer** (#55).
+
 ### v1.7.0
 
 - **View-as-User (admin assist)** — admins can operate the user panel on another household member's behalf. A "Viewing as" dropdown in the panel header lets the admin select any person; the panel re-renders as that user with a persistent "Viewing as: [Name]" banner and a one-tap "Stop viewing" exit.
