@@ -94,6 +94,7 @@ This integration is being developed with AI assistance.
 - **Per-category Android notification channel** — set an Android notification channel per category (admin Categories tab) for per-category sound and Do-Not-Disturb routing. The channel is injected into the Android (rich) push payload at delivery time; critical notifications keep their own channel. Thanks to community contributor **@nalabelle** (#34).
 - **Editable categories fix** — categories could not be edited or saved after creation; the save failed silently because the `android_channel` field was rejected by the update schema (GitHub #46). Thanks to community contributor **@jesfer** (#55).
 - **Mobile-portrait sidebar toggle** — the user and admin panels now render a hamburger (☰) button on mobile portrait so you can open the Home Assistant sidebar drawer; previously custom panels rendered no toggle and users could get trapped (GitHub #51). Thanks to community contributor **@danswett** (#52).
+- **Notification History deep-link fix** — tapping a notification that targets the History tab (`#history`) now reliably opens History even when Home Assistant reuses the already-open panel, instead of falling back to Subscriptions (GitHub #53). Thanks to community contributor **@danswett** (#54).
 
 ### v1.7.0
 

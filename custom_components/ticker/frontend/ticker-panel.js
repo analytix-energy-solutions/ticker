@@ -12,6 +12,12 @@
  *
  * Brand: See branding/README.md
  * Colors: --ticker-500: #06b6d4, --ticker-400: #22d3ee, --ticker-700: #0e7490
+ *
+ * NOTE (v1.8.0): This file intentionally exceeds the 500-line project limit.
+ * The limit is waived here to land merged community fixes (BUG-111 sidebar
+ * toggle, #54 tap-to-history deep-link) without forcing cuts to unrelated
+ * reviewed code. Proper decongestion is the panel split tracked in BUG-039;
+ * do not squeeze this file under 500 by trimming working logic.
  */
 
 class TickerPanel extends HTMLElement {

@@ -602,6 +602,8 @@ Only visible to users in the "Administrator" group. The admin panel has eight ta
 
 Create, edit, and delete notification categories. Each category has a name (from which an ID is auto-generated), an icon, an optional color, and optional default subscription settings. The General sub-tab also includes a **Critical notifications** toggle — when enabled, all notifications sent to this category are treated as critical by default (individual service calls can still override this with an explicit `critical` value). The General sub-tab also includes a **Navigation Picker** for setting a category-level default navigation target (see Navigation target above).
 
+The General sub-tab also includes an **Android Channel** field *(v1.8.0)*. Enter an Android notification channel ID (e.g. `security_alerts`) to route this category's push notifications through a specific Android OS-level channel. This controls the sound, vibration, and Do-Not-Disturb behavior that the Android Companion App assigns to the notification. Leave blank to use the app's default channel. Critical notifications always use the `ticker_critical` channel regardless of this setting. This field has no effect on iOS devices or TTS/persistent recipients.
+
 The Smart sub-tab configures per-category smart notification delivery: auto-grouping, tag mode, sticky, and persistent flags (see Smart notification management above).
 
 Each category also has an **Action Buttons** section where admins configure the category's default action set reference from the Action Sets library.
