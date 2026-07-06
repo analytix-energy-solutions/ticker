@@ -480,9 +480,19 @@ async def async_send_notification(
     # single-threaded so the list appends are safe. return_exceptions=True
     # ensures an unexpected error in one device cannot abort the others.
     if final_devices:
-        await asyncio.gather(
+        outcomes = await asyncio.gather(
             *(_send_to_device(service_id) for service_id in final_devices),
             return_exceptions=True,
         )
+        # FIX-002: surface any exception that escaped a device coroutine's own
+        # try/except (e.g. a failure while building the payload before the send).
+        # gather preserves order, so zip with final_devices to attribute it.
+        for service_id, outcome in zip(final_devices, outcomes):
+            if isinstance(outcome, Exception):
+                _LOGGER.error(
+                    "Device dispatch failed for %s via %s: %s",
+                    person_id, service_id, outcome,
+                )
+                results["dropped"].append(f"{service_id}: {outcome}")
 
     return results

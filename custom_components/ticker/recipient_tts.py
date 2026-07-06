@@ -49,6 +49,20 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
+# FIX-001 (v1.8.2): TTS delivery mutates shared media_player state (volume
+# snapshot -> set -> chime -> speak -> restore). PRs #49/#50 fan out recipients
+# concurrently, so two recipients targeting the SAME media_player would
+# interleave that sequence and corrupt the restored volume / overlap audio.
+# Serialize the delivery window per media_player entity. Lazy-created locks are
+# race-free — setdefault has no await between the check and the insert.
+_MEDIA_PLAYER_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _get_media_player_lock(entity_id: str) -> asyncio.Lock:
+    """Return the per-media_player TTS-delivery lock, creating it on first use."""
+    return _MEDIA_PLAYER_LOCKS.setdefault(entity_id, asyncio.Lock())
+
+
 # Re-exports: tests and recipient_helpers import these names directly
 # from this module. Keep the alias surface stable across the F-35.2
 # split so no test-import churn is required.
@@ -187,21 +201,25 @@ async def async_send_tts(
     resume = recipient.get("resume_after_tts", False)
 
     try:
-        if supports_announce:
-            method = await _deliver_tts_announce(
-                hass, entity_id, tts_service, payload,
-                chime_id=chime_id, volume_level=volume_level,
-            )
-        elif resume:
-            method = await _deliver_tts_with_restore(
-                hass, entity_id, tts_service, payload,
-                chime_id=chime_id, volume_level=volume_level,
-            )
-        else:
-            method = await _deliver_tts_plain(
-                hass, entity_id, tts_service, payload,
-                chime_id=chime_id, volume_level=volume_level,
-            )
+        # FIX-001: serialize the snapshot/set/chime/speak/restore window per
+        # media_player so concurrent recipients (PRs #49/#50 fan-out) targeting
+        # the same device cannot interleave and corrupt volume/audio.
+        async with _get_media_player_lock(entity_id):
+            if supports_announce:
+                method = await _deliver_tts_announce(
+                    hass, entity_id, tts_service, payload,
+                    chime_id=chime_id, volume_level=volume_level,
+                )
+            elif resume:
+                method = await _deliver_tts_with_restore(
+                    hass, entity_id, tts_service, payload,
+                    chime_id=chime_id, volume_level=volume_level,
+                )
+            else:
+                method = await _deliver_tts_plain(
+                    hass, entity_id, tts_service, payload,
+                    chime_id=chime_id, volume_level=volume_level,
+                )
 
         svc_display = f"{tts_service} -> {entity_id} [{method}]"
         _LOGGER.info(
