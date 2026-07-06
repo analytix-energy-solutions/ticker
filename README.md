@@ -88,6 +88,13 @@ This integration is being developed with AI assistance.
 
 ## Version history
 
+### v1.8.1
+
+- Hotfix: eliminated a cold-load `TypeError` in the user and admin panels — on a
+  fresh load the panels could log `Cannot read properties of undefined (reading
+  'SidebarToggle')` before their shared script finished loading. Harmless once
+  loaded, but noisy in the console; now guarded.
+
 ### v1.8.0
 
 - **Device-User Subscription Link** — admins can link a device recipient to a household member from the admin Devices tab; the linked device's per-category subscriptions then mirror that user's modes and conditions automatically. Device-level settings (conditions, volume, chime, notify services) stay device-local (F-39, closes GitHub #22, @meyerluk).
