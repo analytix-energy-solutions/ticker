@@ -90,9 +90,11 @@ class TickerAdminPanel extends HTMLElement {
   }
 
   // BUG-111: reflect HA's `narrow` onto the shared in-shadow sidebar hamburger.
+  // BUG-114: guard window.Ticker too — HA can set `narrow` before ticker-utils.js
+  // has loaded (cold load), so `window.Ticker` itself may still be undefined.
   set narrow(value) {
     this._narrow = !!value;
-    if (window.Ticker.SidebarToggle) window.Ticker.SidebarToggle.applyNarrow(this, this._narrow);
+    if (window.Ticker && window.Ticker.SidebarToggle) window.Ticker.SidebarToggle.applyNarrow(this, this._narrow);
   }
 
   connectedCallback() {
