@@ -387,6 +387,7 @@ window.Ticker.AdminCategoriesTab = {
             <select id="new-category-default-mode" style="${selStyle}">
               <option value="always" selected>Always</option><option value="never">Never</option><option value="conditional">Conditional</option>
             </select></div>
+          <div class="form-group"><label>Android Channel</label><input type="text" id="new-category-android-channel" placeholder="e.g. security_alerts" style="min-width:160px"></div>
         </div>
         <div class="button-row">
           <button class="btn btn-primary" onclick="window.Ticker.AdminCategoriesTab.handlers.create(window.Ticker._adminPanel)">Create Category</button>

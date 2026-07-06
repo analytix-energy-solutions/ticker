@@ -45,6 +45,7 @@ def _is_ticker_call(finding: dict[str, Any]) -> bool:
 # Scan: list all ticker.notify calls
 # =============================================================================
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/automations/scan",
@@ -80,6 +81,7 @@ async def ws_automations_scan(
 # Update: modify a single ticker.notify call in-place
 # =============================================================================
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/automations/update",

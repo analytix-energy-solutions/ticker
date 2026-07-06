@@ -171,6 +171,14 @@ async def _delete_from_yaml_file(
 
     file_path = config_dir / relative_path
 
+    # SEC-005: containment guard — reject a crafted source_file (absolute path
+    # or ".." traversal) that would escape the HA config directory. Mirrors the
+    # guard in converter.py so the delete path can't drift open.
+    resolved_path = file_path.resolve()
+    if not resolved_path.is_relative_to(config_dir.resolve()):
+        raise ValueError(f"Source file escapes config directory: {source_file}")
+    file_path = resolved_path
+
     if not file_path.exists():
         raise ValueError(f"Source file not found: {file_path}")
 

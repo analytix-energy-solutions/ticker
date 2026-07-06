@@ -245,6 +245,14 @@ async def _apply_to_yaml_file(
 
     file_path = config_dir / relative_path
 
+    # SEC-005: containment guard — a crafted source_file (absolute path or ".."
+    # traversal) must not escape the HA config directory. resolve() collapses
+    # ".." and symlinks; reject anything landing outside config_dir.
+    resolved_path = file_path.resolve()
+    if not resolved_path.is_relative_to(config_dir.resolve()):
+        raise ValueError(f"Source file escapes config directory: {source_file}")
+    file_path = resolved_path
+
     if not file_path.exists():
         raise ValueError(f"Source file not found: {file_path}")
 

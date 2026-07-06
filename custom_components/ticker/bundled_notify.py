@@ -213,6 +213,16 @@ async def async_send_bundled_notification(
             data=device_data,
         )
 
+        # Per-category Android channel — only for single-category (count==1)
+        # bundles, where primary_cat unambiguously represents the notification's
+        # category. Multi-category bundles have no single channel, so they stay
+        # on Android's default. Parity with user_notify / recipient_notify.
+        if count == 1:
+            android_channel = (primary_cat or {}).get("android_channel")
+            if android_channel and delivery_format == DELIVERY_FORMAT_RICH:
+                data = service_data.setdefault("data", {})
+                data.setdefault("channel", android_channel)
+
         try:
             await asyncio.wait_for(
                 hass.services.async_call(
