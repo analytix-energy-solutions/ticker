@@ -383,7 +383,11 @@ class TickerConditionsUI extends HTMLElement {
         `<select class="form-select" id="state-select-${pid}" data-state-path='${ps}' ${da}><option value=""${!cur?' selected':''}>Select state...</option>${co}${so}</select></div></div>`+
         `<div class="state-help-text">Suggestions are based on the selected entity. Any value is accepted.</div></div>`;}
     if(rule.type==='duration'){const pid=ps.replace(/[\[\],]/g,'_');
-      const ent=this._findEntity(rule.entity_id);
+      // Blank entity_id defaults to the subscriber's own person entity at
+      // evaluation time, so there is no real entity to look up here.
+      // Synthesize a 'person' domain so the state dropdown still offers
+      // home/not_home/zone suggestions instead of coming up empty.
+      const ent=rule.entity_id?this._findEntity(rule.entity_id):{domain:'person'};
       const sg=TickerConditionsUI.getStateOptions(ent,this._zones).values;
       const cur=rule.state||'',hc=!cur||sg.includes(cur);
       const co=!hc?`<option value="${this._escAttr(cur)}" selected>${this._esc(cur)}</option>`:'';
