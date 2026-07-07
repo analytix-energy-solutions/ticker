@@ -7,7 +7,7 @@ Legacy flat rules[] format is supported as fallback.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -16,9 +16,12 @@ from homeassistant.util import dt as dt_util
 from .conditions_legacy import convert_legacy_zones_to_rules  # noqa: F401
 from .const import (
     CONDITION_NODE_GROUP,
+    DURATION_COMPARISON_FOR_AT_LEAST,
+    DURATION_COMPARISON_WITHIN,
     RULE_TYPE_ZONE,
     RULE_TYPE_TIME,
     RULE_TYPE_STATE,
+    RULE_TYPE_DURATION,
 )
 
 if TYPE_CHECKING:
@@ -155,6 +158,72 @@ def evaluate_state_rule(
     return False, f"{entity_id} is {state.state}, not {expected_state}"
 
 
+def evaluate_duration_rule(
+    hass: HomeAssistant,
+    rule: dict[str, Any],
+    person_state: "State | None" = None,
+    now: datetime | None = None,
+) -> tuple[bool, str]:
+    """Evaluate a duration rule: how long an entity has held a given state.
+
+    ``comparison`` selects the semantics:
+      * "within" (default) — the entity transitioned into ``state`` at most
+        ``minutes`` ago (e.g. "just arrived home").
+      * "for_at_least" — the entity has held ``state`` continuously for at
+        least ``minutes`` (e.g. "staying home").
+
+    ``entity_id`` is optional: when omitted, the rule defaults to the
+    subscription's own person entity (mirrors the zone rule's implicit
+    subject). Explicit ``entity_id`` also works for non-person subjects
+    (e.g. recipient conditions), since it does not depend on person_state.
+
+    Returns (is_met, reason).
+    """
+    if now is None:
+        now = dt_util.now()
+
+    entity_id = rule.get("entity_id") or ""
+    if not entity_id and person_state is not None:
+        entity_id = person_state.entity_id
+
+    if not entity_id:
+        return False, "No entity_id specified for duration rule"
+
+    target_state = rule.get("state", "")
+    if not target_state:
+        return False, "No target state specified for duration rule"
+
+    minutes = rule.get("minutes")
+    if not isinstance(minutes, (int, float)) or isinstance(minutes, bool) or minutes <= 0:
+        return False, "Duration rule requires a positive 'minutes' value"
+
+    comparison = rule.get("comparison", DURATION_COMPARISON_WITHIN)
+
+    state = hass.states.get(entity_id)
+    if state is None:
+        return False, f"Entity {entity_id} not found"
+
+    actual_state = state.state.lower()
+    expected_state = str(target_state).lower()
+    if actual_state != expected_state:
+        return False, f"{entity_id} is {state.state}, not {target_state}"
+
+    elapsed = now - state.last_changed
+    elapsed_minutes = int(elapsed.total_seconds() // 60)
+    threshold = timedelta(minutes=minutes)
+
+    if comparison == DURATION_COMPARISON_FOR_AT_LEAST:
+        is_met = elapsed >= threshold
+        if is_met:
+            return True, f"{entity_id} has been {target_state} for {elapsed_minutes}m (>= {int(minutes)}m)"
+        return False, f"{entity_id} has been {target_state} for only {elapsed_minutes}m (< {int(minutes)}m)"
+
+    is_met = elapsed <= threshold
+    if is_met:
+        return True, f"{entity_id} became {target_state} {elapsed_minutes}m ago (<= {int(minutes)}m)"
+    return False, f"{entity_id} became {target_state} {elapsed_minutes}m ago (> {int(minutes)}m)"
+
+
 def evaluate_rule(
     hass: HomeAssistant,
     rule: dict[str, Any],
@@ -173,6 +242,8 @@ def evaluate_rule(
         return evaluate_time_rule(rule, now)
     elif rule_type == RULE_TYPE_STATE:
         return evaluate_state_rule(hass, rule)
+    elif rule_type == RULE_TYPE_DURATION:
+        return evaluate_duration_rule(hass, rule, person_state, now)
     else:
         _LOGGER.debug("Unknown rule type '%s', treating as unmet", rule_type)
         return False, f"Unknown rule type: {rule_type}"
@@ -378,6 +449,21 @@ def _collect_triggers_from_node(
         entity_id = node.get("entity_id", "")
         if entity_id:
             triggers["entities"].add(entity_id)
+    elif node.get("type") == RULE_TYPE_DURATION:
+        entity_id = node.get("entity_id", "")
+        if entity_id:
+            triggers["entities"].add(entity_id)
+        # Duration leaves may become true/false at a point in time with no
+        # underlying state change (e.g. "for_at_least" crossing its
+        # threshold), so callers also need the raw rule to schedule a
+        # time-based wakeup. Collected regardless of entity_id being blank
+        # (person-default is resolved by the caller, which knows person_id).
+        triggers.setdefault("durations", []).append({
+            "entity_id": entity_id,
+            "state": node.get("state", ""),
+            "comparison": node.get("comparison", "within"),
+            "minutes": node.get("minutes"),
+        })
     elif node.get("type") == RULE_TYPE_TIME:
         after = node.get("after", "")
         if after:
@@ -396,6 +482,7 @@ def get_queue_triggers(
         "zones": set(),
         "entities": set(),
         "time_windows": [],
+        "durations": [],
     }
 
     # Only collect triggers if queueing is enabled

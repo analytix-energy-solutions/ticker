@@ -78,6 +78,7 @@ class TickerConditionsUI extends HTMLElement {
     if (type==='zone') r.zone_id = this._zones.length ? this._zones[0].zone_id : 'zone.home';
     else if (type==='time') { r.after='08:00'; r.before='22:00'; r.days=[1,2,3,4,5,6,7]; }
     else if (type==='state') { r.entity_id=''; r.state=''; }
+    else if (type==='duration') { r.entity_id=''; r.state=''; r.comparison='within'; r.minutes=15; }
     const t = this._clone(this._tree);
     if (!t.children.length) { this._deliverWhenMet=true; this._queueUntilMet=!this._hideQueue; }
     t.children.push(r);
@@ -242,7 +243,7 @@ class TickerConditionsUI extends HTMLElement {
         return { values: fallback(), freeform: true };
     }
   }
-  _typeName(t) { return {zone:'Zone',time:'Time',state:'Entity State'}[t]||t; }
+  _typeName(t) { return {zone:'Zone',time:'Time',state:'Entity State',duration:'Duration'}[t]||t; }
   _summary(r) {
     const base = this._summaryRaw(r);
     return r && r.negate === true ? this._negatedLabel(r.type, base) : base;
@@ -252,6 +253,12 @@ class TickerConditionsUI extends HTMLElement {
     if(r.type==='time'){const dn=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
       const ds=(r.days||[]).map(d=>dn[d-1]).join(', ');return `${r.after} - ${r.before}${ds?` (${ds})`:''}`;  }
     if(r.type==='state') return r.entity_id?`${r.entity_id} = ${r.state}`:'Not configured';
+    if(r.type==='duration'){
+      if(!r.state||!r.minutes) return 'Not configured';
+      const who=r.entity_id||'this person';
+      const cmp=r.comparison==='for_at_least'?'for ≥':'within';
+      return `${who} = ${r.state} ${cmp} ${r.minutes}m`;
+    }
     return 'Unknown';
   }
   // F-33: per-type NOT placement convention (ASCII != for state per Hans).
@@ -281,6 +288,7 @@ class TickerConditionsUI extends HTMLElement {
     const add=`<div class="add-rule-section">${zb}
       <button class="add-rule-btn" data-action="add-time" ${this._disabled?'disabled':''}>+ Time</button>
       <button class="add-rule-btn" data-action="add-state" ${this._disabled?'disabled':''}>+ Entity State</button>
+      <button class="add-rule-btn" data-action="add-duration" ${this._disabled?'disabled':''}>+ Duration</button>
     </div>${this._infoText()}`;
     const acts=leaves.length?this._actionsHtml():'';
     this.shadowRoot.innerHTML=`${styles}${content}${add}${acts}`;
@@ -291,7 +299,7 @@ class TickerConditionsUI extends HTMLElement {
     const sr=this.shadowRoot;
     sr.querySelectorAll('.add-rule-btn').forEach(b=>b.addEventListener('click',()=>{
       const a=b.dataset.action;
-      if(a==='add-zone')this._addRule('zone');else if(a==='add-time')this._addRule('time');else if(a==='add-state')this._addRule('state');
+      if(a==='add-zone')this._addRule('zone');else if(a==='add-time')this._addRule('time');else if(a==='add-state')this._addRule('state');else if(a==='add-duration')this._addRule('duration');
     }));
     sr.querySelectorAll('.operator-pill:not(.group-op-pill)').forEach(p=>p.addEventListener('click',()=>this._toggleOperator(JSON.parse(p.dataset.parentpath))));
     sr.querySelectorAll('.group-btn').forEach(b=>{if(!b.disabled)b.addEventListener('click',()=>this._groupAt(JSON.parse(b.dataset.parentpath),parseInt(b.dataset.childidx)));});
@@ -308,6 +316,8 @@ class TickerConditionsUI extends HTMLElement {
     sr.querySelectorAll('[data-day-toggle]').forEach(b=>b.addEventListener('click',()=>this._toggleDayAt(JSON.parse(b.dataset.dayPath),parseInt(b.dataset.dayToggle))));
     sr.querySelectorAll('[data-entity-path]').forEach(i=>i.addEventListener('input',()=>this._onEntityInput(i.dataset.entityPath,i.value)));
     sr.querySelectorAll('[data-state-path]').forEach(s=>s.addEventListener('change',()=>this._updateRuleAt(JSON.parse(s.dataset.statePath),'state',s.value)));
+    sr.querySelectorAll('[data-duration-comparison-path]').forEach(s=>s.addEventListener('change',()=>this._updateRuleAt(JSON.parse(s.dataset.durationComparisonPath),'comparison',s.value)));
+    sr.querySelectorAll('[data-duration-minutes-path]').forEach(i=>i.addEventListener('change',()=>this._updateRuleAt(JSON.parse(i.dataset.durationMinutesPath),'minutes',parseInt(i.value,10)||1)));
   }
 
   _renderChildren(children, pp) {
@@ -372,6 +382,24 @@ class TickerConditionsUI extends HTMLElement {
         `<datalist id="entity-list-${pid}"></datalist></div><div class="form-group" style="flex:1"><label class="form-label">State</label>`+
         `<select class="form-select" id="state-select-${pid}" data-state-path='${ps}' ${da}><option value=""${!cur?' selected':''}>Select state...</option>${co}${so}</select></div></div>`+
         `<div class="state-help-text">Suggestions are based on the selected entity. Any value is accepted.</div></div>`;}
+    if(rule.type==='duration'){const pid=ps.replace(/[\[\],]/g,'_');
+      const ent=this._findEntity(rule.entity_id);
+      const sg=TickerConditionsUI.getStateOptions(ent,this._zones).values;
+      const cur=rule.state||'',hc=!cur||sg.includes(cur);
+      const co=!hc?`<option value="${this._escAttr(cur)}" selected>${this._esc(cur)}</option>`:'';
+      const so=sg.map(s=>`<option value="${this._escAttr(s)}" ${s===cur?'selected':''}>${this._esc(s)}</option>`).join('');
+      const cmp=rule.comparison||'within';
+      return `<div class="rule-content"><div class="form-row"><div class="form-group" style="flex:2"><label class="form-label">Entity (blank = this person)</label>`+
+        `<input type="text" class="form-input" list="entity-list-${pid}" id="entity-input-${pid}" placeholder="Leave blank to use the subscriber" value="${this._escAttr(rule.entity_id||'')}" data-entity-path='${ps}' ${da}>`+
+        `<datalist id="entity-list-${pid}"></datalist></div><div class="form-group" style="flex:1"><label class="form-label">State</label>`+
+        `<select class="form-select" id="state-select-${pid}" data-state-path='${ps}' ${da}><option value=""${!cur?' selected':''}>Select state...</option>${co}${so}</select></div></div>`+
+        `<div class="form-row"><div class="form-group"><label class="form-label">Comparison</label>`+
+        `<select class="form-select" data-duration-comparison-path='${ps}' ${da}>`+
+        `<option value="within" ${cmp==='within'?'selected':''}>Within last N minutes (just changed)</option>`+
+        `<option value="for_at_least" ${cmp==='for_at_least'?'selected':''}>For at least N minutes (staying)</option>`+
+        `</select></div><div class="form-group"><label class="form-label">Minutes</label>`+
+        `<input type="number" class="form-input" min="1" max="1440" value="${this._escAttr(rule.minutes||15)}" data-duration-minutes-path='${ps}' ${da}></div></div>`+
+        `<div class="state-help-text">If entity is left blank, this rule checks the subscriber's own person entity.</div></div>`;}
     return '';
   }
   _infoText() {

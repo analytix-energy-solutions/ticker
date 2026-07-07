@@ -7,6 +7,7 @@ queued notifications and release them when conditions are met.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Callable
 
 from homeassistant.core import HomeAssistant, callback, Event
@@ -19,7 +20,9 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     CONDITION_NODE_GROUP,
+    DURATION_COMPARISON_FOR_AT_LEAST,
     MODE_CONDITIONAL,
+    RULE_TYPE_DURATION,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
     RULE_TYPE_ZONE,
@@ -56,6 +59,7 @@ def _leaf_matches_filter(
     leaf: dict[str, Any],
     filter_type: str,
     filter_value: str | None,
+    person_id: str | None = None,
 ) -> bool:
     """Check if a leaf node matches a filter type and value.
 
@@ -63,14 +67,26 @@ def _leaf_matches_filter(
         leaf: A leaf condition node.
         filter_type: Rule type to match (e.g. RULE_TYPE_STATE).
         filter_value: Value to match (entity_id or time string).
+        person_id: The subscription's person_id, used to resolve a
+            duration leaf's blank ``entity_id`` (defaults to the person)
+            when matching against an entity-change filter.
 
     Returns:
         True if the leaf matches the filter criteria.
     """
-    if leaf.get("type") != filter_type:
-        return False
+    leaf_type = leaf.get("type")
     if filter_type == RULE_TYPE_STATE:
-        return leaf.get("entity_id") == filter_value
+        # Duration leaves are tracked via the same entity-change listener
+        # as state leaves (no dedicated "duration" listener type), so an
+        # entity-change filter must also match duration leaves.
+        if leaf_type == RULE_TYPE_STATE:
+            return leaf.get("entity_id") == filter_value
+        if leaf_type == RULE_TYPE_DURATION:
+            entity_id = leaf.get("entity_id") or person_id
+            return entity_id == filter_value
+        return False
+    if leaf_type != filter_type:
+        return False
     if filter_type == RULE_TYPE_TIME:
         # BUG-096: match either edge of the time window so `before`
         # triggers re-evaluate subscriptions too.
@@ -119,6 +135,13 @@ class ConditionListenerManager:
         # Debounced refresh state (BUG-086)
         self._pending_refresh_unsub: Callable[[], None] | None = None
 
+        # Duration rule wakeup: "for_at_least" duration leaves become true
+        # at a fixed future timestamp with no underlying state-change event
+        # to trigger re-evaluation. A single timer is scheduled for the
+        # earliest such timestamp across all conditional subscriptions and
+        # recomputed on every listener refresh (see _schedule_duration_wakeup).
+        self._duration_wakeup_unsub: Callable[[], None] | None = None
+
         # BUG-106: one-shot post-startup queue sweep state.
         self._startup_swept: bool = False
         self._was_starting_at_register: bool = not hass.is_running
@@ -164,6 +187,7 @@ class ConditionListenerManager:
         # Collect all triggers from conditional subscriptions
         all_entities: set[str] = set()
         all_times: set[str] = set()
+        next_duration_wakeup: datetime | None = None
 
         # Scan all subscriptions for conditional rules
         # This includes both person-based and recipient-based subscriptions.
@@ -213,6 +237,31 @@ class ConditionListenerManager:
                 if before:
                     all_times.add(before)
 
+            # Duration ("for_at_least") leaves become true at a fixed future
+            # timestamp with no state-change event to trigger re-evaluation.
+            # Resolve each leaf's effective entity (blank defaults to this
+            # subscription's person) and, if it's currently sitting in the
+            # target state below threshold, note when it will cross it.
+            person_id = sub.get("person_id") if not is_recipient else None
+            for duration in triggers.get("durations", []):
+                if duration.get("comparison") != DURATION_COMPARISON_FOR_AT_LEAST:
+                    continue
+                entity_id = duration.get("entity_id") or person_id
+                target_state = duration.get("state")
+                minutes = duration.get("minutes")
+                if not entity_id or not target_state or not minutes:
+                    continue
+
+                state = self.hass.states.get(entity_id)
+                if state is None or state.state.lower() != str(target_state).lower():
+                    continue
+
+                wake_at = state.last_changed + timedelta(minutes=minutes)
+                if wake_at <= dt_util.utcnow():
+                    continue  # threshold already crossed
+                if next_duration_wakeup is None or wake_at < next_duration_wakeup:
+                    next_duration_wakeup = wake_at
+
         # Set up entity listeners
         if all_entities:
             self._setup_entity_listeners(list(all_entities))
@@ -221,11 +270,40 @@ class ConditionListenerManager:
         if all_times:
             self._setup_time_listeners(list(all_times))
 
+        # Set up (or clear) the duration wakeup timer
+        if next_duration_wakeup is not None:
+            self._schedule_duration_wakeup(next_duration_wakeup)
+        elif self._duration_wakeup_unsub is not None:
+            self._duration_wakeup_unsub()
+            self._duration_wakeup_unsub = None
+
         _LOGGER.debug(
             "Refreshed condition listeners: %d entities, %d times",
             len(all_entities),
             len(all_times),
         )
+
+    def _schedule_duration_wakeup(self, wake_at: datetime) -> None:
+        """Schedule a one-shot timer to re-evaluate at ``wake_at``.
+
+        Only one duration wakeup timer is ever active: it targets the
+        earliest pending "for_at_least" threshold across all conditional
+        subscriptions. When it fires, a full sweep re-evaluates everything
+        and ``async_refresh_listeners`` recomputes (and reschedules) the
+        next-earliest wakeup, so later thresholds are not missed.
+        """
+        if self._duration_wakeup_unsub is not None:
+            self._duration_wakeup_unsub()
+            self._duration_wakeup_unsub = None
+
+        delay = max((wake_at - dt_util.utcnow()).total_seconds(), 0.1)
+
+        async def _on_wakeup(_now: Any) -> None:
+            self._duration_wakeup_unsub = None
+            await self._async_reevaluate_subscriptions()
+            await self.async_refresh_listeners()
+
+        self._duration_wakeup_unsub = async_call_later(self.hass, delay, _on_wakeup)
 
     def _cleanup_listeners(self) -> None:
         """Clean up all existing listeners."""
@@ -407,7 +485,7 @@ class ConditionListenerManager:
             if filter_type:
                 leaves = _collect_leaves(tree) if tree else list(rules)
                 has_matching_rule = any(
-                    _leaf_matches_filter(leaf, filter_type, filter_value)
+                    _leaf_matches_filter(leaf, filter_type, filter_value, person_id)
                     for leaf in leaves
                 )
                 if not has_matching_rule:
@@ -492,6 +570,10 @@ class ConditionListenerManager:
         if self._pending_refresh_unsub is not None:
             self._pending_refresh_unsub()
             self._pending_refresh_unsub = None
+
+        if self._duration_wakeup_unsub is not None:
+            self._duration_wakeup_unsub()
+            self._duration_wakeup_unsub = None
 
         self._cleanup_listeners()
         _LOGGER.debug("Condition listeners unloaded")

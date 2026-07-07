@@ -265,6 +265,7 @@ window.Ticker.conditionsTree = {
       if (node.type === 'zone' && !node.zone_id) return null;
       if (node.type === 'time' && (!node.after || !node.before)) return null;
       if (node.type === 'state' && (!node.entity_id || !node.state)) return null;
+      if (node.type === 'duration' && (!node.state || !node.minutes)) return null;
       return node;
     }
     var self = this;

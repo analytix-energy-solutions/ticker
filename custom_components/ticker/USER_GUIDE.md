@@ -280,6 +280,18 @@ Rule: Time = 08:00–22:00, Mon–Fri
 Rule: binary_sensor.tv_power = off
 ```
 
+**Duration** — Evaluates how long an entity has held a given state. Leave the entity field blank to default to the subscriber's own person entity. Two comparisons are available:
+
+- **Within N minutes** — the entity transitioned into the target state at most N minutes ago (e.g. "just arrived home", "just left").
+- **For at least N minutes** — the entity has held the target state continuously for at least N minutes (e.g. "staying home", "staying away").
+
+```
+Rule: (this person) = home, within 10m       # just arrived
+Rule: (this person) = not_home, for ≥ 15m    # been away a while
+```
+
+Duration rules that use "For at least" and are not yet met are automatically re-checked the moment their threshold is crossed, even with no underlying state change — no need to also add a Time rule to catch it.
+
 ### Condition-level toggles
 
 The "deliver when met" and "queue until met" toggles apply to the entire set of rules, not to individual rules. For example:
