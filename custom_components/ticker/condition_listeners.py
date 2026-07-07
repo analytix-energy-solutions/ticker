@@ -237,16 +237,25 @@ class ConditionListenerManager:
                 if before:
                     all_times.add(before)
 
-            # Duration ("for_at_least") leaves become true at a fixed future
-            # timestamp with no state-change event to trigger re-evaluation.
-            # Resolve each leaf's effective entity (blank defaults to this
-            # subscription's person) and, if it's currently sitting in the
-            # target state below threshold, note when it will cross it.
+            # Duration leaves: resolve each leaf's effective entity (blank
+            # defaults to this subscription's person) and register it for
+            # entity-change listening regardless of comparison. A "within"
+            # leaf needs to react to the entity transitioning just as much
+            # as a "state" leaf does.
+            durations = triggers.get("durations", [])
+            if not durations:
+                continue
             person_id = sub.get("person_id") if not is_recipient else None
-            for duration in triggers.get("durations", []):
+            for duration in durations:
+                entity_id = duration.get("entity_id") or person_id
+                if entity_id:
+                    all_entities.add(entity_id)
+
+                # "for_at_least" leaves additionally become true at a fixed
+                # future timestamp with no state-change event to trigger
+                # re-evaluation, so also note when the threshold is crossed.
                 if duration.get("comparison") != DURATION_COMPARISON_FOR_AT_LEAST:
                     continue
-                entity_id = duration.get("entity_id") or person_id
                 target_state = duration.get("state")
                 minutes = duration.get("minutes")
                 if not entity_id or not target_state or not minutes:
@@ -420,6 +429,10 @@ class ConditionListenerManager:
     async def _async_reevaluate_for_entity(self, entity_id: str) -> None:
         """Re-evaluate subscriptions affected by an entity change.
 
+        Also refreshes listeners: an entity transitioning into a duration
+        leaf's target state is exactly when a "for_at_least" wakeup needs
+        to be (re)scheduled, and refresh is where that computation lives.
+
         Args:
             entity_id: The entity that changed
         """
@@ -427,6 +440,7 @@ class ConditionListenerManager:
             filter_type=RULE_TYPE_STATE,
             filter_value=entity_id,
         )
+        await self.async_refresh_listeners()
 
     async def _async_reevaluate_for_time(self, time_str: str) -> None:
         """Re-evaluate subscriptions affected by a time trigger.

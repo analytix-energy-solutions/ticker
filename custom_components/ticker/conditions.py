@@ -167,9 +167,9 @@ def evaluate_duration_rule(
     """Evaluate a duration rule: how long an entity has held a given state.
 
     ``comparison`` selects the semantics:
-      * "within" (default) — the entity transitioned into ``state`` at most
+      * "within" (default): the entity transitioned into ``state`` at most
         ``minutes`` ago (e.g. "just arrived home").
-      * "for_at_least" — the entity has held ``state`` continuously for at
+      * "for_at_least": the entity has held ``state`` continuously for at
         least ``minutes`` (e.g. "staying home").
 
     ``entity_id`` is optional: when omitted, the rule defaults to the
@@ -177,17 +177,24 @@ def evaluate_duration_rule(
     subject). Explicit ``entity_id`` also works for non-person subjects
     (e.g. recipient conditions), since it does not depend on person_state.
 
+    When ``entity_id`` is blank and no ``person_state`` is available
+    (recipient conditions have no location), the rule is skipped and
+    treated as met, mirroring the zone rule's "no person context" fallback:
+    a recipient's blank-entity duration leaf would otherwise be silently
+    and permanently unmet with no way for the admin to fix it, since
+    recipients have no person entity to default to.
+
     Returns (is_met, reason).
     """
     if now is None:
         now = dt_util.now()
 
     entity_id = rule.get("entity_id") or ""
-    if not entity_id and person_state is not None:
-        entity_id = person_state.entity_id
-
     if not entity_id:
-        return False, "No entity_id specified for duration rule"
+        if person_state is not None:
+            entity_id = person_state.entity_id
+        else:
+            return True, "Duration rule skipped (no person context for blank entity_id)"
 
     target_state = rule.get("state", "")
     if not target_state:
@@ -211,17 +218,11 @@ def evaluate_duration_rule(
     elapsed = now - state.last_changed
     elapsed_minutes = int(elapsed.total_seconds() // 60)
     threshold = timedelta(minutes=minutes)
+    for_at_least = comparison == DURATION_COMPARISON_FOR_AT_LEAST
 
-    if comparison == DURATION_COMPARISON_FOR_AT_LEAST:
-        is_met = elapsed >= threshold
-        if is_met:
-            return True, f"{entity_id} has been {target_state} for {elapsed_minutes}m (>= {int(minutes)}m)"
-        return False, f"{entity_id} has been {target_state} for only {elapsed_minutes}m (< {int(minutes)}m)"
-
-    is_met = elapsed <= threshold
-    if is_met:
-        return True, f"{entity_id} became {target_state} {elapsed_minutes}m ago (<= {int(minutes)}m)"
-    return False, f"{entity_id} became {target_state} {elapsed_minutes}m ago (> {int(minutes)}m)"
+    is_met = elapsed >= threshold if for_at_least else elapsed <= threshold
+    comparator = (">=" if is_met else "<") if for_at_least else ("<=" if is_met else ">")
+    return is_met, f"{entity_id} has been {target_state} for {elapsed_minutes}m ({comparator} {int(minutes)}m threshold)"
 
 
 def evaluate_rule(

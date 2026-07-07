@@ -143,6 +143,54 @@ async def test_blank_entity_id_resolves_to_person_id_for_scheduling():
 
 
 @pytest.mark.asyncio
+async def test_blank_entity_id_duration_leaf_registers_person_entity_listener():
+    """Regression: the documented default (blank entity_id = subscriber's
+    person) must get an entity-change listener, for both comparisons --
+    otherwise the person transitioning state is never noticed at all."""
+    person = _person_state("person.x", "not_home", minutes_ago=1, now=_NOW)
+    hass = _make_hass({"person.x": person})
+    store = _make_store({
+        "person.x:cat1": _duration_sub(
+            "person.x", "cat1", entity_id="", minutes=10, comparison="within",
+        ),
+    })
+    mgr = ConditionListenerManager(hass, store)
+
+    with patch(
+        "custom_components.ticker.condition_listeners.dt_util.utcnow",
+        return_value=_NOW,
+    ), patch(
+        "custom_components.ticker.condition_listeners.async_call_later",
+    ):
+        await mgr.async_refresh_listeners()
+
+    assert "person.x" in mgr._tracked_entities
+
+
+@pytest.mark.asyncio
+async def test_entity_reevaluation_reschedules_duration_wakeup():
+    """Regression: an entity transitioning into a duration leaf's target
+    state must (re)compute the for_at_least wakeup immediately, not only
+    on the next unrelated subscription-change refresh."""
+    person = _person_state("person.x", "home", minutes_ago=0, now=_NOW)
+    hass = _make_hass({"person.x": person})
+    store = _make_store({
+        "person.x:cat1": _duration_sub("person.x", "cat1", "person.x", minutes=15),
+    })
+    mgr = ConditionListenerManager(hass, store)
+
+    with patch(
+        "custom_components.ticker.condition_listeners.dt_util.utcnow",
+        return_value=_NOW,
+    ), patch(
+        "custom_components.ticker.condition_listeners.async_call_later",
+    ) as mock_call_later:
+        await mgr._async_reevaluate_for_entity("person.x")
+
+    assert mock_call_later.called
+
+
+@pytest.mark.asyncio
 async def test_stale_wakeup_cancelled_when_no_duration_leaves_pending():
     """A previously scheduled wakeup is cancelled once nothing needs it."""
     hass = _make_hass({})

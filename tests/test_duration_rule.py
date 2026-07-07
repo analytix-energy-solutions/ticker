@@ -25,9 +25,6 @@ from custom_components.ticker.websocket.validation import validate_condition_tre
 # Helpers
 # ---------------------------------------------------------------------------
 
-_NOW = MagicMock()
-
-
 def _now():
     """A fixed reference 'now' for deterministic elapsed-time math."""
     from datetime import datetime, timezone
@@ -137,12 +134,15 @@ class TestDurationDefaultsAndErrors:
         assert is_met is True
         assert "person.kevin" in reason
 
-    def test_blank_entity_id_no_person_state_is_not_met(self):
+    def test_blank_entity_id_no_person_state_is_skipped_as_met(self):
+        """Recipients have no person_state; a blank-entity duration leaf must
+        not become permanently unmet with no way to fix it (mirrors the
+        zone rule's "no person context" skip for recipients)."""
         hass = _hass_with_state(None)
         rule = _duration_leaf(entity_id="", comparison="within", minutes=10)
         is_met, reason = evaluate_duration_rule(hass, rule, None, now=_now())
-        assert is_met is False
-        assert "entity_id" in reason
+        assert is_met is True
+        assert "skipped" in reason
 
     def test_missing_state_field(self):
         hass = _hass_with_state(_state("person.frank", "home", 1))

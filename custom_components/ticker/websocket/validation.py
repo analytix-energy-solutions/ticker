@@ -45,6 +45,10 @@ MAX_COLOR_LENGTH = 20
 CATEGORY_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 ICON_PATTERN = re.compile(r"^[a-z0-9_\-:]+$", re.IGNORECASE)
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# domain.object_id with safe characters; shared by validate_entity_id (which
+# also checks a specific domain prefix) and any validator that accepts an
+# entity ID from any domain (e.g. duration rule leaves).
+ENTITY_ID_FORMAT_PATTERN = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 
 
 def sanitize_for_storage(value: str | None, max_length: int = 200) -> str | None:
@@ -178,7 +182,7 @@ def validate_entity_id(entity_id: str, domain: str) -> tuple[bool, str | None]:
         return False, f"Invalid {domain} entity ID format"
 
     # Basic format check: domain.object_id with safe characters
-    if not re.match(r"^[a-z_]+\.[a-z0-9_]+$", entity_id):
+    if not ENTITY_ID_FORMAT_PATTERN.match(entity_id):
         return False, f"Invalid {domain} entity ID format"
 
     return True, None
@@ -288,7 +292,7 @@ def _validate_duration_leaf(
 
     ``entity_id`` is optional (blank defaults to the subscription's own
     person entity at evaluation time), but when present must be a valid
-    entity ID and — when ``hass`` is provided — must exist. ``state`` and
+    entity ID, and must exist when ``hass`` is provided. ``state`` and
     a positive ``minutes`` (within ``MAX_DURATION_MINUTES``) are required.
     ``comparison`` defaults to "within" and must be a known value.
 
@@ -297,7 +301,7 @@ def _validate_duration_leaf(
     """
     entity_id = leaf.get("entity_id", "")
     if entity_id:
-        if not re.match(r"^[a-z_]+\.[a-z0-9_]+$", entity_id):
+        if not ENTITY_ID_FORMAT_PATTERN.match(entity_id):
             return ("invalid_duration_rule", f"Invalid entity ID format '{entity_id}'")
         if hass is not None and not hass.states.get(entity_id):
             return ("entity_not_found", f"Entity '{entity_id}' does not exist")

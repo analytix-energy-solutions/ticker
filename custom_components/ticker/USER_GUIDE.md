@@ -290,7 +290,7 @@ Rule: (this person) = home, within 10m       # just arrived
 Rule: (this person) = not_home, for ≥ 15m    # been away a while
 ```
 
-Duration rules that use "For at least" and are not yet met are automatically re-checked the moment their threshold is crossed, even with no underlying state change — no need to also add a Time rule to catch it.
+When "Queue until conditions met" is enabled, a "For at least" duration rule that is not yet met is automatically re-checked the moment its threshold is crossed, even with no underlying state change: no need to also add a Time rule to catch it. This re-check relies on the queue mechanism, so it does not apply to a "Deliver when conditions met"-only subscription with no queueing.
 
 ### Condition-level toggles
 
