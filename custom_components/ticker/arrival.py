@@ -18,7 +18,7 @@ from homeassistant.helpers.entity_registry import (
 
 from .const import MODE_CONDITIONAL
 from .conditions import evaluate_condition_tree, resolve_zone_name
-from .bundled_notify import async_send_bundled_notification
+from .bundled_notify import async_deliver_released_notifications
 from .recipient_notify import async_send_to_recipient
 
 if TYPE_CHECKING:
@@ -205,14 +205,14 @@ async def async_setup_arrival_listener(
         for queued_entry in entries_to_deliver:
             await store.async_remove_from_queue(queued_entry["queue_id"])
 
-        # Send bundled notification for delivered entries
-        success = await async_send_bundled_notification(
+        # Deliver entries, honoring each category's bundle_on_release flag.
+        failed = await async_deliver_released_notifications(
             hass, person_id, entries_to_deliver, store
         )
 
-        # If sending failed completely, re-queue entries for retry
-        if not success:
-            requeued, discarded = await store.async_requeue_entries(entries_to_deliver)
+        # Re-queue only the entries that failed to deliver.
+        if failed:
+            requeued, discarded = await store.async_requeue_entries(failed)
             if requeued:
                 _LOGGER.warning(
                     "Re-queued %d notifications for %s after delivery failure",
@@ -349,20 +349,23 @@ async def async_release_queue_for_conditions(
     for queued_entry in entries_to_deliver:
         await store.async_remove_from_queue(queued_entry["queue_id"])
 
-    # Route to recipient or person delivery path
+    # Route to recipient or person delivery path. The recipient path returns a
+    # single success bool (re-queue all on failure); the person path already
+    # reports the exact entries that failed, so only those are re-queued.
     if is_recipient:
         success = await _async_deliver_recipient_queue(
             hass, store, person_id, category_id, entries_to_deliver,
         )
+        failed = [] if success else entries_to_deliver
     else:
-        # Send bundled notification for person-based entries
-        success = await async_send_bundled_notification(
+        # Deliver person-based entries, honoring bundle_on_release per category.
+        failed = await async_deliver_released_notifications(
             hass, person_id, entries_to_deliver, store
         )
 
-    # If sending failed, re-queue entries for retry
-    if not success:
-        requeued, discarded = await store.async_requeue_entries(entries_to_deliver)
+    # Re-queue the entries that failed to deliver.
+    if failed:
+        requeued, discarded = await store.async_requeue_entries(failed)
         if requeued:
             _LOGGER.warning(
                 "Re-queued %d notifications for %s after delivery failure",

@@ -279,3 +279,59 @@ async def async_send_bundled_notification(
             )
 
     return any_success
+
+
+async def async_deliver_released_notifications(
+    hass: HomeAssistant,
+    person_id: str,
+    entries: list[dict[str, Any]],
+    store: "TickerStore",
+) -> list[dict[str, Any]]:
+    """Deliver released queue entries, honoring each category's bundle_on_release.
+
+    Entries whose category sets ``bundle_on_release: False`` are delivered one
+    notification per entry, preserving each entry's full title/message/data.
+    All other entries keep the historical behavior: a single bundled summary
+    ("You have N notifications") when more than one is released together.
+
+    ``bundle_on_release`` defaults to True (bundle) via
+    ``category.get("bundle_on_release", True)``, so a store with no such flag
+    on any category behaves exactly as before.
+
+    Args:
+        hass: Home Assistant instance.
+        person_id: The person entity ID.
+        entries: Released queue entries to deliver.
+        store: TickerStore instance.
+
+    Returns:
+        The entries that failed to deliver, for the caller to re-queue. An empty
+        list means everything was delivered.
+    """
+    if not entries:
+        return []
+
+    individual: list[dict[str, Any]] = []
+    bundled: list[dict[str, Any]] = []
+    for entry in entries:
+        category = store.get_category(entry.get("category_id"))
+        if category is not None and category.get("bundle_on_release", True) is False:
+            individual.append(entry)
+        else:
+            bundled.append(entry)
+
+    failed: list[dict[str, Any]] = []
+
+    # Per-entry delivery for opted-out categories. Each single-entry call takes
+    # the count==1 path in async_send_bundled_notification, which forwards the
+    # entry's full payload unchanged.
+    for entry in individual:
+        if not await async_send_bundled_notification(hass, person_id, [entry], store):
+            failed.append(entry)
+
+    # One bundled summary for everything else (unchanged behavior).
+    if bundled:
+        if not await async_send_bundled_notification(hass, person_id, bundled, store):
+            failed.extend(bundled)
+
+    return failed
