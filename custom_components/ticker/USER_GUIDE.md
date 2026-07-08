@@ -247,6 +247,15 @@ Admins can set a default subscription mode and conditions per category. When a u
 
 Admins control *who* receives notifications per category. Users control *when* they receive them. When an admin disables a category for a user, that category is hidden from the user panel entirely. Subscriptions set by an admin are tracked separately from user-set subscriptions.
 
+### Priority fallback (per-category presence group)
+
+A category-level setting (admin panel, General tab) that narrows every `ticker.notify` call for that category to a single winning presence group, on top of each subscriber's own subscription mode and conditions. Two modes are available:
+
+- **Only home, else everyone away**: notify only persons currently home. If nobody is home, fall back to notifying everyone away instead.
+- **Just left, else everyone away**: notify only persons who left within the configured window (in minutes). If nobody just left, fall back to notifying everyone away.
+
+Persons not in the winning group are logged as skipped ("Priority fallback: not in winning group"), visible in the admin Logs tab. This setting is call-scoped, not per-subscriber: it decides which subscribers are even considered before their individual mode/conditions run. This includes subscribers on Always mode: being outside the winning group excludes them from this notification regardless of their own subscription mode. Persons whose presence is not currently known (device tracker offline, or not yet reported in after a restart) are excluded from both groups rather than guessed.
+
 ---
 
 ## Conditional rules

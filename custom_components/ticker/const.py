@@ -51,6 +51,20 @@ DURATION_COMPARISON_FOR_AT_LEAST = "for_at_least"
 DURATION_COMPARISONS = [DURATION_COMPARISON_WITHIN, DURATION_COMPARISON_FOR_AT_LEAST]
 MAX_DURATION_MINUTES = 1440  # 24 hours
 
+# Priority fallback (F-fork: category-level presence fallback)
+# "only_home_then_away": notify only persons currently home; if none are
+#   home, fall back to notifying everyone away instead.
+# "just_left_then_away": notify only persons who left within
+#   window_minutes; if none just left, fall back to everyone away.
+PRIORITY_FALLBACK_ONLY_HOME_THEN_AWAY = "only_home_then_away"
+PRIORITY_FALLBACK_JUST_LEFT_THEN_AWAY = "just_left_then_away"
+PRIORITY_FALLBACK_MODES = [
+    PRIORITY_FALLBACK_ONLY_HOME_THEN_AWAY,
+    PRIORITY_FALLBACK_JUST_LEFT_THEN_AWAY,
+]
+DEFAULT_PRIORITY_FALLBACK_WINDOW_MINUTES = 2
+MAX_PRIORITY_FALLBACK_WINDOW_MINUTES = 1440  # 24 hours
+
 # Condition tree (F-2b AND/OR grouping)
 CONDITION_NODE_GROUP = "group"
 CONDITION_OPERATOR_AND = "AND"

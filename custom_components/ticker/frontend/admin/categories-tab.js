@@ -151,9 +151,46 @@ window.Ticker.AdminCategoriesTab = {
           Android notification channel for per-category sound and DND routing
         </div>
       </div>
+      ${this._renderPriorityFallbackBlock(c, escId)}
       ${this._renderCategoryVolumeBlock(c, escId)}
       ${this._renderCategoryChimeBlock(c, escId)}
       ${window.Ticker.NavigationPicker.render(c.navigate_to || '', 'cat-edit', { panels: window.Ticker._adminPanel._hasPanels || [], dashboards: window.Ticker._adminPanel._lovelaceDashboards || [], views: window.Ticker._adminPanel._lovelaceViews || {} })}
+    `;
+  },
+
+  /**
+   * Priority fallback block (F-fork, ported from iq_notify): try a
+   * primary presence group first, and fall back to notifying everyone
+   * away only when the primary group is empty. Applies to every
+   * ticker.notify call for this category, on top of each subscriber's
+   * own subscription mode/conditions.
+   */
+  _renderPriorityFallbackBlock(c, escId) {
+    const { escAttr } = window.Ticker.utils;
+    const fallback = c.priority_fallback || {};
+    const mode = fallback.mode || 'none';
+    const windowMinutes = (typeof fallback.window_minutes === 'number' && fallback.window_minutes > 0)
+      ? fallback.window_minutes : 2;
+    const opt = (value, label) =>
+      `<option value="${value}" ${mode === value ? 'selected' : ''}>${label}</option>`;
+    return `
+      <div class="form-group" style="margin-top:12px">
+        <label>Priority Fallback</label>
+        <div class="form-row">
+          <select id="edit-priority-fallback-mode-${escId}" style="min-width:220px" onchange="window.Ticker.AdminCategoriesTab.handlers.priorityFallbackModeChanged(window.Ticker._adminPanel, '${escId}')">
+            ${opt('none', 'Off (notify everyone as usual)')}
+            ${opt('only_home_then_away', 'Only home, else everyone away')}
+            ${opt('just_left_then_away', 'Just left, else everyone away')}
+          </select>
+          <div class="form-group" id="priority-fallback-window-wrap-${escId}" style="${mode === 'none' ? 'display:none' : ''}">
+            <input type="number" id="edit-priority-fallback-window-${escId}" min="1" max="1440" value="${escAttr(String(windowMinutes))}" style="width:80px">
+            <span style="font-size:12px;color:var(--secondary-text-color,#727272)">min window</span>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+          Tries the primary group first for every notification in this category; falls back to everyone away only when the primary group is empty. Ported from iq_notify's only_home_then_away / just_left_then_away.
+        </div>
+      </div>
     `;
   },
 

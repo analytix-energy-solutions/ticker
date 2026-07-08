@@ -134,6 +134,14 @@ window.Ticker.AdminCategoriesTab.handlers = {
     } catch (err) { panel._showError(err.message); }
   },
 
+  /** Toggle the window-minutes input's visibility with the mode select. */
+  priorityFallbackModeChanged(panel, categoryId) {
+    const root = panel.shadowRoot;
+    const modeEl = root.getElementById(`edit-priority-fallback-mode-${categoryId}`);
+    const wrap = root.getElementById(`priority-fallback-window-wrap-${categoryId}`);
+    if (wrap) wrap.style.display = (modeEl && modeEl.value !== 'none') ? '' : 'none';
+  },
+
   async save(panel, categoryId) {
     const cat = panel._categories.find(c => c.id === categoryId);
     if (!cat) return;
@@ -172,6 +180,18 @@ window.Ticker.AdminCategoriesTab.handlers = {
       // Always send the field on edit so cleared sliders flush prior overrides.
       const volume = window.Ticker.AdminVolumeOverride.read(`cat-${categoryId}`);
       params.volume_override = volume;  // null clears, float sets
+
+      // Priority fallback (F-fork): always send the field on edit so
+      // switching back to "none" clears any prior override.
+      const priorityModeEl = root.getElementById(`edit-priority-fallback-mode-${categoryId}`);
+      const priorityMode = priorityModeEl ? priorityModeEl.value : 'none';
+      if (priorityMode === 'none') {
+        params.priority_fallback = null;
+      } else {
+        const windowEl = root.getElementById(`edit-priority-fallback-window-${categoryId}`);
+        const windowMinutes = windowEl ? parseInt(windowEl.value, 10) || 2 : 2;
+        params.priority_fallback = { mode: priorityMode, window_minutes: windowMinutes };
+      }
 
       if (defaultMode === 'conditional') {
         params.default_mode = 'conditional';

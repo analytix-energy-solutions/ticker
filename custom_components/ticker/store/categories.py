@@ -9,7 +9,14 @@ from typing import TYPE_CHECKING, Any, Callable
 from homeassistant.helpers.storage import Store
 
 from ..conditions_normalize import normalize_conditions_negate
-from ..const import CATEGORY_DEFAULT, CATEGORY_DEFAULT_NAME, SMART_TAG_MODE_NONE
+from ..const import (
+    CATEGORY_DEFAULT,
+    CATEGORY_DEFAULT_NAME,
+    DEFAULT_PRIORITY_FALLBACK_WINDOW_MINUTES,
+    MAX_PRIORITY_FALLBACK_WINDOW_MINUTES,
+    PRIORITY_FALLBACK_MODES,
+    SMART_TAG_MODE_NONE,
+)
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -34,6 +41,31 @@ def _has_active_smart_config(config: dict) -> bool:
     if config.get("persistent"):
         return True
     return False
+
+
+def _normalize_priority_fallback(value: dict | None) -> dict[str, Any] | None:
+    """Normalize a priority_fallback payload to its sparse storage shape.
+
+    Returns None (omit from storage) unless ``mode`` is a recognized
+    fallback mode. ``window_minutes`` defaults to
+    DEFAULT_PRIORITY_FALLBACK_WINDOW_MINUTES when missing or invalid.
+    """
+    if not value or not isinstance(value, dict):
+        return None
+    mode = value.get("mode")
+    if mode not in PRIORITY_FALLBACK_MODES:
+        return None
+    window = value.get("window_minutes")
+    # `not (0 < window <= MAX)` also catches NaN: any comparison with NaN
+    # is False, so `0 < nan <= MAX` is False and `not False` is True here,
+    # falling back to the default same as any other out-of-range value.
+    if (
+        not isinstance(window, (int, float))
+        or isinstance(window, bool)
+        or not (0 < window <= MAX_PRIORITY_FALLBACK_WINDOW_MINUTES)
+    ):
+        window = DEFAULT_PRIORITY_FALLBACK_WINDOW_MINUTES
+    return {"mode": mode, "window_minutes": int(window)}
 
 
 class CategoryMixin:
@@ -105,6 +137,7 @@ class CategoryMixin:
         android_channel: str | None = None,
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
+        priority_fallback: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Create a new category.
 
@@ -138,6 +171,12 @@ class CategoryMixin:
                 value is injected as `channel` in the push data payload for Android
                 recipients only. Omitted when None (sparse storage); an empty string
                 clears any existing value. Not injected for iOS (plain format).
+            priority_fallback: Optional dict ``{"mode": ..., "window_minutes": ...}``
+                (ported from iq_notify). "only_home_then_away" notifies only persons
+                currently home, falling back to everyone away when none are home.
+                "just_left_then_away" notifies only persons who left within
+                window_minutes, falling back to everyone away when none just left.
+                Omitted when mode is not recognized (sparse storage).
         """
         category: dict[str, Any] = {
             "id": category_id,
@@ -176,6 +215,10 @@ class CategoryMixin:
             and 0.0 <= float(volume_override) <= 1.0
         ):
             category["volume_override"] = float(volume_override)
+        # Priority fallback (sparse: only persisted when mode is recognized)
+        normalized_priority_fallback = _normalize_priority_fallback(priority_fallback)
+        if normalized_priority_fallback:
+            category["priority_fallback"] = normalized_priority_fallback
         self._categories[category_id] = category
         await self.async_save_categories()
         _LOGGER.info("Created category: %s", category_id)
@@ -200,6 +243,8 @@ class CategoryMixin:
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
         clear_volume_override: bool = False,
+        priority_fallback: dict[str, Any] | None = None,
+        clear_priority_fallback: bool = False,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
@@ -220,6 +265,11 @@ class CategoryMixin:
             android_channel: If provided, set the Android notification channel ID.
                 A non-empty string is stored; an empty string clears the key
                 (sparse storage). None leaves the current value unchanged.
+            priority_fallback: If provided (and mode recognized), set the
+                category's priority fallback config. None leaves the current
+                value unchanged; clear_priority_fallback removes it.
+            clear_priority_fallback: If True, explicitly remove
+                priority_fallback from the category dict.
         """
         if category_id not in self._categories:
             return None
@@ -300,6 +350,15 @@ class CategoryMixin:
                 category["volume_override"] = float(volume_override)
             else:
                 category.pop("volume_override", None)
+
+        if clear_priority_fallback:
+            category.pop("priority_fallback", None)
+        elif priority_fallback is not None:
+            normalized_priority_fallback = _normalize_priority_fallback(priority_fallback)
+            if normalized_priority_fallback:
+                category["priority_fallback"] = normalized_priority_fallback
+            else:
+                category.pop("priority_fallback", None)
 
         if clear_defaults:
             category.pop("default_mode", None)
