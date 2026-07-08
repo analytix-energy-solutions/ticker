@@ -105,6 +105,7 @@ class CategoryMixin:
         android_channel: str | None = None,
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
+        bundle_on_release: bool | None = None,
     ) -> dict[str, Any]:
         """Create a new category.
 
@@ -165,6 +166,12 @@ class CategoryMixin:
         # is True via category.get("expose_in_sensor", True).
         if expose_in_sensor is False:
             category["expose_in_sensor"] = False
+        # Sparse storage: only persist bundle_on_release when explicitly False.
+        # Read-time default is True via category.get("bundle_on_release", True),
+        # preserving the historical bundle-on-release behavior for every
+        # category that does not opt out.
+        if bundle_on_release is False:
+            category["bundle_on_release"] = False
         if android_channel:
             category["android_channel"] = android_channel
         # F-35: Pre-TTS chime override (sparse — non-empty string only)
@@ -200,6 +207,7 @@ class CategoryMixin:
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
         clear_volume_override: bool = False,
+        bundle_on_release: bool | None = None,
     ) -> dict[str, Any] | None:
         """Update an existing category.
 
@@ -220,6 +228,12 @@ class CategoryMixin:
             android_channel: If provided, set the Android notification channel ID.
                 A non-empty string is stored; an empty string clears the key
                 (sparse storage). None leaves the current value unchanged.
+            bundle_on_release: If provided, control how queued notifications are
+                delivered when released (on arrival or when conditions are met).
+                None leaves the current value unchanged. True removes the key
+                (default: multiple released entries collapse into one summary).
+                False persists the key so each released entry is delivered as its
+                own notification with its full title/message/data.
         """
         if category_id not in self._categories:
             return None
@@ -266,6 +280,14 @@ class CategoryMixin:
                 category["expose_in_sensor"] = False
             else:
                 category.pop("expose_in_sensor", None)
+
+        # bundle_on_release: sparse — store key only when False. None leaves the
+        # current value unchanged; True restores the default (bundle) behavior.
+        if bundle_on_release is not None:
+            if bundle_on_release is False:
+                category["bundle_on_release"] = False
+            else:
+                category.pop("bundle_on_release", None)
 
         # android_channel: non-empty string sets, empty string clears (sparse)
         if android_channel is not None:

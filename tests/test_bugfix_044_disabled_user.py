@@ -265,9 +265,9 @@ class TestReleaseQueueSkipsDisabledUser:
 
     @pytest.mark.asyncio
     @patch(
-        "custom_components.ticker.arrival.async_send_bundled_notification",
+        "custom_components.ticker.arrival.async_deliver_released_notifications",
         new_callable=AsyncMock,
-        return_value=True,
+        return_value=[],
     )
     async def test_enabled_user_queue_released(self, mock_send):
         """Queue release proceeds for an enabled user."""
