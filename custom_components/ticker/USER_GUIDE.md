@@ -247,6 +247,15 @@ Admins can set a default subscription mode and conditions per category. When a u
 
 Admins control *who* receives notifications per category. Users control *when* they receive them. When an admin disables a category for a user, that category is hidden from the user panel entirely. Subscriptions set by an admin are tracked separately from user-set subscriptions.
 
+### Priority fallback (per-category presence group)
+
+A category-level setting (admin panel, General tab) that narrows every `ticker.notify` call for that category to a single winning presence group, on top of each subscriber's own subscription mode and conditions. Two modes are available:
+
+- **Only home, else everyone away**: notify only persons currently home. If nobody is home, fall back to notifying everyone away instead.
+- **Just left, else everyone away**: notify only persons who left within the configured window (in minutes). If nobody just left, fall back to notifying everyone away.
+
+Persons not in the winning group are logged as skipped ("Priority fallback: not in winning group"), visible in the admin Logs tab. This setting is call-scoped, not per-subscriber: it decides which subscribers are even considered before their individual mode/conditions run. This includes subscribers on Always mode: being outside the winning group excludes them from this notification regardless of their own subscription mode. Persons whose presence is not currently known (device tracker offline, or not yet reported in after a restart) are excluded from both groups rather than guessed.
+
 ---
 
 ## Conditional rules
@@ -279,6 +288,18 @@ Rule: Time = 08:00–22:00, Mon–Fri
 ```
 Rule: binary_sensor.tv_power = off
 ```
+
+**Duration** — Evaluates how long an entity has held a given state. Leave the entity field blank to default to the subscriber's own person entity. Two comparisons are available:
+
+- **Within N minutes** — the entity transitioned into the target state at most N minutes ago (e.g. "just arrived home", "just left").
+- **For at least N minutes** — the entity has held the target state continuously for at least N minutes (e.g. "staying home", "staying away").
+
+```
+Rule: (this person) = home, within 10m       # just arrived
+Rule: (this person) = not_home, for ≥ 15m    # been away a while
+```
+
+When "Queue until conditions met" is enabled, a "For at least" duration rule that is not yet met is automatically re-checked the moment its threshold is crossed, even with no underlying state change: no need to also add a Time rule to catch it. This re-check relies on the queue mechanism, so it does not apply to a "Deliver when conditions met"-only subscription with no queueing.
 
 ### Condition-level toggles
 
