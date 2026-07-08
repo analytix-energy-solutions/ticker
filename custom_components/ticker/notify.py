@@ -60,6 +60,11 @@ class TickerNotifyEntity(NotifyEntity):
         # Copy to avoid mutating the caller's dict
         data = dict(kwargs.get("data") or {})
         category = data.pop("category", CATEGORY_DEFAULT)
+        # F-fork: allow per-call routing mode through the notify entity path
+        # (drop-in parity with iq_notify). Pulled out of data so it reaches the
+        # ticker.notify service as a top-level field.
+        mode = data.pop("mode", None)
+        mode_window = data.pop("mode_window", None)
 
         service_data: dict[str, object] = {
             "message": message,
@@ -69,6 +74,10 @@ class TickerNotifyEntity(NotifyEntity):
             service_data["title"] = title
         else:
             service_data["title"] = "Notification"
+        if mode is not None:
+            service_data["mode"] = mode
+        if mode_window is not None:
+            service_data["mode_window"] = mode_window
         if data:
             service_data["data"] = data
 

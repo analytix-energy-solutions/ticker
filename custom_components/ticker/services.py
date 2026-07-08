@@ -24,12 +24,15 @@ from .const import (
     ATTR_ACTIONS,
     ATTR_ACTION_SET_ID,
     ATTR_CRITICAL,
+    ATTR_MODE,
+    ATTR_MODE_WINDOW,
     ATTR_NAVIGATE_TO,
     ATTR_CLEAR_WHEN,
     DEFAULT_EXPIRATION_HOURS,
     MODE_ALWAYS,
     MODE_NEVER,
     MODE_CONDITIONAL,
+    ROUTE_MODE_ALL,
     LOG_OUTCOME_SKIPPED,
     SMART_TAG_MODE_NONE,
 )
@@ -37,6 +40,7 @@ from .service_schema import _build_service_schema, _build_service_description
 from .conditions import evaluate_condition_tree
 from .formatting import build_smart_tag
 from .priority_fallback import resolve_priority_group
+from .mode_routing import resolve_mode_group
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
     async_send_to_recipient,
@@ -134,6 +138,9 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # F-30: optional auto-clear trigger descriptor.
         clear_when = call.data.get(ATTR_CLEAR_WHEN)
         auto_clear_registry = getattr(entry.runtime_data, "auto_clear", None)
+        # F-fork: per-call routing mode (drop-in parity with iq_notify).
+        route_mode = call.data.get(ATTR_MODE)
+        route_window = call.data.get(ATTR_MODE_WINDOW)
 
         # F-27: normalize category input to a de-duplicated list, preserving order.
         if isinstance(category_input, str):
@@ -211,6 +218,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 navigate_to=navigate_to,
                 persons=persons,
                 recipients=recipients,
+                route_mode=route_mode,
+                route_window=route_window,
             )
             processed_count += 1
 
@@ -251,6 +260,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         navigate_to: str | None,
         persons: list,
         recipients: dict,
+        route_mode: str | None = None,
+        route_window: int | None = None,
     ) -> dict:
         """Dispatch a single notification to one category's subscribers.
 
@@ -266,16 +277,33 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "dropped": [],
         }
 
-        # Priority fallback (F-fork, ported from iq_notify): a category-level
-        # "only_home_then_away" / "just_left_then_away" mode narrows the
-        # person list to a single winning presence group for this call,
-        # before subscription mode/conditions are evaluated per person.
+        # Presence pre-filter (F-fork, ported from iq_notify): narrow the
+        # person list to a single winning presence group for this call, before
+        # subscription mode/conditions are evaluated per person.
+        #
+        # A per-call route_mode (drop-in parity with iq_notify's send-time
+        # `mode`) takes precedence and overrides the category's static
+        # priority_fallback. An explicit route_mode of "all" bypasses both.
+        # When no route_mode is given, the category-level priority_fallback
+        # ("only_home_then_away" / "just_left_then_away") still applies.
         dispatch_persons = persons
-        priority_fallback = (category or {}).get("priority_fallback")
-        if priority_fallback:
-            dispatch_persons = resolve_priority_group(
-                persons, priority_fallback, dt_util.utcnow(),
+        filter_reason: str | None = None
+        if route_mode == ROUTE_MODE_ALL:
+            pass  # explicit per-call "all" — notify everyone, ignore fallback
+        elif route_mode:
+            dispatch_persons = resolve_mode_group(
+                persons, route_mode, route_window, dt_util.utcnow(),
             )
+            filter_reason = f"Route mode ({route_mode})"
+        else:
+            priority_fallback = (category or {}).get("priority_fallback")
+            if priority_fallback:
+                dispatch_persons = resolve_priority_group(
+                    persons, priority_fallback, dt_util.utcnow(),
+                )
+                filter_reason = f"Priority fallback ({priority_fallback.get('mode')})"
+
+        if filter_reason is not None:
             winning_ids = {p.entity_id for p in dispatch_persons}
             # Disabled users are already silently skipped by the
             # is_user_enabled check below with no log entry; don't log a
@@ -293,10 +321,12 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     title=title,
                     message=message,
                     outcome=LOG_OUTCOME_SKIPPED,
-                    reason=f"Priority fallback ({priority_fallback.get('mode')}): not in winning group",
+                    reason=f"{filter_reason}: not in winning group",
                     notification_id=notification_id,
                 )
-                delivery_results["dropped"].append(f"{skipped_id}: priority fallback")
+                delivery_results["dropped"].append(
+                    f"{skipped_id}: {filter_reason.lower()}"
+                )
 
         for person_state in dispatch_persons:
             person_id = person_state.entity_id

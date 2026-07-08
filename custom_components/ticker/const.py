@@ -65,6 +65,35 @@ PRIORITY_FALLBACK_MODES = [
 DEFAULT_PRIORITY_FALLBACK_WINDOW_MINUTES = 2
 MAX_PRIORITY_FALLBACK_WINDOW_MINUTES = 1440  # 24 hours
 
+# Per-call routing modes (drop-in parity port of iq_notify's send-time
+# `mode`). Passed on the ticker.notify service to filter recipients by
+# presence for a single call, overriding the category's static
+# priority_fallback. See mode_routing.resolve_mode_group.
+ROUTE_MODE_ALL = "all"
+ROUTE_MODE_ONLY_HOME = "only_home"
+ROUTE_MODE_ONLY_AWAY = "only_away"
+ROUTE_MODE_JUST_ARRIVED = "just_arrived"
+ROUTE_MODE_JUST_LEFT = "just_left"
+ROUTE_MODE_STAYING_HOME = "staying_home"
+ROUTE_MODE_STAYING_AWAY = "staying_away"
+# The two "then_away" modes share their implementation with the category
+# priority_fallback of the same name (see mode_routing / priority_fallback).
+ROUTE_MODE_ONLY_HOME_THEN_AWAY = PRIORITY_FALLBACK_ONLY_HOME_THEN_AWAY
+ROUTE_MODE_JUST_LEFT_THEN_AWAY = PRIORITY_FALLBACK_JUST_LEFT_THEN_AWAY
+ROUTE_MODE_NOBODY_HOME = "nobody_home"
+ROUTE_MODES = [
+    ROUTE_MODE_ALL,
+    ROUTE_MODE_ONLY_HOME,
+    ROUTE_MODE_ONLY_AWAY,
+    ROUTE_MODE_JUST_ARRIVED,
+    ROUTE_MODE_JUST_LEFT,
+    ROUTE_MODE_STAYING_HOME,
+    ROUTE_MODE_STAYING_AWAY,
+    ROUTE_MODE_ONLY_HOME_THEN_AWAY,
+    ROUTE_MODE_JUST_LEFT_THEN_AWAY,
+    ROUTE_MODE_NOBODY_HOME,
+]
+
 # Condition tree (F-2b AND/OR grouping)
 CONDITION_NODE_GROUP = "group"
 CONDITION_OPERATOR_AND = "AND"
@@ -93,6 +122,8 @@ ATTR_TITLE = "title"
 ATTR_MESSAGE = "message"
 ATTR_EXPIRATION = "expiration"
 ATTR_DATA = "data"
+ATTR_MODE = "mode"
+ATTR_MODE_WINDOW = "mode_window"
 
 # Queue defaults
 DEFAULT_EXPIRATION_HOURS = 48

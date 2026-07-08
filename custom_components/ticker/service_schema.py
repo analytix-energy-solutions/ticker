@@ -18,11 +18,15 @@ from .const import (
     ATTR_ACTIONS,
     ATTR_ACTION_SET_ID,
     ATTR_CRITICAL,
+    ATTR_MODE,
+    ATTR_MODE_WINDOW,
     ATTR_NAVIGATE_TO,
     ATTR_CLEAR_WHEN,
     DEFAULT_EXPIRATION_HOURS,
     MAX_EXPIRATION_HOURS,
     MAX_NAVIGATE_TO_LENGTH,
+    MAX_PRIORITY_FALLBACK_WINDOW_MINUTES,
+    ROUTE_MODES,
     CATEGORY_DEFAULT_NAME,
 )
 from .websocket.validation import validate_navigate_to_vol
@@ -65,6 +69,15 @@ def _build_service_schema() -> vol.Schema:
             # falls back to the category default), so no validation here.
             vol.Optional(ATTR_ACTION_SET_ID): cv.string,
             vol.Optional(ATTR_CRITICAL): bool,
+            # F-fork: per-call routing mode (drop-in parity with iq_notify).
+            # Filters recipients by presence for this call, overriding the
+            # category's static priority_fallback. mode_window is the recency
+            # window (minutes) for the just_*/staying_*/just_left_then_away modes.
+            vol.Optional(ATTR_MODE): vol.In(ROUTE_MODES),
+            vol.Optional(ATTR_MODE_WINDOW): vol.All(
+                vol.Coerce(int),
+                vol.Range(min=1, max=MAX_PRIORITY_FALLBACK_WINDOW_MINUTES),
+            ),
             # BUG-100: enforce relative HA path; blocks javascript:/http(s)://
             vol.Optional(ATTR_NAVIGATE_TO): vol.All(
                 cv.string,
