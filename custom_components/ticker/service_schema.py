@@ -27,6 +27,7 @@ from .const import (
     MAX_NAVIGATE_TO_LENGTH,
     MAX_PRIORITY_FALLBACK_WINDOW_MINUTES,
     ROUTE_MODES,
+    CATEGORY_DEFAULT,
     CATEGORY_DEFAULT_NAME,
 )
 from .websocket.validation import validate_navigate_to_vol
@@ -56,7 +57,11 @@ def _build_service_schema() -> vol.Schema:
         {
             # F-27: accept single category ID/name or list for fan-out.
             # The UI selector stays single-dropdown; multi only via YAML.
-            vol.Required(ATTR_CATEGORY): vol.Any(cv.string, [cv.string]),
+            # F-fork: optional so an iq_notify drop-in call without a category
+            # lands in the default category instead of erroring.
+            vol.Optional(ATTR_CATEGORY, default=CATEGORY_DEFAULT): vol.Any(
+                cv.string, [cv.string]
+            ),
             vol.Required(ATTR_TITLE): cv.string,
             vol.Required(ATTR_MESSAGE): cv.string,
             vol.Optional(ATTR_EXPIRATION, default=DEFAULT_EXPIRATION_HOURS): vol.All(

@@ -32,6 +32,7 @@ from .const import (
     MODE_ALWAYS,
     MODE_NEVER,
     MODE_CONDITIONAL,
+    CATEGORY_DEFAULT,
     ROUTE_MODE_ALL,
     LOG_OUTCOME_SKIPPED,
     SMART_TAG_MODE_NONE,
@@ -123,7 +124,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         entry = _get_loaded_entry(hass)
         store = entry.runtime_data.store
 
-        category_input = call.data[ATTR_CATEGORY]
+        category_input = call.data.get(ATTR_CATEGORY, CATEGORY_DEFAULT)
         title = call.data[ATTR_TITLE]
         message = call.data[ATTR_MESSAGE]
         expiration = call.data.get(ATTR_EXPIRATION, DEFAULT_EXPIRATION_HOURS)
@@ -139,8 +140,11 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         clear_when = call.data.get(ATTR_CLEAR_WHEN)
         auto_clear_registry = getattr(entry.runtime_data, "auto_clear", None)
         # F-fork: per-call routing mode (drop-in parity with iq_notify).
-        route_mode = call.data.get(ATTR_MODE)
-        route_window = call.data.get(ATTR_MODE_WINDOW)
+        # Accept mode/mode_window at the top level, or nested in `data`
+        # (iq_notify's convention) as a fallback; pop from base_data so they
+        # are not forwarded verbatim to the underlying notify service.
+        route_mode = call.data.get(ATTR_MODE) or base_data.pop("mode", None)
+        route_window = call.data.get(ATTR_MODE_WINDOW) or base_data.pop("mode_window", None)
 
         # F-27: normalize category input to a de-duplicated list, preserving order.
         if isinstance(category_input, str):
