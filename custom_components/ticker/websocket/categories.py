@@ -14,6 +14,8 @@ from ..const import (
     DOMAIN,
     MAX_CHIME_MEDIA_CONTENT_ID_LENGTH,
     MAX_NAVIGATE_TO_LENGTH,
+    MAX_PRIORITY_FALLBACK_WINDOW_MINUTES,
+    PRIORITY_FALLBACK_MODES,
     SMART_TAG_MODES,
     VOLUME_OVERRIDE_MAX,
     VOLUME_OVERRIDE_MIN,
@@ -29,6 +31,13 @@ from .validation import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+PRIORITY_FALLBACK_SCHEMA = vol.Schema({
+    vol.Required("mode"): vol.In(PRIORITY_FALLBACK_MODES),
+    vol.Optional("window_minutes"): vol.All(
+        vol.Coerce(int), vol.Range(min=1, max=MAX_PRIORITY_FALLBACK_WINDOW_MINUTES),
+    ),
+})
 
 
 @websocket_api.websocket_command(
@@ -85,6 +94,7 @@ async def ws_get_categories(
                 vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
             ),
         ),
+        vol.Optional("priority_fallback"): vol.Any(None, PRIORITY_FALLBACK_SCHEMA),
     }
 )
 @websocket_api.async_response
@@ -176,6 +186,7 @@ async def ws_create_category(
         android_channel=android_channel,
         chime_media_content_id=chime_id,
         volume_override=volume_override,
+        priority_fallback=msg.get("priority_fallback"),
     )
 
     connection.send_result(msg["id"], {"category": category})
@@ -214,6 +225,7 @@ async def ws_create_category(
                 vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
             ),
         ),
+        vol.Optional("priority_fallback"): vol.Any(None, PRIORITY_FALLBACK_SCHEMA),
     }
 )
 @websocket_api.async_response
@@ -331,6 +343,18 @@ async def ws_update_category(
             update_kwargs["clear_volume_override"] = True
         else:
             update_kwargs["volume_override"] = volume_value
+
+    # priority_fallback: present with None clears the key, present with a
+    # dict sets it. Voluptuous already validated mode/window_minutes.
+    priority_fallback_present = "priority_fallback" in msg
+    priority_fallback_value = (
+        msg.get("priority_fallback") if priority_fallback_present else None
+    )
+    if priority_fallback_present:
+        if priority_fallback_value is None:
+            update_kwargs["clear_priority_fallback"] = True
+        else:
+            update_kwargs["priority_fallback"] = priority_fallback_value
 
     category = await store.async_update_category(**update_kwargs)
 

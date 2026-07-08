@@ -5,6 +5,41 @@
 notify:
   name: Send notification
   description: Send a notification through Ticker to subscribed users
+  fields:
+    mode:
+      name: Routing mode
+      description: >
+        Per-call presence routing. Filters
+        recipients by presence for this call, overriding the category's
+        priority fallback. Omit to use the category's own routing.
+      required: false
+      example: only_home_then_away
+      selector:
+        select:
+          options:
+            - all
+            - only_home
+            - only_away
+            - just_arrived
+            - just_left
+            - staying_home
+            - staying_away
+            - only_home_then_away
+            - just_left_then_away
+            - nobody_home
+    mode_window:
+      name: Mode window (minutes)
+      description: >
+        Recency window for the just_*, staying_* and just_left_then_away
+        modes. Defaults to 2 minutes.
+      required: false
+      example: 5
+      selector:
+        number:
+          min: 1
+          max: 1440
+          unit_of_measurement: minutes
+          mode: box
 
 clear_notification:
   name: Clear notification

@@ -40,7 +40,58 @@ DEFAULT_CONDITION_ZONE = "zone.home"
 RULE_TYPE_ZONE = "zone"
 RULE_TYPE_TIME = "time"
 RULE_TYPE_STATE = "state"
-RULE_TYPES = [RULE_TYPE_ZONE, RULE_TYPE_TIME, RULE_TYPE_STATE]
+RULE_TYPE_DURATION = "duration"
+RULE_TYPES = [RULE_TYPE_ZONE, RULE_TYPE_TIME, RULE_TYPE_STATE, RULE_TYPE_DURATION]
+
+# Duration rule comparisons
+# "within": entity has been in `state` for at most `minutes` (just transitioned)
+# "for_at_least": entity has been in `state` for at least `minutes` (staying)
+DURATION_COMPARISON_WITHIN = "within"
+DURATION_COMPARISON_FOR_AT_LEAST = "for_at_least"
+DURATION_COMPARISONS = [DURATION_COMPARISON_WITHIN, DURATION_COMPARISON_FOR_AT_LEAST]
+MAX_DURATION_MINUTES = 1440  # 24 hours
+
+# Priority fallback (category-level presence fallback)
+# "only_home_then_away": notify only persons currently home; if none are
+#   home, fall back to notifying everyone away instead.
+# "just_left_then_away": notify only persons who left within
+#   window_minutes; if none just left, fall back to everyone away.
+PRIORITY_FALLBACK_ONLY_HOME_THEN_AWAY = "only_home_then_away"
+PRIORITY_FALLBACK_JUST_LEFT_THEN_AWAY = "just_left_then_away"
+PRIORITY_FALLBACK_MODES = [
+    PRIORITY_FALLBACK_ONLY_HOME_THEN_AWAY,
+    PRIORITY_FALLBACK_JUST_LEFT_THEN_AWAY,
+]
+DEFAULT_PRIORITY_FALLBACK_WINDOW_MINUTES = 2
+MAX_PRIORITY_FALLBACK_WINDOW_MINUTES = 1440  # 24 hours
+
+# Per-call routing modes. Passed on the ticker.notify service to filter recipients by
+# presence for a single call, overriding the category's static
+# priority_fallback. See mode_routing.resolve_mode_group.
+ROUTE_MODE_ALL = "all"
+ROUTE_MODE_ONLY_HOME = "only_home"
+ROUTE_MODE_ONLY_AWAY = "only_away"
+ROUTE_MODE_JUST_ARRIVED = "just_arrived"
+ROUTE_MODE_JUST_LEFT = "just_left"
+ROUTE_MODE_STAYING_HOME = "staying_home"
+ROUTE_MODE_STAYING_AWAY = "staying_away"
+# The two "then_away" modes share their implementation with the category
+# priority_fallback of the same name (see mode_routing / priority_fallback).
+ROUTE_MODE_ONLY_HOME_THEN_AWAY = PRIORITY_FALLBACK_ONLY_HOME_THEN_AWAY
+ROUTE_MODE_JUST_LEFT_THEN_AWAY = PRIORITY_FALLBACK_JUST_LEFT_THEN_AWAY
+ROUTE_MODE_NOBODY_HOME = "nobody_home"
+ROUTE_MODES = [
+    ROUTE_MODE_ALL,
+    ROUTE_MODE_ONLY_HOME,
+    ROUTE_MODE_ONLY_AWAY,
+    ROUTE_MODE_JUST_ARRIVED,
+    ROUTE_MODE_JUST_LEFT,
+    ROUTE_MODE_STAYING_HOME,
+    ROUTE_MODE_STAYING_AWAY,
+    ROUTE_MODE_ONLY_HOME_THEN_AWAY,
+    ROUTE_MODE_JUST_LEFT_THEN_AWAY,
+    ROUTE_MODE_NOBODY_HOME,
+]
 
 # Condition tree (F-2b AND/OR grouping)
 CONDITION_NODE_GROUP = "group"
@@ -70,6 +121,8 @@ ATTR_TITLE = "title"
 ATTR_MESSAGE = "message"
 ATTR_EXPIRATION = "expiration"
 ATTR_DATA = "data"
+ATTR_MODE = "mode"
+ATTR_MODE_WINDOW = "mode_window"
 
 # Queue defaults
 DEFAULT_EXPIRATION_HOURS = 48
