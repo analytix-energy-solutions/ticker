@@ -80,6 +80,7 @@ class RecipientMixin:
         device_type: str = DEVICE_TYPE_PUSH,
         media_player_entity_id: str | None = None,
         tts_service: str | None = None,
+        tts_engine_entity_id: str | None = None,
         resume_after_tts: bool = False,
         tts_buffer_delay: float = TTS_BUFFER_DELAY_DEFAULT,
         conditions: dict[str, Any] | None = None,
@@ -100,6 +101,8 @@ class RecipientMixin:
             device_type: 'push' or 'tts'.
             media_player_entity_id: Media player entity for TTS devices.
             tts_service: TTS service (e.g., 'tts.google_translate_say').
+            tts_engine_entity_id: TTS engine entity (e.g., 'tts.google_translate')
+                for services like tts.speak that support it.
             resume_after_tts: Whether to resume media after TTS playback.
             tts_buffer_delay: Seconds to wait before TTS playback (Chromecast).
             conditions: Device-level conditions dict (time/state rules).
@@ -148,6 +151,7 @@ class RecipientMixin:
             "delivery_format": delivery_format,
             "media_player_entity_id": media_player_entity_id,
             "tts_service": tts_service,
+            "tts_engine_entity_id": tts_engine_entity_id,
             "resume_after_tts": resume_after_tts,
             "tts_buffer_delay": tts_buffer_delay,
             "enabled": enabled,
@@ -171,6 +175,20 @@ class RecipientMixin:
         elif device_type != DEVICE_TYPE_TTS and chime_media_content_id:
             _LOGGER.debug(
                 "Dropping chime_media_content_id on non-TTS recipient %s",
+                recipient_id,
+            )
+
+        # Sparse storage for tts_engine_entity_id — only persist on TTS devices
+        # when a non-empty value was supplied. Push devices silently drop.
+        if (
+            device_type == DEVICE_TYPE_TTS
+            and tts_engine_entity_id
+            and tts_engine_entity_id.strip()
+        ):
+            recipient["tts_engine_entity_id"] = tts_engine_entity_id.strip()
+        elif device_type != DEVICE_TYPE_TTS and tts_engine_entity_id:
+            _LOGGER.debug(
+                "Dropping tts_engine_entity_id on non-TTS recipient %s",
                 recipient_id,
             )
 
@@ -218,7 +236,7 @@ class RecipientMixin:
         allowed_fields = {
             "name", "icon", "notify_services", "delivery_format", "enabled",
             "device_type", "media_player_entity_id", "tts_service",
-            "resume_after_tts", "tts_buffer_delay", "conditions",
+            "tts_engine_entity_id", "resume_after_tts", "tts_buffer_delay", "conditions",
             "chime_media_content_id", "volume_override",
         }
         unknown = set(kwargs) - allowed_fields
@@ -255,6 +273,15 @@ class RecipientMixin:
                     else:
                         self._recipients[recipient_id].pop(
                             "volume_override", None,
+                        )
+                elif key == "tts_engine_entity_id":
+                    # Sparse storage — strip + remove key when blank
+                    cleaned = (value or "").strip() if isinstance(value, str) else ""
+                    if cleaned:
+                        self._recipients[recipient_id]["tts_engine_entity_id"] = cleaned
+                    else:
+                        self._recipients[recipient_id].pop(
+                            "tts_engine_entity_id", None,
                         )
                 else:
                     self._recipients[recipient_id][key] = value
@@ -466,6 +493,7 @@ class RecipientMixin:
 
             recipient.setdefault("media_player_entity_id", None)
             recipient.setdefault("tts_service", None)
+            recipient.setdefault("tts_engine_entity_id", None)
             recipient.setdefault("resume_after_tts", False)
             recipient.setdefault("tts_buffer_delay", TTS_BUFFER_DELAY_DEFAULT)
             migrated += 1

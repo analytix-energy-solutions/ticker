@@ -153,6 +153,7 @@ async def ws_get_recipients(
         vol.Optional("delivery_format", default=DELIVERY_FORMAT_RICH): str,
         vol.Optional("media_player_entity_id"): str,
         vol.Optional("tts_service"): str,
+        vol.Optional("tts_engine_entity_id"): str,
         vol.Optional("icon", default="mdi:bell-ring"): str,
         vol.Optional("enabled", default=True): bool,
         vol.Optional("resume_after_tts", default=False): bool,
@@ -241,6 +242,7 @@ async def ws_create_recipient(
             delivery_format=msg["delivery_format"],
             media_player_entity_id=msg.get("media_player_entity_id"),
             tts_service=msg.get("tts_service"),
+            tts_engine_entity_id=msg.get("tts_engine_entity_id"),
             icon=msg["icon"],
             enabled=msg["enabled"],
             resume_after_tts=msg["resume_after_tts"],
@@ -267,6 +269,7 @@ async def ws_create_recipient(
         vol.Optional("delivery_format"): str,
         vol.Optional("media_player_entity_id"): str,
         vol.Optional("tts_service"): str,
+        vol.Optional("tts_engine_entity_id"): str,
         vol.Optional("icon"): str,
         vol.Optional("enabled"): bool,
         vol.Optional("resume_after_tts"): bool,
@@ -343,6 +346,9 @@ async def ws_update_recipient(
 
     if "tts_service" in msg:
         kwargs["tts_service"] = msg["tts_service"]
+
+    if "tts_engine_entity_id" in msg:
+        kwargs["tts_engine_entity_id"] = msg["tts_engine_entity_id"]
 
     if "icon" in msg:
         is_valid, error = validate_icon(msg["icon"])

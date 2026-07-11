@@ -82,9 +82,20 @@ async def ws_get_tts_options(
             "name": service_name,
         })
 
+    # Collect TTS engine entities (for tts.speak with target engine selection)
+    tts_entities = []
+    for state in hass.states.async_all("tts"):
+        friendly_name = state.attributes.get("friendly_name", state.entity_id)
+        tts_entities.append({
+            "entity_id": state.entity_id,
+            "friendly_name": friendly_name,
+        })
+    tts_entities.sort(key=lambda x: x["friendly_name"].lower())
+
     connection.send_result(msg["id"], {
         "media_players": media_players,
         "tts_services": tts_services,
+        "tts_entities": tts_entities,
     })
 
 

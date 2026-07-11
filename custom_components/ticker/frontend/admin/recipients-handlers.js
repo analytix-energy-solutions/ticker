@@ -298,6 +298,12 @@ window.Ticker.AdminRecipientsTab.handlers = {
       }
       wsMsg.media_player_entity_id = mediaPlayer;
       wsMsg.tts_service = container.querySelector('#dlg-tts-service')?.value?.trim() || 'tts.google_translate_say';
+      const ttsEngine = container.querySelector('#dlg-tts-engine')?.value?.trim();
+      if (ttsEngine) {
+        wsMsg.tts_engine_entity_id = ttsEngine;
+      } else if (isEdit) {
+        wsMsg.tts_engine_entity_id = '';
+      }
       wsMsg.resume_after_tts = !!container.querySelector('#dlg-resume-tts')?.checked;
       wsMsg.tts_buffer_delay = parseFloat(container.querySelector('#dlg-tts-buffer-delay')?.value) || 0;
       // F-35: Pre-TTS chime — omit when empty (sparse). On edit, send "" to clear.
