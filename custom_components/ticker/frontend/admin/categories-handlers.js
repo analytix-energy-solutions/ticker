@@ -118,6 +118,7 @@ window.Ticker.AdminCategoriesTab.handlers = {
     const icon = panel.shadowRoot.getElementById('new-category-icon')?.value?.trim() || 'mdi:bell';
     const color = panel.shadowRoot.getElementById('new-category-color')?.value || null;
     const defaultMode = panel.shadowRoot.getElementById('new-category-default-mode')?.value || 'always';
+    const androidChannel = panel.shadowRoot.getElementById('new-category-android-channel')?.value?.trim();
 
     if (!name) { panel._showError('Enter a category name'); return; }
     const id = generateCategoryId(name);
@@ -126,6 +127,7 @@ window.Ticker.AdminCategoriesTab.handlers = {
     try {
       const params = { type: 'ticker/category/create', category_id: id, name, icon, color };
       if (defaultMode !== 'always') { params.default_mode = defaultMode; }
+      if (androidChannel) { params.android_channel = androidChannel; }
       await panel._hass.callWS(params);
       panel._addingCategory = false;
       await panel._loadCategories();

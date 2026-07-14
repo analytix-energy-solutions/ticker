@@ -27,6 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 # Test notification command
 # =============================================================================
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/test_notification",
@@ -95,6 +96,7 @@ async def ws_test_notification(
 # Migration commands
 # =============================================================================
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/migrate/scan",
@@ -120,6 +122,7 @@ async def ws_migrate_scan(
         connection.send_error(msg["id"], "scan_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/migrate/convert",
@@ -176,6 +179,7 @@ async def ws_migrate_convert(
         connection.send_error(msg["id"], "convert_failed", str(err))
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/migrate/delete",

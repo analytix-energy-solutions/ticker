@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 
 from ..const import (
     DOMAIN,
+    MAX_ANDROID_CHANNEL_LENGTH,
     MAX_CHIME_MEDIA_CONTENT_ID_LENGTH,
     MAX_NAVIGATE_TO_LENGTH,
     SMART_TAG_MODES,
@@ -52,6 +53,7 @@ async def ws_get_categories(
     )
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/category/create",
@@ -76,7 +78,9 @@ async def ws_get_categories(
             None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
-        vol.Optional("android_channel"): vol.Any(None, str),
+        vol.Optional("android_channel"): vol.Any(
+            None, vol.All(str, vol.Length(max=MAX_ANDROID_CHANNEL_LENGTH))
+        ),
         vol.Optional("chime_media_content_id"): vol.Any(None, str),
         vol.Optional("volume_override"): vol.Any(
             None,
@@ -144,7 +148,11 @@ async def ws_create_category(
         connection.send_error(msg["id"], "invalid_navigate_to", error)
         return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
-    android_channel = msg.get("android_channel") if "android_channel" in msg else None
+    android_channel = (
+        sanitize_for_storage(msg.get("android_channel"), MAX_ANDROID_CHANNEL_LENGTH)
+        if "android_channel" in msg
+        else None
+    )
 
     # F-35: validate chime_media_content_id length
     chime_id = msg.get("chime_media_content_id")
@@ -181,6 +189,7 @@ async def ws_create_category(
     connection.send_result(msg["id"], {"category": category})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/category/update",
@@ -205,7 +214,9 @@ async def ws_create_category(
             None, vol.All(str, vol.Length(max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
-        vol.Optional("android_channel"): vol.Any(None, str),
+        vol.Optional("android_channel"): vol.Any(
+            None, vol.All(str, vol.Length(max=MAX_ANDROID_CHANNEL_LENGTH))
+        ),
         vol.Optional("chime_media_content_id"): vol.Any(None, str),
         vol.Optional("volume_override"): vol.Any(
             None,
@@ -287,7 +298,11 @@ async def ws_update_category(
             connection.send_error(msg["id"], "invalid_navigate_to", error)
             return
     expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
-    android_channel = msg.get("android_channel") if "android_channel" in msg else None
+    android_channel = (
+        sanitize_for_storage(msg.get("android_channel"), MAX_ANDROID_CHANNEL_LENGTH)
+        if "android_channel" in msg
+        else None
+    )
 
     # F-35: chime_media_content_id — only forwarded when key is present in msg.
     # None or "" clears the override; non-empty sets it. Length-validated here.
@@ -345,6 +360,7 @@ async def ws_update_category(
     connection.send_result(msg["id"], {"category": category})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/category/delete",

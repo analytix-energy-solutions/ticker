@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -160,6 +160,10 @@ CHIME_WAIT_TIMEOUT = 10.0
 CHIME_TTS_GAP = 3.0
 ATTR_CHIME_MEDIA_CONTENT_ID = "chime_media_content_id"
 MAX_CHIME_MEDIA_CONTENT_ID_LENGTH = 500
+
+# SEC-002: per-category Android notification channel — bound + sanitized on
+# storage like navigate_to / chime. Android channel IDs are short slugs.
+MAX_ANDROID_CHANNEL_LENGTH = 100
 
 # F-35.2: Volume Override
 # Admin-configurable volume for the chime+TTS pair. Range mirrors HA's

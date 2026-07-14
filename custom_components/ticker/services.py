@@ -1,7 +1,16 @@
-"""Service handlers for Ticker integration."""
+"""Service handlers for Ticker integration.
+
+NOTE (v1.8.2): This file intentionally exceeds the 500-line project limit.
+The overage is an accepted waiver to land the merged community perf PR #50
+(asyncio.gather fan-out of the person/recipient dispatch loops) without forcing
+a hot-path refactor in the same change. Extracting the dispatch logic into a
+dedicated dispatch.py module is the proper decongestion path (tracked as a
+follow-up); do not squeeze this file under 500 by trimming working logic.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from typing import TYPE_CHECKING
@@ -265,14 +274,14 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "dropped": [],
         }
 
-        for person_state in persons:
+        async def _process_person(person_state) -> None:
             person_id = person_state.entity_id
             person_name = person_state.attributes.get("friendly_name", person_id)
 
             # Check if user is enabled for notifications
             if not store.is_user_enabled(person_id):
                 _LOGGER.debug("Skipping %s (user disabled)", person_id)
-                continue
+                return
 
             mode = store.get_subscription_mode(person_id, category_id)
 
@@ -296,7 +305,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     notification_id=notification_id,
                 )
                 delivery_results["dropped"].append(f"{person_id}: mode never")
-                continue
+                return
 
             if mode == MODE_ALWAYS:
                 results = await async_send_notification(
@@ -334,10 +343,10 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # --- Recipient loop (F-18) ---
         # NOTE: `recipients` is passed in from the caller so the fetch is
         # hoisted above the F-27 per-category fan-out loop.
-        for r_id, r_data in recipients.items():
+        async def _process_recipient(r_id, r_data) -> None:
             if not r_data.get("enabled", True):
                 _LOGGER.debug("Skipping recipient %s (disabled)", r_id)
-                continue
+                return
 
             r_person_id = f"recipient:{r_id}"
             # F-21: Device-level condition gate (before subscription mode)
@@ -373,7 +382,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     delivery_results["dropped"].append(
                         f"{r_person_id}: device conditions not met"
                     )
-                    continue
+                    return
 
             # F-39: swap effective person_id when user_link is set; logging
             # and queueing still use r_person_id (recipient attribution).
@@ -396,7 +405,8 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     notification_id=notification_id,
                 )
                 delivery_results["dropped"].append(f"{r_person_id}: mode never")
-                continue
+                return
+
             if r_mode == MODE_ALWAYS:
                 results = await async_send_to_recipient(
                     hass, store, r_data, category_id, title, message, data,
@@ -421,6 +431,22 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
                 delivery_results["dropped"].extend(results["dropped"])
+
+        # Fan out to all persons and recipients concurrently instead of
+        # awaiting each sequentially. Each coroutine mutates the shared
+        # delivery_results dict; asyncio is single-threaded so the list
+        # extends are safe. return_exceptions=True keeps a failure in one
+        # subscriber from aborting the rest of the fan-out.
+        dispatch_tasks = [_process_person(ps) for ps in persons]
+        dispatch_tasks += [
+            _process_recipient(r_id, r_data)
+            for r_id, r_data in recipients.items()
+        ]
+        for outcome in await asyncio.gather(
+            *dispatch_tasks, return_exceptions=True
+        ):
+            if isinstance(outcome, Exception):
+                _LOGGER.error("Notification dispatch task failed: %s", outcome)
 
         # Update category sensor with notification data
         sensor = get_category_sensor(hass, category_id)

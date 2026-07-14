@@ -15,6 +15,7 @@ from .validation import get_store, validate_action_set
 _LOGGER = logging.getLogger(__name__)
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/category/set_action_set",
@@ -85,6 +86,7 @@ async def ws_set_action_set(
 # as part of future user-panel work. Do not remove.
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/snooze/get",
@@ -103,6 +105,7 @@ async def ws_get_snoozes(
     connection.send_result(msg["id"], {"snoozes": snoozes})
 
 
+@websocket_api.require_admin
 @websocket_api.websocket_command(
     {
         vol.Required("type"): "ticker/snooze/clear",
