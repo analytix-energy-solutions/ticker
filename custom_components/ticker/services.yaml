@@ -9,3 +9,48 @@ notify:
 clear_notification:
   name: Clear notification
   description: Dismiss a previously sent tagged notification from all subscribed devices
+
+ensure_category:
+  name: Ensure category
+  description: >-
+    Idempotently ensure a notification category exists. Creates it with the
+    supplied fields if absent; if it already exists this is a no-op and never
+    overwrites the existing category. Safe to call on every integration setup
+    or HA restart.
+  fields:
+    category_id:
+      name: Category ID
+      description: Slug identifier (lowercase letters, numbers, underscores).
+      required: true
+      example: security
+      selector:
+        text:
+    name:
+      name: Name
+      description: Human-readable display name shown in the admin panel.
+      required: true
+      example: Security
+      selector:
+        text:
+    icon:
+      name: Icon
+      description: MDI icon string (e.g. mdi:shield).
+      required: false
+      example: mdi:shield
+      selector:
+        text:
+    critical:
+      name: Critical by default
+      description: Treat notifications to this category as critical by default.
+      required: false
+      selector:
+        boolean:
+    navigate_to:
+      name: Navigate to
+      description: >-
+        Relative HA path to open when a notification in this category is
+        tapped (e.g. /lovelace/cameras).
+      required: false
+      example: /lovelace
+      selector:
+        text:

@@ -70,6 +70,9 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Pre-TTS chime** - configure an audio chime that plays through the target media_player immediately before each TTS announcement, set per recipient with optional per-category override; ships three bundled CC0 chime presets (subtle/alert/doorbell) so the feature is functional out-of-box *(v1.7.0)*
 - **Volume override** - 0–100 % slider on the device and category dialogs sets the media_player volume for the chime+TTS pair, then restores the previous level after TTS finishes playing. Leave on "Default" to inherit the device's current volume *(v1.7.0)*
 - **Admin-assisted household setup** - admins can operate the user panel on another household member's behalf using a "Viewing as" dropdown in the panel header, making it easy to configure subscriptions and conditions for non-technical users without sharing credentials *(v1.7.0)*
+- **Device-User Subscription Link** — link a device recipient to a household member so the device automatically mirrors that user's per-category subscription modes and conditions; device-level settings (volume, chime, conditions, notify services) remain device-local *(v1.8.0)*
+- **Per-category Android notification channel** — set an Android OS notification channel per category for per-category sound and DND routing on Android Companion App devices; critical notifications always keep their own `ticker_critical` channel *(v1.8.0)*
+- **`ticker.ensure_category` service** — integrations and automations can declare categories declaratively at setup time without coupling to Ticker internals; idempotent, create-only, never overwrites existing user customizations *(v1.8.3)*
 - **Multi-category fan-out** - `category` field accepts a list of category IDs so a single `ticker.notify` call can target multiple categories at once *(v1.6.0)*
 - **Auto-clear triggers** - `clear_when` parameter on `ticker.notify` auto-dismisses persistent notifications when an entity state or event trigger fires *(v1.6.0)*
 - **History search and filters** - full-text search with category and date-range filters in the user History tab, plus clickable status filters on the admin Logs tab *(v1.6.0)*
@@ -87,6 +90,35 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 This integration is being developed with AI assistance. 
 
 ## Version history
+
+### v1.8.3
+
+- **`ticker.ensure_category` service** — a new public, idempotent service for integrations
+  and automations that need to declare categories declaratively at setup time. Creates a
+  category with the supplied attributes if it does not exist; if it already exists the
+  call is a no-op and never overwrites user customizations. Returns
+  `{"created": bool, "category_id": str}` via `SupportsResponse.OPTIONAL`. Fail-soft if
+  Ticker's config entry has not loaded yet.
+
+### v1.8.2
+
+- **Security hardening** — admin-only gate added to all config-mutation WebSocket handlers
+  (category create/update/delete, migration wizard, automations manager, action sets,
+  test-notification, snooze diagnostics); `android_channel` is now length-capped and
+  sanitized on write; the migration wizard's apply-to-file path is verified to stay within
+  the HA config directory.
+- **Bundled/queued notifications use the per-category Android channel** — single-category
+  queue-release bundles now inject `data.channel` for Android (rich) delivery, matching
+  the behaviour of immediate delivery.
+- **Android Channel on the category create form** — the channel field is now available
+  when creating a new category, not only when editing.
+- **Parallelized notification dispatch** — the per-device fan-out and per-person/recipient
+  loops now run concurrently via `asyncio.gather`, reducing delivery latency for
+  multi-device households. A per-media_player lock serializes TTS delivery to the same
+  speaker so concurrent calls cannot corrupt volume or overlap audio. Thanks to community
+  contributor **@danswett** (#49, #50).
+
+Community contributors: **@nalabelle** (#34), **@jesfer** (#55), **@danswett** (#52, #54, #49, #50). Feature credit: **@meyerluk** (#22).
 
 ### v1.8.1
 

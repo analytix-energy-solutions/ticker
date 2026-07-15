@@ -16,15 +16,25 @@ import uuid
 from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import HomeAssistant, ServiceCall, callback
+from homeassistant.core import (
+    HomeAssistant,
+    ServiceCall,
+    SupportsResponse,
+    callback,
+)
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.service import async_set_service_schema
 
 from homeassistant.util import dt as dt_util
 
+from .category_validation import (
+    CategoryFieldError,
+    validate_and_sanitize_category_fields,
+)
 from .const import (
     DOMAIN,
     SERVICE_NOTIFY,
+    SERVICE_ENSURE_CATEGORY,
     ATTR_CATEGORY,
     ATTR_TITLE,
     ATTR_MESSAGE,
@@ -42,7 +52,12 @@ from .const import (
     LOG_OUTCOME_SKIPPED,
     SMART_TAG_MODE_NONE,
 )
-from .service_schema import _build_service_schema, _build_service_description
+from .service_schema import (
+    _build_ensure_category_schema,
+    _build_service_schema,
+    _build_service_description,
+)
+from .websocket.validation import get_store
 from .conditions import evaluate_condition_tree
 from .formatting import build_smart_tag
 from .user_notify import async_handle_conditional_notification, async_send_notification
@@ -479,11 +494,56 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "tag": build_smart_tag(category_id, title, tag_mode),
         }
 
+    async def async_handle_ensure_category(call: ServiceCall) -> dict:
+        """Handle the ticker.ensure_category service call.
+
+        Idempotent create-if-absent of a notification category so any
+        integration/automation can declare categories declaratively. Validates
+        identity first, fails soft before Ticker's entry loads, and never
+        overwrites an existing category (create-only). Returns
+        ``{"created": bool, "category_id": str}``.
+        """
+        # AC3: validate identity/fields first — bad input surfaces cleanly.
+        try:
+            kwargs = validate_and_sanitize_category_fields(call.data)
+        except CategoryFieldError as err:
+            raise ServiceValidationError(err.message) from err
+
+        # AC4: fail-soft if Ticker's config entry has not loaded yet. Use
+        # get_store (returns store or raises ValueError) rather than
+        # _get_loaded_entry, which raises a user-facing ServiceValidationError.
+        try:
+            store = get_store(hass)
+        except ValueError:
+            _LOGGER.warning(
+                "ticker.ensure_category called before Ticker is configured; "
+                "ignoring"
+            )
+            return {"created": False, "category_id": kwargs["category_id"]}
+
+        # AC2/AC6: no-op if it already exists — never overwrite or delete.
+        if store.category_exists(kwargs["category_id"]):
+            return {"created": False, "category_id": kwargs["category_id"]}
+
+        # AC1: create with supplied attributes. async_create_category notifies
+        # category listeners (update_service_schema), so the ticker.notify
+        # dropdown refreshes automatically.
+        await store.async_create_category(**kwargs)
+        return {"created": True, "category_id": kwargs["category_id"]}
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_NOTIFY,
         async_handle_notify,
         schema=_build_service_schema(),
+    )
+
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_ENSURE_CATEGORY,
+        async_handle_ensure_category,
+        schema=_build_ensure_category_schema(),
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
     # Set initial service description (without store, uses defaults)

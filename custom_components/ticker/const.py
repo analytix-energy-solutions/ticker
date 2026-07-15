@@ -1,7 +1,7 @@
 """Constants for Ticker integration."""
 
 DOMAIN = "ticker"
-VERSION = "1.8.2"
+VERSION = "1.8.3b1"
 
 # Storage keys
 STORAGE_VERSION = 1
@@ -64,6 +64,7 @@ CATEGORY_DEFAULT_NAME = "General"
 
 # Service constants
 SERVICE_NOTIFY = "notify"
+SERVICE_ENSURE_CATEGORY = "ensure_category"
 NOTIFY_SERVICE_TIMEOUT = 30  # Timeout for notify/TTS service calls (seconds)
 ATTR_CATEGORY = "category"
 ATTR_TITLE = "title"

@@ -227,6 +227,57 @@ data:
 
 This overrides the category's default action set for this call only. If the ID does not match a known action set, a warning is logged and the category default (if any) is used. Omitting `action_set_id` uses the category's configured action set.
 
+### ticker.ensure_category *(v1.8.3)*
+
+`ticker.ensure_category` is a public, idempotent service for integrations and automations that need to declare a notification category at setup time without coupling to Ticker's admin UI or internal store structures.
+
+**Behavior:**
+
+- If the category does not exist it is created with the supplied attributes and the call returns `{"created": true, "category_id": "<id>"}`.
+- If the category already exists the call is a strict no-op — it never overwrites existing user customizations — and the call returns `{"created": false, "category_id": "<id>"}`.
+- If Ticker's config entry has not finished loading yet (e.g., the calling integration sets up before Ticker), the call fails soft with a logged warning rather than raising an unhandled exception.
+
+**Fields:**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `category_id` | Yes | Unique machine-readable ID (lowercase letters, digits, underscores). |
+| `name` | Yes | Human-readable display name shown in the admin panel and user panel. |
+| `icon` | No | Material Design icon name (e.g., `mdi:bell`). Defaults to `mdi:bell`. |
+| `color` | No | Hex color string (e.g., `#06b6d4`) for dashboard sensor card accents. |
+| `default_mode` | No | Default subscription mode for new subscribers (`always`, `never`, `conditional`). |
+| `critical` | No | Boolean. If true, notifications in this category use the `ticker_critical` Android channel and bypass quiet-hours conditions. |
+| `navigate_to` | No | Dashboard path to open when the notification is tapped (e.g., `/lovelace/security`). |
+| `expose_in_sensor` | No | Boolean. If true, a category sensor entity is created for dashboard integration. |
+| `android_channel` | No | Android OS notification channel ID for per-category sound and DND routing on HA Companion App devices. |
+
+Other fields accepted by `async_create_category` (e.g., `default_conditions`, `smart_notification`, `action_set_id`, `chime_media_content_id`, `volume_override`) are also accepted by this service. See the service schema for the full list.
+
+**Example — integration calling from `async_setup_entry`:**
+
+```python
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    if hass.services.has_service("ticker", "ensure_category"):
+        response = await hass.services.async_call(
+            "ticker",
+            "ensure_category",
+            {
+                "category_id": "energy_alerts",
+                "name": "Energy Alerts",
+                "icon": "mdi:lightning-bolt",
+                "color": "#f59e0b",
+                "navigate_to": "/lovelace/energy",
+            },
+            return_response=True,
+        )
+        # response == {"created": True, "category_id": "energy_alerts"}
+        # or {"created": False, ...} if the category already existed
+```
+
+The `has_service` guard is optional but recommended: it makes the integration degrade gracefully when Ticker is not installed rather than raising during setup.
+
+> **Never-overwrite guarantee:** If a user has already customized the `energy_alerts` category (renamed it, changed its icon, adjusted conditions), a subsequent call to `ticker.ensure_category` with the same `category_id` is a no-op. User customizations are always preserved.
+
 ---
 
 ## Subscription modes

@@ -98,93 +98,33 @@ async def ws_create_category(
     msg: dict[str, Any],
 ) -> None:
     """Create a new category."""
+    # Local import: category_validation imports this package's validation
+    # module, so a module-level import here would form a circular import at
+    # package init time.
+    from ..category_validation import (
+        CategoryFieldError,
+        validate_and_sanitize_category_fields,
+    )
+
     store = get_store(hass)
 
-    # Validate and sanitize category_id
-    category_id = msg["category_id"]
-    is_valid, error = validate_category_id(category_id)
-    if not is_valid:
-        connection.send_error(msg["id"], "invalid_category_id", error)
+    # Shared validation/sanitization (mirrors ticker.ensure_category — AC5).
+    try:
+        kwargs = validate_and_sanitize_category_fields(msg)
+    except CategoryFieldError as err:
+        connection.send_error(msg["id"], err.code, err.message)
         return
 
-    # Sanitize name
-    name = sanitize_for_storage(msg["name"], MAX_CATEGORY_NAME_LENGTH)
-    if not name:
-        connection.send_error(msg["id"], "invalid_name", "Category name is required")
-        return
-
-    # Validate and sanitize icon
-    icon = msg.get("icon")
-    is_valid, error = validate_icon(icon)
-    if not is_valid:
-        connection.send_error(msg["id"], "invalid_icon", error)
-        return
-
-    # Validate color
-    color = msg.get("color")
-    is_valid, error = validate_color(color)
-    if not is_valid:
-        connection.send_error(msg["id"], "invalid_color", error)
-        return
-
-    if store.category_exists(category_id):
+    # already_exists is per-caller control flow — kept out of the helper.
+    if store.category_exists(kwargs["category_id"]):
         connection.send_error(
             msg["id"],
             "already_exists",
-            f"Category '{category_id}' already exists",
+            f"Category '{kwargs['category_id']}' already exists",
         )
         return
 
-    default_mode = msg.get("default_mode")
-    default_conditions = msg.get("default_conditions")
-    critical = msg.get("critical", False)
-
-    smart_notification = msg.get("smart_notification")
-    action_set_id = msg.get("action_set_id")
-    navigate_to = sanitize_for_storage(msg.get("navigate_to"), MAX_NAVIGATE_TO_LENGTH)
-    # BUG-100: enforce relative HA path, block javascript: / https:// etc.
-    is_valid, error = validate_navigate_to(navigate_to)
-    if not is_valid:
-        connection.send_error(msg["id"], "invalid_navigate_to", error)
-        return
-    expose_in_sensor = msg.get("expose_in_sensor") if "expose_in_sensor" in msg else None
-    android_channel = (
-        sanitize_for_storage(msg.get("android_channel"), MAX_ANDROID_CHANNEL_LENGTH)
-        if "android_channel" in msg
-        else None
-    )
-
-    # F-35: validate chime_media_content_id length
-    chime_id = msg.get("chime_media_content_id")
-    if chime_id is not None and isinstance(chime_id, str):
-        if len(chime_id) > MAX_CHIME_MEDIA_CONTENT_ID_LENGTH:
-            connection.send_error(
-                msg["id"], "invalid_chime",
-                f"chime_media_content_id exceeds "
-                f"{MAX_CHIME_MEDIA_CONTENT_ID_LENGTH} characters",
-            )
-            return
-
-    # F-35.2: volume_override — pass through to store. Voluptuous already
-    # validated the range; store enforces sparse storage.
-    volume_override = msg.get("volume_override")
-
-    category = await store.async_create_category(
-        category_id=category_id,
-        name=name,
-        icon=icon,
-        color=color,
-        default_mode=default_mode,
-        default_conditions=default_conditions,
-        critical=critical,
-        smart_notification=smart_notification,
-        action_set_id=action_set_id,
-        navigate_to=navigate_to,
-        expose_in_sensor=expose_in_sensor,
-        android_channel=android_channel,
-        chime_media_content_id=chime_id,
-        volume_override=volume_override,
-    )
+    category = await store.async_create_category(**kwargs)
 
     connection.send_result(msg["id"], {"category": category})
 

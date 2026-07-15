@@ -21,8 +21,12 @@ from .const import (
     ATTR_NAVIGATE_TO,
     ATTR_CLEAR_WHEN,
     DEFAULT_EXPIRATION_HOURS,
+    MAX_ANDROID_CHANNEL_LENGTH,
     MAX_EXPIRATION_HOURS,
     MAX_NAVIGATE_TO_LENGTH,
+    SMART_TAG_MODES,
+    VOLUME_OVERRIDE_MAX,
+    VOLUME_OVERRIDE_MIN,
     CATEGORY_DEFAULT_NAME,
 )
 from .websocket.validation import validate_navigate_to_vol
@@ -75,6 +79,58 @@ def _build_service_schema() -> vol.Schema:
             # ({entity_id, state}) or an event trigger ({event_type}).
             vol.Optional(ATTR_CLEAR_WHEN): vol.Any(
                 _clear_when_state_schema, _clear_when_event_schema
+            ),
+        }
+    )
+
+
+def _build_ensure_category_schema() -> vol.Schema:
+    """Build the ``ticker.ensure_category`` service schema.
+
+    Mirrors the ``ticker/category/create`` WS command field schema using the
+    SAME raw string keys (no ATTR_* consts). Only identity (``category_id``,
+    ``name``) is required; all other fields are optional. Deep validation of
+    identity/navigate_to/etc. is re-checked by the shared category-field
+    validation helper in the handler (belt + braces).
+    """
+    return vol.Schema(
+        {
+            vol.Required("category_id"): cv.string,
+            vol.Required("name"): cv.string,
+            vol.Optional("icon"): cv.string,
+            vol.Optional("color"): cv.string,
+            vol.Optional("default_mode"): vol.In(["always", "never", "conditional"]),
+            vol.Optional("default_conditions"): dict,
+            vol.Optional("critical"): bool,
+            vol.Optional("smart_notification"): vol.Any(
+                None,
+                vol.Schema({
+                    vol.Optional("group"): bool,
+                    vol.Optional("tag_mode"): vol.In(SMART_TAG_MODES),
+                    vol.Optional("sticky"): bool,
+                    vol.Optional("persistent"): bool,
+                }),
+            ),
+            vol.Optional("action_set_id"): vol.Any(None, cv.string),
+            vol.Optional("navigate_to"): vol.Any(
+                None,
+                vol.All(
+                    cv.string,
+                    vol.Length(max=MAX_NAVIGATE_TO_LENGTH),
+                    validate_navigate_to_vol,
+                ),
+            ),
+            vol.Optional("expose_in_sensor"): bool,
+            vol.Optional("android_channel"): vol.Any(
+                None, vol.All(cv.string, vol.Length(max=MAX_ANDROID_CHANNEL_LENGTH))
+            ),
+            vol.Optional("chime_media_content_id"): vol.Any(None, cv.string),
+            vol.Optional("volume_override"): vol.Any(
+                None,
+                vol.All(
+                    vol.Coerce(float),
+                    vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
+                ),
             ),
         }
     )
