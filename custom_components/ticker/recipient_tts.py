@@ -170,7 +170,8 @@ async def async_send_tts(
         return results
 
     tts_service = recipient.get("tts_service") or "tts.speak"
-    payload = build_tts_payload(message, entity_id, tts_service)
+    tts_engine_entity_id = recipient.get("tts_engine_entity_id")
+    payload = build_tts_payload(message, entity_id, tts_service, tts_engine_entity_id)
 
     # F-35 §5.2: pre-playback delay (Chromecast). Runs BEFORE the chime.
     buffer_delay = recipient.get("tts_buffer_delay", TTS_BUFFER_DELAY_DEFAULT)

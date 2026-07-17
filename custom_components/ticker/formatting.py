@@ -83,6 +83,7 @@ def build_tts_payload(
     message: str,
     entity_id: str,
     tts_service: str | None = None,
+    tts_engine_entity_id: str | None = None,
 ) -> dict[str, Any]:
     """Build a payload for TTS delivery.
 
@@ -90,10 +91,10 @@ def build_tts_payload(
     calling the configured TTS service.
 
     Supports two TTS calling patterns:
-    - **Modern (tts.speak):** entity_id is intentionally omitted because
-      Ticker stores only the media player entity, not the TTS engine
-      entity (e.g., tts.google_translate). HA will use the default
-      TTS engine. media_player_entity_id is the speaker target.
+    - **Modern (tts.speak):** uses media_player_entity_id for the speaker
+      and entity_id for the TTS engine (e.g., tts.google_translate).
+      If tts_engine_entity_id is provided, it's passed as 'entity_id' to
+      select a specific TTS engine.
     - **Legacy (tts.google_translate_say, etc.):** entity_id is the
       media_player directly. This is the default since most users
       use legacy TTS services.
@@ -103,6 +104,8 @@ def build_tts_payload(
         entity_id: The media_player entity ID to speak on.
         tts_service: TTS service (e.g., 'tts.google_translate_say').
             Determines which payload pattern to use.
+        tts_engine_entity_id: TTS engine entity (e.g., 'tts.google_translate')
+            for tts.speak service. Optional.
 
     Returns:
         Payload dict ready for hass.services.async_call.
@@ -110,14 +113,15 @@ def build_tts_payload(
     clean_message = strip_html(message or "")
 
     # Modern tts.speak uses media_player_entity_id as the speaker target
-    # and entity_id as the TTS engine entity (e.g., tts.google_translate).
-    # Ticker only stores the media player, not the TTS engine entity, so
-    # entity_id is omitted — HA will use the default TTS engine.
+    # and optionally entity_id for the TTS engine entity.
     if tts_service and tts_service.lower() == "tts.speak":
-        return {
+        payload: dict[str, Any] = {
             "media_player_entity_id": entity_id,
             "message": clean_message,
         }
+        if tts_engine_entity_id:
+            payload["entity_id"] = tts_engine_entity_id
+        return payload
 
     # Legacy pattern (default): entity_id IS the media_player.
     # Services like tts.google_translate_say, tts.cloud_say, etc.

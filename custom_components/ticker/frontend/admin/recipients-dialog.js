@@ -21,6 +21,7 @@ window.Ticker.AdminRecipientsDialog = {
     const selectedServices = existing ? (existing.notify_services || []) : [];
     const mediaPlayerEntityId = existing ? (existing.media_player_entity_id || '') : '';
     const ttsService = existing ? (existing.tts_service || '') : '';
+    const ttsEngineEntityId = existing ? (existing.tts_engine_entity_id || '') : '';
 
     const nameSection = this._renderNameSection(isEdit, existing, escAttr, name);
     const iconSection = this._renderIconField(escAttr, icon);
@@ -33,7 +34,7 @@ window.Ticker.AdminRecipientsDialog = {
     // F-35.2: volume override (0.0–1.0); null = inherit (no override).
     const rawVol = existing ? existing.volume_override : null;
     const volume = (typeof rawVol === 'number' && rawVol >= 0 && rawVol <= 1) ? rawVol : null;
-    const ttsFields = this._renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay, chimeId, volume);
+    const ttsFields = this._renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, ttsEngineEntityId, deviceType, resumeAfterTts, bufferDelay, chimeId, volume);
 
     return `
       <div id="recipient-dialog-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)window.Ticker.AdminRecipientsTab.handlers.closeDialog(window.Ticker._adminPanel)">
@@ -171,10 +172,10 @@ window.Ticker.AdminRecipientsDialog = {
     `;
   },
 
-  /** Render TTS-specific fields: media player entity + TTS service + resume toggle + chime. */
-  _renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay, chimeId, volumeOverride) {
+  /** Render TTS-specific fields: media player entity + TTS service + TTS engine + resume toggle + chime. */
+  _renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, ttsEngineEntityId, deviceType, resumeAfterTts, bufferDelay, chimeId, volumeOverride) {
     const { esc } = window.Ticker.utils;
-    const ttsOptions = panel._ttsOptions || { media_players: [], tts_services: [] };
+    const ttsOptions = panel._ttsOptions || { media_players: [], tts_services: [], tts_entities: [] };
     const ns = 'window.Ticker.AdminRecipientsDialog';
 
     // Build media player dropdown options
@@ -189,11 +190,20 @@ window.Ticker.AdminRecipientsDialog = {
       return `<option value="${escAttr(svc.service_id)}" ${selected}>${esc(svc.name)} (${esc(svc.service_id)})</option>`;
     }).join('');
 
+    // Build TTS engine entity dropdown options (for tts.speak with target engine)
+    const ttsEngineOpts = ttsOptions.tts_entities.map(ent => {
+      const selected = ent.entity_id === ttsEngineEntityId ? 'selected' : '';
+      return `<option value="${escAttr(ent.entity_id)}" ${selected}>${esc(ent.friendly_name)} (${esc(ent.entity_id)})</option>`;
+    }).join('');
+
     const noMpMsg = ttsOptions.media_players.length === 0
       ? '<span style="font-size:11px;color:var(--ticker-warning-dark);margin-top:2px;display:block">No media_player entities found in Home Assistant</span>'
       : '';
     const noTtsMsg = ttsOptions.tts_services.length === 0
       ? '<span style="font-size:11px;color:var(--ticker-warning-dark);margin-top:2px;display:block">No TTS services found in Home Assistant</span>'
+      : '';
+    const noTtsEngineMsg = ttsOptions.tts_entities.length === 0
+      ? '<span style="font-size:11px;color:var(--text-secondary);margin-top:2px;display:block">No TTS engine entities found (optional for tts.speak)</span>'
       : '';
 
     // Announce support indicator for initially selected media player
@@ -218,6 +228,15 @@ window.Ticker.AdminRecipientsDialog = {
         </select>
         ${noTtsMsg}
         <span style="font-size:11px;color:var(--text-secondary);margin-top:2px;display:block">The text-to-speech service to use</span>
+      </div>
+      <div class="form-group" style="margin-bottom:12px">
+        <label>TTS Engine Entity (optional)</label>
+        <select class="form-select" id="dlg-tts-engine">
+          <option value="">-- None (use default) --</option>
+          ${ttsEngineOpts}
+        </select>
+        ${noTtsEngineMsg}
+        <span style="font-size:11px;color:var(--text-secondary);margin-top:2px;display:block">For tts.speak: selects which TTS engine to use. For other services this is ignored.</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <label class="toggle">
