@@ -40,6 +40,7 @@ from .recipient_validation import (
     validate_conditions_blob,
     validate_delivery_format,
     validate_notify_services,
+    validate_tts_engine,
 )
 from .validation import (
     get_store,
@@ -228,6 +229,15 @@ async def ws_create_recipient(
         connection.send_error(msg["id"], chime_err[0], chime_err[1])
         return
 
+    # PR #61 intake: a TTS recipient using tts.speak must have an engine set,
+    # or delivery fails silently. Block the save otherwise.
+    engine_ok, engine_code, engine_msg = validate_tts_engine(
+        device_type, msg.get("tts_service"), msg.get("tts_engine_entity_id"),
+    )
+    if not engine_ok:
+        connection.send_error(msg["id"], engine_code, engine_msg)
+        return
+
     # F-35.2: volume_override — stored only on TTS recipients with an
     # in-range float. Push devices silently drop the field at the store
     # layer (mirrors chime_media_content_id behavior).
@@ -349,6 +359,26 @@ async def ws_update_recipient(
 
     if "tts_engine_entity_id" in msg:
         kwargs["tts_engine_entity_id"] = msg["tts_engine_entity_id"]
+
+    # PR #61 intake: block an update only if it would leave the recipient in a
+    # NEW tts.speak-without-engine state. A recipient already in that (legacy)
+    # state is not trapped on unrelated edits (rename/icon/disable) — but
+    # switching TO tts.speak, or clearing the engine, is still rejected. The
+    # frontend always re-sends the TTS fields, so we compare outcome-vs-stored
+    # rather than gating on field presence.
+    eff_service = msg.get("tts_service", existing.get("tts_service"))
+    eff_engine = msg.get("tts_engine_entity_id", existing.get("tts_engine_entity_id"))
+    was_ok, _, _ = validate_tts_engine(
+        existing.get("device_type", DEVICE_TYPE_PUSH),
+        existing.get("tts_service"),
+        existing.get("tts_engine_entity_id"),
+    )
+    now_ok, engine_code, engine_msg = validate_tts_engine(
+        device_type, eff_service, eff_engine,
+    )
+    if was_ok and not now_ok:
+        connection.send_error(msg["id"], engine_code, engine_msg)
+        return
 
     if "icon" in msg:
         is_valid, error = validate_icon(msg["icon"])

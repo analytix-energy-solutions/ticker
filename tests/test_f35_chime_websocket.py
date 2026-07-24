@@ -37,6 +37,8 @@ def _base_recipient_create(**overrides) -> dict:
         "device_type": "tts",
         "delivery_format": "rich",
         "media_player_entity_id": "media_player.kitchen",
+        # PR #61 intake: tts.speak recipients now require an engine entity.
+        "tts_engine_entity_id": "tts.google_translate",
         "icon": "mdi:speaker",
         "enabled": True,
         "resume_after_tts": False,

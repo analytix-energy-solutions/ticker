@@ -21,6 +21,34 @@ from ..const import (
 from .validation import validate_condition_tree
 
 
+def validate_tts_engine(
+    device_type: str,
+    tts_service: str | None,
+    tts_engine_entity_id: str | None,
+) -> tuple[bool, str | None, str | None]:
+    """Require a TTS engine entity when a TTS recipient uses ``tts.speak``.
+
+    HA's ``tts.speak`` action needs an ``entity_id`` naming the TTS engine;
+    without it delivery fails silently (the gap PR #61 addressed). Only applies
+    to TTS recipients whose effective service is ``tts.speak`` — the default
+    when ``tts_service`` is unset. Legacy services (e.g. ``tts.cloud_say``)
+    need no engine and are unaffected.
+
+    Returns ``(is_valid, error_code, error_message)``.
+    """
+    if device_type != DEVICE_TYPE_TTS:
+        return True, None, None
+    effective_service = tts_service or "tts.speak"
+    if effective_service == "tts.speak" and not tts_engine_entity_id:
+        return (
+            False,
+            "missing_tts_engine",
+            "A TTS engine entity is required when using tts.speak. "
+            "Select a TTS engine, or choose a different TTS service.",
+        )
+    return True, None, None
+
+
 def validate_notify_services(
     notify_services: list[dict[str, Any]],
 ) -> tuple[bool, str | None]:
