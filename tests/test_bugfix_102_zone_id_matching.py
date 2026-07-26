@@ -325,8 +325,8 @@ class TestArrivalReleasesQueue:
         )
 
         with patch(
-            "custom_components.ticker.arrival.async_send_bundled_notification",
-            new=AsyncMock(return_value=True),
+            "custom_components.ticker.arrival.async_deliver_released_notifications",
+            new=AsyncMock(return_value=[]),
         ) as mock_send:
             _run(callback(event))
 
@@ -379,8 +379,8 @@ class TestArrivalReleasesQueue:
         )
 
         with patch(
-            "custom_components.ticker.arrival.async_send_bundled_notification",
-            new=AsyncMock(return_value=True),
+            "custom_components.ticker.arrival.async_deliver_released_notifications",
+            new=AsyncMock(return_value=[]),
         ) as mock_send:
             _run(callback(event))
 
@@ -432,8 +432,8 @@ class TestArrivalReleasesQueue:
         )
 
         with patch(
-            "custom_components.ticker.arrival.async_send_bundled_notification",
-            new=AsyncMock(return_value=True),
+            "custom_components.ticker.arrival.async_deliver_released_notifications",
+            new=AsyncMock(return_value=[]),
         ) as mock_send:
             _run(callback(event))
 

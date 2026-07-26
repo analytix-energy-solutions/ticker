@@ -117,6 +117,10 @@ window.Ticker.AdminCategoriesTab = {
   _renderGeneralTab(c, escId, escIcon, escColor) {
     const { escAttr } = window.Ticker.utils;
     const criticalChecked = c.critical ? 'checked' : '';
+    // Opt-out toggle: checked means "deliver individually" (bundle_on_release
+    // false). Default is unchecked (bundle), so the box only shows checked when
+    // the category explicitly stored the flag as false.
+    const individualChecked = c.bundle_on_release === false ? 'checked' : '';
     return `
       <div class="form-row" style="padding-top:8px">
         <div class="form-group">
@@ -141,6 +145,19 @@ window.Ticker.AdminCategoriesTab = {
           <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Critical notifications</span>
           <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
             Bypass Do Not Disturb and silent mode on recipients' devices
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+        <label class="toggle" style="margin:0">
+          <input type="checkbox" id="edit-bundle-individual-${escId}" ${individualChecked}>
+          <span class="toggle-slider"></span>
+        </label>
+        <div>
+          <span style="font-size:13px;font-weight:500;color:var(--primary-text-color,#212121)">Deliver queued items individually</span>
+          <div style="font-size:12px;color:var(--secondary-text-color,#727272);margin-top:2px">
+            When multiple queued notifications are released together, send each
+            as its own notification instead of one combined summary
           </div>
         </div>
       </div>

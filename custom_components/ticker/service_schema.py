@@ -121,6 +121,7 @@ def _build_ensure_category_schema() -> vol.Schema:
                 ),
             ),
             vol.Optional("expose_in_sensor"): bool,
+            vol.Optional("bundle_on_release"): cv.boolean,
             vol.Optional("android_channel"): vol.Any(
                 None, vol.All(cv.string, vol.Length(max=MAX_ANDROID_CHANNEL_LENGTH))
             ),

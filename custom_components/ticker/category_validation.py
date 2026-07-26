@@ -123,6 +123,7 @@ def validate_and_sanitize_category_fields(fields: dict[str, Any]) -> dict[str, A
         "action_set_id": fields.get("action_set_id"),
         "navigate_to": navigate_to,
         "expose_in_sensor": expose_in_sensor,
+        "bundle_on_release": fields.get("bundle_on_release"),
         "android_channel": android_channel,
         "chime_media_content_id": chime_id,
         "volume_override": fields.get("volume_override"),

@@ -78,6 +78,7 @@ async def ws_get_categories(
             None, vol.All(str, vol.Length(min=1, max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("bundle_on_release"): bool,
         vol.Optional("android_channel"): vol.Any(
             None, vol.All(str, vol.Length(max=MAX_ANDROID_CHANNEL_LENGTH))
         ),
@@ -154,6 +155,7 @@ async def ws_create_category(
             None, vol.All(str, vol.Length(max=MAX_NAVIGATE_TO_LENGTH))
         ),
         vol.Optional("expose_in_sensor"): bool,
+        vol.Optional("bundle_on_release"): bool,
         vol.Optional("android_channel"): vol.Any(
             None, vol.All(str, vol.Length(max=MAX_ANDROID_CHANNEL_LENGTH))
         ),
@@ -243,6 +245,7 @@ async def ws_update_category(
         if "android_channel" in msg
         else None
     )
+    bundle_on_release = msg.get("bundle_on_release") if "bundle_on_release" in msg else None
 
     # F-35: chime_media_content_id — only forwarded when key is present in msg.
     # None or "" clears the override; non-empty sets it. Length-validated here.
@@ -277,6 +280,7 @@ async def ws_update_category(
         navigate_to=navigate_to,
         expose_in_sensor=expose_in_sensor,
         android_channel=android_channel,
+        bundle_on_release=bundle_on_release,
     )
     if chime_id_present:
         # Pass empty string to explicitly clear; non-empty to set

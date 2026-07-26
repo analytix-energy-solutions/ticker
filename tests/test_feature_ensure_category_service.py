@@ -626,3 +626,85 @@ class TestSchemaRefreshListener:
             await handler(_make_call(category_id="ew_alerts", name="B"))
 
         listener.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# bundle_on_release integration (v1.8.3b3, PR #60 threaded through the shared
+# helper). #60 owns the store-sparse and delivery-split coverage; here we prove
+# only that the ensure_category service carries bundle_on_release end-to-end via
+# validate_and_sanitize_category_fields, and that its schema accepts the field.
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureBundleOnRelease:
+    """ensure_category threads bundle_on_release into the sparse store create."""
+
+    @pytest.mark.asyncio
+    async def test_create_false_persists_sparse_key(self):
+        """A NEW category ensured with bundle_on_release=False stores it (sparse)."""
+        hass = _make_hass()
+        store = _RealCategoryStore()
+        handler = await _get_ensure_handler(hass)
+
+        with _patch_store(store):
+            result = await handler(
+                _make_call(
+                    category_id="appliance_done",
+                    name="Appliance done",
+                    bundle_on_release=False,
+                )
+            )
+
+        assert result == {"created": True, "category_id": "appliance_done"}
+        assert store.get_category("appliance_done")["bundle_on_release"] is False
+
+    @pytest.mark.asyncio
+    async def test_create_true_omits_key(self):
+        """bundle_on_release=True is the default -> not persisted (sparse)."""
+        hass = _make_hass()
+        store = _RealCategoryStore()
+        handler = await _get_ensure_handler(hass)
+
+        with _patch_store(store):
+            result = await handler(
+                _make_call(
+                    category_id="news",
+                    name="News",
+                    bundle_on_release=True,
+                )
+            )
+
+        assert result["created"] is True
+        assert "bundle_on_release" not in store.get_category("news")
+
+    @pytest.mark.asyncio
+    async def test_create_absent_omits_key(self):
+        """Omitting bundle_on_release keeps the sparse default (bundle)."""
+        hass = _make_hass()
+        store = _RealCategoryStore()
+        handler = await _get_ensure_handler(hass)
+
+        with _patch_store(store):
+            await handler(_make_call(category_id="news", name="News"))
+
+        assert "bundle_on_release" not in store.get_category("news")
+
+    @pytest.mark.asyncio
+    async def test_create_forwards_bundle_on_release_kwarg(self):
+        """The value reaches store.async_create_category as a kwarg."""
+        hass = _make_hass()
+        store = _RealCategoryStore()
+        spy = AsyncMock(wraps=store.async_create_category)
+        store.async_create_category = spy
+        handler = await _get_ensure_handler(hass)
+
+        with _patch_store(store):
+            await handler(
+                _make_call(
+                    category_id="appliance_done",
+                    name="Appliance done",
+                    bundle_on_release=False,
+                )
+            )
+
+        assert spy.await_args.kwargs["bundle_on_release"] is False
