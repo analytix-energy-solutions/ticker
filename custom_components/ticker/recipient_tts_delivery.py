@@ -109,6 +109,12 @@ async def _call_tts_service(
 ) -> None:
     """Call the TTS service with a timeout."""
     domain, service_name = tts_service.split(".", 1)
+    # notify.-entity recipients (e.g. Alexa via alexa_devices) are delivered
+    # through the generic notify.send_message action, not a per-entity
+    # service — the entity itself is the payload's entity_id (see
+    # formatting.build_tts_payload).
+    if domain == "notify":
+        service_name = "send_message"
     await asyncio.wait_for(
         hass.services.async_call(domain, service_name, payload, blocking=True),
         timeout=NOTIFY_SERVICE_TIMEOUT,
