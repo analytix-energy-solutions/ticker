@@ -327,6 +327,19 @@ class TestBuildTtsPayload:
         )
         assert "media_player_entity_id" in result
 
+    def test_modern_tts_speak_with_explicit_engine(self):
+        result = build_tts_payload(
+            "Good night",
+            "media_player.bedroom",
+            tts_service="tts.speak",
+            tts_entity_id="tts.openai_tts",
+        )
+        assert result == {
+            "entity_id": "tts.openai_tts",
+            "media_player_entity_id": "media_player.bedroom",
+            "message": "Good night",
+        }
+
     def test_none_message_becomes_empty_string(self):
         result = build_tts_payload(None, "media_player.kitchen")
         assert result["message"] == ""

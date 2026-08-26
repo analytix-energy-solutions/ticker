@@ -30,7 +30,7 @@ class TickerAdminPanel extends HTMLElement {
     this._scripts = [];
     this._recipients = [];
     this._availableNotifyServices = [];
-    this._ttsOptions = { media_players: [], tts_services: [] };
+    this._ttsOptions = { media_players: [], tts_services: [], tts_entities: [] };
     this._lovelaceDashboards = [];
     this._hasPanels = [];
     this._lovelaceViews = {};
@@ -183,6 +183,7 @@ class TickerAdminPanel extends HTMLElement {
       `${base}/admin/recipients-handlers.js`,
       `${base}/admin/recipients-link-handlers.js`,
       `${base}/admin/recipients-volume.js`,
+      `${base}/admin/recipients-tts-config.js`,
       `${base}/admin/recipients-dialog.js`,
       `${base}/admin/queue-tab.js`,
       `${base}/admin/logs-tab.js`,

@@ -97,10 +97,11 @@ window.Ticker.AdminDataLoader = {
       panel._ttsOptions = {
         media_players: result.media_players || [],
         tts_services: result.tts_services || [],
+        tts_entities: result.tts_entities || [],
       };
     } catch (err) {
       console.error('[Ticker] Failed to load TTS options:', err);
-      panel._ttsOptions = { media_players: [], tts_services: [] };
+      panel._ttsOptions = { media_players: [], tts_services: [], tts_entities: [] };
     }
   },
 

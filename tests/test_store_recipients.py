@@ -275,6 +275,21 @@ class TestCreateRecipientDeviceType:
         assert result["tts_service"] == "tts.google_translate_say"
 
     @pytest.mark.asyncio
+    async def test_create_tts_engine_and_chime_timing(self, store):
+        result = await store.async_create_recipient(
+            "speaker1", "Kitchen Speaker", [],
+            device_type=DEVICE_TYPE_TTS,
+            media_player_entity_id="media_player.kitchen",
+            tts_service="tts.speak",
+            tts_entity_id="tts.openai_tts",
+            chime_wait_timeout=3.0,
+            chime_tts_gap=1.0,
+        )
+        assert result["tts_entity_id"] == "tts.openai_tts"
+        assert result["chime_wait_timeout"] == 3.0
+        assert result["chime_tts_gap"] == 1.0
+
+    @pytest.mark.asyncio
     async def test_create_tts_overrides_delivery_format(self, store):
         """TTS device type ignores delivery_format and stores 'rich' default."""
         result = await store.async_create_recipient(
@@ -313,6 +328,24 @@ class TestCreateRecipientDeviceType:
         )
         assert result["media_player_entity_id"] == "media_player.new"
         assert result["tts_service"] == "tts.cloud_say"
+
+    @pytest.mark.asyncio
+    async def test_update_and_clear_tts_engine(self, store):
+        await store.async_create_recipient(
+            "speaker1", "Speaker", [], device_type=DEVICE_TYPE_TTS,
+        )
+        result = await store.async_update_recipient(
+            "speaker1", tts_entity_id="tts.openai_tts",
+            chime_wait_timeout=3.0, chime_tts_gap=1.0,
+        )
+        assert result["tts_entity_id"] == "tts.openai_tts"
+        assert result["chime_wait_timeout"] == 3.0
+        assert result["chime_tts_gap"] == 1.0
+
+        result = await store.async_update_recipient(
+            "speaker1", tts_entity_id="",
+        )
+        assert "tts_entity_id" not in result
 
 
 # ---------------------------------------------------------------------------

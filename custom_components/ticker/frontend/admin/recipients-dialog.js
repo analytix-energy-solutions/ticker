@@ -20,7 +20,8 @@ window.Ticker.AdminRecipientsDialog = {
     const format = existing ? (existing.delivery_format || 'rich') : 'rich';
     const selectedServices = existing ? (existing.notify_services || []) : [];
     const mediaPlayerEntityId = existing ? (existing.media_player_entity_id || '') : '';
-    const ttsService = existing ? (existing.tts_service || '') : '';
+    const ttsService = existing ? (existing.tts_service || 'tts.speak') : 'tts.speak';
+    const ttsEntityId = existing ? (existing.tts_entity_id || '') : '';
 
     const nameSection = this._renderNameSection(isEdit, existing, escAttr, name);
     const iconSection = this._renderIconField(escAttr, icon);
@@ -30,10 +31,12 @@ window.Ticker.AdminRecipientsDialog = {
     const bufferDelay = existing ? (existing.tts_buffer_delay ?? 0) : 0;
     // F-35: Pre-TTS chime media_content_id (sparse: missing/empty == no chime)
     const chimeId = existing ? (existing.chime_media_content_id || '') : '';
+    const chimeWaitTimeout = existing ? (existing.chime_wait_timeout ?? 10) : 10;
+    const chimeTtsGap = existing ? (existing.chime_tts_gap ?? 3) : 3;
     // F-35.2: volume override (0.0–1.0); null = inherit (no override).
     const rawVol = existing ? existing.volume_override : null;
     const volume = (typeof rawVol === 'number' && rawVol >= 0 && rawVol <= 1) ? rawVol : null;
-    const ttsFields = this._renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay, chimeId, volume);
+    const ttsFields = this._renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, ttsEntityId, deviceType, resumeAfterTts, bufferDelay, chimeId, volume, chimeWaitTimeout, chimeTtsGap);
 
     return `
       <div id="recipient-dialog-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;display:flex;align-items:center;justify-content:center" onclick="if(event.target===this)window.Ticker.AdminRecipientsTab.handlers.closeDialog(window.Ticker._adminPanel)">
@@ -172,33 +175,30 @@ window.Ticker.AdminRecipientsDialog = {
   },
 
   /** Render TTS-specific fields: media player entity + TTS service + resume toggle + chime. */
-  _renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, deviceType, resumeAfterTts, bufferDelay, chimeId, volumeOverride) {
+  _renderTtsFields(panel, escAttr, mediaPlayerEntityId, ttsService, ttsEntityId, deviceType, resumeAfterTts, bufferDelay, chimeId, volumeOverride, chimeWaitTimeout, chimeTtsGap) {
     const { esc } = window.Ticker.utils;
     const ttsOptions = panel._ttsOptions || { media_players: [], tts_services: [] };
     const ns = 'window.Ticker.AdminRecipientsDialog';
-
     // Build media player dropdown options
     const mpOptions = ttsOptions.media_players.map(mp => {
       const selected = mp.entity_id === mediaPlayerEntityId ? 'selected' : '';
       return `<option value="${escAttr(mp.entity_id)}" ${selected}>${esc(mp.friendly_name)} (${esc(mp.entity_id)})</option>`;
     }).join('');
-
     // Build TTS service dropdown options
     const ttsOpts = ttsOptions.tts_services.map(svc => {
       const selected = svc.service_id === ttsService ? 'selected' : '';
       return `<option value="${escAttr(svc.service_id)}" ${selected}>${esc(svc.name)} (${esc(svc.service_id)})</option>`;
     }).join('');
-
+    const ttsConfig = window.Ticker.AdminRecipientTtsConfig;
+    const engineHtml = ttsConfig.renderEngine(esc, escAttr, ttsOptions, ttsService, ttsEntityId), timingHtml = ttsConfig.renderTiming(chimeWaitTimeout, chimeTtsGap);
     const noMpMsg = ttsOptions.media_players.length === 0
       ? '<span style="font-size:11px;color:var(--ticker-warning-dark);margin-top:2px;display:block">No media_player entities found in Home Assistant</span>'
       : '';
     const noTtsMsg = ttsOptions.tts_services.length === 0
       ? '<span style="font-size:11px;color:var(--ticker-warning-dark);margin-top:2px;display:block">No TTS services found in Home Assistant</span>'
       : '';
-
     // Announce support indicator for initially selected media player
     const announceHtml = this._getAnnounceIndicator(ttsOptions, mediaPlayerEntityId);
-
     return `
       <div class="form-group" style="margin-bottom:12px">
         <label>Media Player Entity</label>
@@ -212,13 +212,14 @@ window.Ticker.AdminRecipientsDialog = {
       </div>
       <div class="form-group" style="margin-bottom:12px">
         <label>TTS Service</label>
-        <select class="form-select" id="dlg-tts-service">
+        <select class="form-select" id="dlg-tts-service" onchange="window.Ticker.AdminRecipientTtsConfig.onServiceChange(window.Ticker._adminPanel)">
           <option value="">-- Select TTS service --</option>
           ${ttsOpts}
         </select>
         ${noTtsMsg}
         <span style="font-size:11px;color:var(--text-secondary);margin-top:2px;display:block">The text-to-speech service to use</span>
       </div>
+      ${engineHtml}
       <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
         <label class="toggle">
           <input type="checkbox" id="dlg-resume-tts" ${resumeAfterTts ? 'checked' : ''}>
@@ -233,6 +234,7 @@ window.Ticker.AdminRecipientsDialog = {
       </div>
       ${window.Ticker.AdminVolumeOverride.render('dlg', volumeOverride)}
       ${this._renderChimeSection(escAttr, chimeId || '')}
+      ${timingHtml}
     `;
   },
 
@@ -371,6 +373,7 @@ window.Ticker.AdminRecipientsDialog = {
     if (mp && mp.value) return true;
     const tts = container.querySelector('#dlg-tts-service');
     if (tts && tts.value) return true;
+    if (window.Ticker.AdminRecipientTtsConfig.hasValues(container)) return true;
     const resume = container.querySelector('#dlg-resume-tts');
     if (resume && resume.checked) return true;
     if (parseFloat(container.querySelector('#dlg-tts-buffer-delay')?.value) > 0) return true;
@@ -394,13 +397,14 @@ window.Ticker.AdminRecipientsDialog = {
     const mp = container.querySelector('#dlg-media-player');
     if (mp) mp.value = '';
     const tts = container.querySelector('#dlg-tts-service');
-    if (tts) tts.value = '';
+    if (tts) tts.value = 'tts.speak';
     const resume = container.querySelector('#dlg-resume-tts');
     if (resume) resume.checked = false;
     const indicator = container.querySelector('#dlg-announce-indicator');
     if (indicator) indicator.innerHTML = '';
     const bufferEl = container.querySelector('#dlg-tts-buffer-delay');
     if (bufferEl) bufferEl.value = '0';
+    window.Ticker.AdminRecipientTtsConfig.clear(container);
     // F-35: also clear the chime fields
     const chimeDisplay = container.querySelector('#dlg-chime-display');
     if (chimeDisplay) chimeDisplay.value = '';

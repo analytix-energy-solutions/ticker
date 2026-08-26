@@ -297,9 +297,17 @@ window.Ticker.AdminRecipientsTab.handlers = {
         return;
       }
       wsMsg.media_player_entity_id = mediaPlayer;
-      wsMsg.tts_service = container.querySelector('#dlg-tts-service')?.value?.trim() || 'tts.google_translate_say';
+      wsMsg.tts_service = container.querySelector('#dlg-tts-service')?.value?.trim() || 'tts.speak';
+      const ttsEntityId = container.querySelector('#dlg-tts-entity')?.value?.trim() || '';
+      if (wsMsg.tts_service.toLowerCase() === 'tts.speak' && ttsEntityId) {
+        wsMsg.tts_entity_id = ttsEntityId;
+      } else if (isEdit) {
+        wsMsg.tts_entity_id = '';
+      }
       wsMsg.resume_after_tts = !!container.querySelector('#dlg-resume-tts')?.checked;
       wsMsg.tts_buffer_delay = parseFloat(container.querySelector('#dlg-tts-buffer-delay')?.value) || 0;
+      wsMsg.chime_wait_timeout = parseFloat(container.querySelector('#dlg-chime-wait-timeout')?.value) || 10;
+      wsMsg.chime_tts_gap = parseFloat(container.querySelector('#dlg-chime-tts-gap')?.value) || 0;
       // F-35: Pre-TTS chime — omit when empty (sparse). On edit, send "" to clear.
       const chimeId = (container.querySelector('#dlg-chime-id')?.value || '').trim();
       if (chimeId) {

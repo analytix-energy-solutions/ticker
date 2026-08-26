@@ -358,6 +358,27 @@ class TestChimeFailSoft:
 
     @pytest.mark.asyncio
     @patch(
+        "custom_components.ticker.recipient_tts_delivery.asyncio.sleep",
+        new_callable=AsyncMock,
+    )
+    async def test_recipient_can_shorten_chime_fallback_gap(self, mock_sleep):
+        hass = _make_hass(entity_id="media_player.kitchen", features=0)
+        store = _make_store(category=None)
+        recipient = _make_recipient(chime="media-source://x")
+        recipient["chime_wait_timeout"] = 3.0
+        recipient["chime_tts_gap"] = 1.0
+
+        await async_send_tts(
+            hass, store, recipient, "cat1", "Title", "Hello",
+        )
+
+        sleep_durations = [
+            call.args[0] for call in mock_sleep.await_args_list if call.args
+        ]
+        assert sum(sleep_durations) == pytest.approx(1.0, abs=0.3)
+
+    @pytest.mark.asyncio
+    @patch(
         "custom_components.ticker.recipient_tts_delivery._wait_for_state_exit",
         new_callable=AsyncMock, return_value=True,
     )

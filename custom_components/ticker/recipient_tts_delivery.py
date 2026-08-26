@@ -44,6 +44,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .const import (
+    CHIME_TTS_GAP,
+    CHIME_WAIT_TIMEOUT,
     NOTIFY_SERVICE_TIMEOUT,
     TTS_PLAYBACK_MAX_TIMEOUT,
     TTS_PLAYBACK_START_TIMEOUT,
@@ -165,6 +167,8 @@ async def _deliver_tts_announce(
     payload: dict[str, Any],
     chime_id: str | None = None,
     volume_level: float | None = None,
+    chime_wait_timeout: float = CHIME_WAIT_TIMEOUT,
+    chime_tts_gap: float = CHIME_TTS_GAP,
 ) -> str:
     """Deliver TTS via announce mode (platform handles pause/resume).
 
@@ -200,7 +204,11 @@ async def _deliver_tts_announce(
             )
     try:
         if chime_id:
-            await _play_chime(hass, entity_id, chime_id, announce=True)
+            await _play_chime(
+                hass, entity_id, chime_id, announce=True,
+                chime_wait_timeout=chime_wait_timeout,
+                chime_tts_gap=chime_tts_gap,
+            )
         await _call_tts_service(hass, tts_service, payload)
     finally:
         if snap_vol is not None and vol_target is not None:
@@ -215,6 +223,8 @@ async def _deliver_tts_with_restore(
     payload: dict[str, Any],
     chime_id: str | None = None,
     volume_level: float | None = None,
+    chime_wait_timeout: float = CHIME_WAIT_TIMEOUT,
+    chime_tts_gap: float = CHIME_TTS_GAP,
 ) -> str:
     """Deliver TTS with manual snapshot/restore of media state.
 
@@ -274,7 +284,11 @@ async def _deliver_tts_with_restore(
             await _set_volume(hass, entity_id, vol_target)
 
     if chime_id:
-        await _play_chime(hass, entity_id, chime_id)
+        await _play_chime(
+            hass, entity_id, chime_id,
+            chime_wait_timeout=chime_wait_timeout,
+            chime_tts_gap=chime_tts_gap,
+        )
 
     await _call_tts_service(hass, tts_service, payload)
 
@@ -339,6 +353,8 @@ async def _deliver_tts_plain(
     payload: dict[str, Any],
     chime_id: str | None = None,
     volume_level: float | None = None,
+    chime_wait_timeout: float = CHIME_WAIT_TIMEOUT,
+    chime_tts_gap: float = CHIME_TTS_GAP,
 ) -> str:
     """Deliver TTS with no announce or restore — plain fire-and-forget.
 
@@ -385,7 +401,11 @@ async def _deliver_tts_plain(
 
     try:
         if chime_id:
-            await _play_chime(hass, entity_id, chime_id)
+            await _play_chime(
+                hass, entity_id, chime_id,
+                chime_wait_timeout=chime_wait_timeout,
+                chime_tts_gap=chime_tts_gap,
+            )
         await _call_tts_service(hass, tts_service, payload)
         if snap_vol is not None:
             # Wait for TTS to start playing.

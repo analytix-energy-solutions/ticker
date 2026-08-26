@@ -19,6 +19,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
+    CHIME_TTS_GAP,
+    CHIME_WAIT_TIMEOUT,
     LOG_OUTCOME_FAILED,
     LOG_OUTCOME_SENT,
     MEDIA_ANNOUNCE_FEATURE,
@@ -170,7 +172,10 @@ async def async_send_tts(
         return results
 
     tts_service = recipient.get("tts_service") or "tts.speak"
-    payload = build_tts_payload(message, entity_id, tts_service)
+    tts_entity_id = recipient.get("tts_entity_id")
+    payload = build_tts_payload(
+        message, entity_id, tts_service, tts_entity_id=tts_entity_id,
+    )
 
     # F-35 §5.2: pre-playback delay (Chromecast). Runs BEFORE the chime.
     buffer_delay = recipient.get("tts_buffer_delay", TTS_BUFFER_DELAY_DEFAULT)
@@ -187,6 +192,10 @@ async def async_send_tts(
     except Exception:  # noqa: BLE001
         category = None
     chime_id = _resolve_chime(recipient, category)
+    chime_wait_timeout = recipient.get(
+        "chime_wait_timeout", CHIME_WAIT_TIMEOUT,
+    )
+    chime_tts_gap = recipient.get("chime_tts_gap", CHIME_TTS_GAP)
 
     # F-35.2: explicit caller-supplied volume wins (test-chime path);
     # otherwise resolve recipient default vs. category override.
@@ -209,16 +218,22 @@ async def async_send_tts(
                 method = await _deliver_tts_announce(
                     hass, entity_id, tts_service, payload,
                     chime_id=chime_id, volume_level=volume_level,
+                    chime_wait_timeout=chime_wait_timeout,
+                    chime_tts_gap=chime_tts_gap,
                 )
             elif resume:
                 method = await _deliver_tts_with_restore(
                     hass, entity_id, tts_service, payload,
                     chime_id=chime_id, volume_level=volume_level,
+                    chime_wait_timeout=chime_wait_timeout,
+                    chime_tts_gap=chime_tts_gap,
                 )
             else:
                 method = await _deliver_tts_plain(
                     hass, entity_id, tts_service, payload,
                     chime_id=chime_id, volume_level=volume_level,
+                    chime_wait_timeout=chime_wait_timeout,
+                    chime_tts_gap=chime_tts_gap,
                 )
 
         svc_display = f"{tts_service} -> {entity_id} [{method}]"

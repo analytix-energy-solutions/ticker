@@ -58,6 +58,8 @@ async def ws_get_tts_options(
     Returns:
         media_players: list of {entity_id, friendly_name} for all media_player entities.
         tts_services: list of {service_id, name} for all tts.* services.
+        tts_entities: list of {entity_id, friendly_name} for modern
+            ``tts.speak`` engine selection.
     """
     # Collect media_player entities
     media_players = []
@@ -82,9 +84,20 @@ async def ws_get_tts_options(
             "name": service_name,
         })
 
+    tts_entities = []
+    for state in hass.states.async_all("tts"):
+        tts_entities.append({
+            "entity_id": state.entity_id,
+            "friendly_name": state.attributes.get(
+                "friendly_name", state.entity_id,
+            ),
+        })
+    tts_entities.sort(key=lambda item: item["friendly_name"].lower())
+
     connection.send_result(msg["id"], {
         "media_players": media_players,
         "tts_services": tts_services,
+        "tts_entities": tts_entities,
     })
 
 

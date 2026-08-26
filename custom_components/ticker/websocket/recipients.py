@@ -21,6 +21,12 @@ from homeassistant.core import HomeAssistant
 
 from ..const import (
     ATTR_USER_LINK,
+    CHIME_TTS_GAP,
+    CHIME_TTS_GAP_MAX,
+    CHIME_TTS_GAP_MIN,
+    CHIME_WAIT_TIMEOUT,
+    CHIME_WAIT_TIMEOUT_MAX,
+    CHIME_WAIT_TIMEOUT_MIN,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
     DEVICE_TYPES,
@@ -57,6 +63,15 @@ _VOLUME_SCHEMA = vol.Any(
         vol.Coerce(float),
         vol.Range(min=VOLUME_OVERRIDE_MIN, max=VOLUME_OVERRIDE_MAX),
     ),
+)
+
+_CHIME_WAIT_TIMEOUT_SCHEMA = vol.All(
+    vol.Coerce(float),
+    vol.Range(min=CHIME_WAIT_TIMEOUT_MIN, max=CHIME_WAIT_TIMEOUT_MAX),
+)
+_CHIME_TTS_GAP_SCHEMA = vol.All(
+    vol.Coerce(float),
+    vol.Range(min=CHIME_TTS_GAP_MIN, max=CHIME_TTS_GAP_MAX),
 )
 
 
@@ -153,6 +168,7 @@ async def ws_get_recipients(
         vol.Optional("delivery_format", default=DELIVERY_FORMAT_RICH): str,
         vol.Optional("media_player_entity_id"): str,
         vol.Optional("tts_service"): str,
+        vol.Optional("tts_entity_id"): str,
         vol.Optional("icon", default="mdi:bell-ring"): str,
         vol.Optional("enabled", default=True): bool,
         vol.Optional("resume_after_tts", default=False): bool,
@@ -162,6 +178,8 @@ async def ws_get_recipients(
         vol.Optional("conditions"): vol.Any(dict, None),
         vol.Optional("chime_media_content_id"): vol.Any(None, str),
         vol.Optional("volume_override"): _VOLUME_SCHEMA,
+        vol.Optional("chime_wait_timeout", default=CHIME_WAIT_TIMEOUT): _CHIME_WAIT_TIMEOUT_SCHEMA,
+        vol.Optional("chime_tts_gap", default=CHIME_TTS_GAP): _CHIME_TTS_GAP_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -199,6 +217,14 @@ async def ws_create_recipient(
     )
     if not is_valid:
         connection.send_error(msg["id"], err_code, err_msg)
+        return
+
+    tts_entity_id = msg.get("tts_entity_id")
+    if tts_entity_id and not tts_entity_id.startswith("tts."):
+        connection.send_error(
+            msg["id"], "invalid_tts_entity",
+            "tts_entity_id must start with 'tts.'",
+        )
         return
 
     # Validate delivery_format only for push devices
@@ -241,6 +267,7 @@ async def ws_create_recipient(
             delivery_format=msg["delivery_format"],
             media_player_entity_id=msg.get("media_player_entity_id"),
             tts_service=msg.get("tts_service"),
+            tts_entity_id=msg.get("tts_entity_id"),
             icon=msg["icon"],
             enabled=msg["enabled"],
             resume_after_tts=msg["resume_after_tts"],
@@ -248,6 +275,10 @@ async def ws_create_recipient(
             conditions=conditions,
             chime_media_content_id=chime_id,
             volume_override=volume_override,
+            chime_wait_timeout=msg.get(
+                "chime_wait_timeout", CHIME_WAIT_TIMEOUT,
+            ),
+            chime_tts_gap=msg.get("chime_tts_gap", CHIME_TTS_GAP),
         )
     except ValueError as err:
         connection.send_error(msg["id"], "create_failed", str(err))
@@ -267,6 +298,7 @@ async def ws_create_recipient(
         vol.Optional("delivery_format"): str,
         vol.Optional("media_player_entity_id"): str,
         vol.Optional("tts_service"): str,
+        vol.Optional("tts_entity_id"): str,
         vol.Optional("icon"): str,
         vol.Optional("enabled"): bool,
         vol.Optional("resume_after_tts"): bool,
@@ -276,6 +308,8 @@ async def ws_create_recipient(
         vol.Optional("conditions"): vol.Any(dict, None),
         vol.Optional("chime_media_content_id"): vol.Any(None, str),
         vol.Optional("volume_override"): _VOLUME_SCHEMA,
+        vol.Optional("chime_wait_timeout"): _CHIME_WAIT_TIMEOUT_SCHEMA,
+        vol.Optional("chime_tts_gap"): _CHIME_TTS_GAP_SCHEMA,
     }
 )
 @websocket_api.async_response
@@ -344,6 +378,16 @@ async def ws_update_recipient(
     if "tts_service" in msg:
         kwargs["tts_service"] = msg["tts_service"]
 
+    if "tts_entity_id" in msg:
+        tts_entity_id = msg["tts_entity_id"]
+        if tts_entity_id and not tts_entity_id.startswith("tts."):
+            connection.send_error(
+                msg["id"], "invalid_tts_entity",
+                "tts_entity_id must start with 'tts.'",
+            )
+            return
+        kwargs["tts_entity_id"] = tts_entity_id
+
     if "icon" in msg:
         is_valid, error = validate_icon(msg["icon"])
         if not is_valid:
@@ -359,6 +403,12 @@ async def ws_update_recipient(
 
     if "tts_buffer_delay" in msg:
         kwargs["tts_buffer_delay"] = msg["tts_buffer_delay"]
+
+    if "chime_wait_timeout" in msg:
+        kwargs["chime_wait_timeout"] = msg["chime_wait_timeout"]
+
+    if "chime_tts_gap" in msg:
+        kwargs["chime_tts_gap"] = msg["chime_tts_gap"]
 
     # F-21: Device-level conditions (None clears via sparse storage).
     # BUG-093: empty dict normalizes to None, same as explicit None.
