@@ -68,6 +68,8 @@ For the full feature guide, see [USER_GUIDE.md](custom_components/ticker/USER_GU
 - **Smart notification management** - Auto-grouping, auto-tagging, sticky/persistent flags, and `ticker.clear_notification` service injected automatically at delivery time *(v1.5.0)*
 - **Notification navigation target** - `navigate_to` parameter on `ticker.notify` deep-links to any HA panel on notification tap, with a live navigation picker in the admin panel *(v1.5.0)*
 - **Pre-TTS chime** - configure an audio chime that plays through the target media_player immediately before each TTS announcement, set per recipient with optional per-category override; ships three bundled CC0 chime presets (subtle/alert/doorbell) so the feature is functional out-of-box *(v1.7.0)*
+- **Selectable modern TTS engine** - `tts.speak` recipients can target a specific Home Assistant TTS entity such as OpenAI TTS, while legacy TTS services remain supported
+- **Per-recipient chime timing** - tune the detected-chime timeout and fallback chime-to-speech gap without editing integration source files
 - **Volume override** - 0–100 % slider on the device and category dialogs sets the media_player volume for the chime+TTS pair, then restores the previous level after TTS finishes playing. Leave on "Default" to inherit the device's current volume *(v1.7.0)*
 - **Admin-assisted household setup** - admins can operate the user panel on another household member's behalf using a "Viewing as" dropdown in the panel header, making it easy to configure subscriptions and conditions for non-technical users without sharing credentials *(v1.7.0)*
 - **Multi-category fan-out** - `category` field accepts a list of category IDs so a single `ticker.notify` call can target multiple categories at once *(v1.6.0)*

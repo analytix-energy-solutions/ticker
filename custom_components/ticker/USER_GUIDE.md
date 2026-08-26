@@ -417,7 +417,7 @@ Each recipient has a device type that determines how Ticker delivers the notific
 
 **Push** — Ticker calls one or more notify services, the same way it does for person devices. The delivery format (rich or plain) is auto-detected from the service identifier and can be overridden by the admin. Use this for TVs with the `nfandroidtv` integration, persistent notifications, or any notify-based target.
 
-**TTS** — Ticker calls `tts.speak` targeting a media player entity. Use this for speakers or voice assistants. The admin selects the media player and optionally a TTS service from dropdowns populated from live HA data.
+**TTS** — Ticker calls a TTS service targeting a media player entity. Use this for speakers or voice assistants. The admin selects the media player and TTS service from dropdowns populated from live HA data. When using modern `tts.speak`, a separate **TTS Engine Entity** dropdown selects the provider (for example `tts.openai_tts` or `tts.home_assistant_cloud`). Existing legacy services such as `tts.cloud_say` continue to work without an engine entity.
 
 ### TTS delivery
 
@@ -442,7 +442,7 @@ Where it is configured:
 
 Both dialogs include a Test Chime button that plays the chime through the chosen media_player without going through the queue, sending TTS, or producing a History entry.
 
-The chime is fail-soft: if the media_player is offline, the asset is missing, or playback fails for any reason, the failure is logged as a warning and the TTS announcement still delivers normally — the History entry is still marked as Sent. TTS proceeds no more than 10 seconds after the chime starts playing on platforms that expose the chime in `media_content_id`; on platforms that never expose it (or the chime can't be detected within ~1.5 s), TTS proceeds after a fixed 3-second gap. Either way, a stuck or silent chime will never block the announcement indefinitely.
+The chime is fail-soft: if the media_player is offline, the asset is missing, or playback fails for any reason, the failure is logged as a warning and the TTS announcement still delivers normally — the History entry is still marked as Sent. The recipient dialog exposes two timing controls: **Chime wait timeout** caps how long Ticker waits for a detected-but-stuck chime (default 10 seconds), while **Fallback gap** controls the total delay when the player never exposes chime playback state (default 3 seconds). Short chimes on responsive local players can use a smaller fallback such as 1 second; slower Cast targets and longer chimes may need the defaults or higher values.
 
 **Caveat — Alexa double-chime:** Some TTS engines (notably Amazon Alexa via the Alexa Media Player integration) play their own "earcon" tone before speech. If Ticker also plays a chime, the listener hears two tones in a row. Ticker does not auto-detect this — leave the chime field empty for Alexa-based recipients to avoid the double-chime.
 

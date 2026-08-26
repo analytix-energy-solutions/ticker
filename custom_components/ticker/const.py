@@ -147,6 +147,8 @@ MEDIA_ANNOUNCE_FEATURE = 524288
 # before kicking off the TTS service call. Most chime assets are
 # 0.5–3 seconds; 10s tolerates a slow Chromecast buffer + 3s jingle.
 CHIME_WAIT_TIMEOUT = 10.0
+CHIME_WAIT_TIMEOUT_MIN = 0.5
+CHIME_WAIT_TIMEOUT_MAX = 60.0
 # Fixed delay (seconds) between the chime play_media call and the TTS
 # service call. State polling (`_wait_for_state_exit`) was unreliable
 # across platforms — HA Voice in particular keeps the entity in
@@ -158,6 +160,8 @@ CHIME_WAIT_TIMEOUT = 10.0
 # warm Nabu connections). Chime assets longer than this gap will
 # overlap with TTS — documented limitation.
 CHIME_TTS_GAP = 3.0
+CHIME_TTS_GAP_MIN = 0.0
+CHIME_TTS_GAP_MAX = 10.0
 ATTR_CHIME_MEDIA_CONTENT_ID = "chime_media_content_id"
 MAX_CHIME_MEDIA_CONTENT_ID_LENGTH = 500
 

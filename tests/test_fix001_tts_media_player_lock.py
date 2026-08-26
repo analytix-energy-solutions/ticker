@@ -89,7 +89,8 @@ class _ConcurrencyProbe:
         self._hold = hold
 
     async def __call__(self, hass, entity_id, tts_service, payload,
-                        *, chime_id=None, volume_level=None):
+                        *, chime_id=None, volume_level=None,
+                        chime_wait_timeout=None, chime_tts_gap=None):
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         self.events.append(f"start:{entity_id}")

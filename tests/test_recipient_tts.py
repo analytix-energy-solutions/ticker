@@ -534,6 +534,43 @@ class TestAsyncSendTts:
         assert call_args[0][1] == "google_translate_say"
 
     @pytest.mark.asyncio
+    async def test_modern_tts_uses_configured_engine_entity(self):
+        """tts.speak targets the configured engine entity when present."""
+        hass = _make_hass(entity_id="media_player.kitchen", features=0)
+        store = _make_store()
+        recipient = _make_recipient(tts_service="tts.speak")
+        recipient["tts_entity_id"] = "tts.openai_tts"
+
+        await async_send_tts(
+            hass, store, recipient, "cat1", "Title", "Hello",
+        )
+
+        payload = hass.services.async_call.call_args[0][2]
+        assert payload["entity_id"] == "tts.openai_tts"
+        assert payload["media_player_entity_id"] == "media_player.kitchen"
+
+    @pytest.mark.asyncio
+    async def test_recipient_chime_timing_reaches_delivery(self):
+        """Per-recipient chime timing overrides reach the delivery branch."""
+        hass = _make_hass(entity_id="media_player.kitchen", features=0)
+        store = _make_store()
+        recipient = _make_recipient()
+        recipient["chime_wait_timeout"] = 3.0
+        recipient["chime_tts_gap"] = 1.0
+
+        with patch(
+            "custom_components.ticker.recipient_tts._deliver_tts_plain",
+            new_callable=AsyncMock,
+            return_value="plain",
+        ) as deliver:
+            await async_send_tts(
+                hass, store, recipient, "cat1", "Title", "Hello",
+            )
+
+        assert deliver.await_args.kwargs["chime_wait_timeout"] == 3.0
+        assert deliver.await_args.kwargs["chime_tts_gap"] == 1.0
+
+    @pytest.mark.asyncio
     async def test_success_logs_sent_outcome(self):
         """Successful delivery logs with LOG_OUTCOME_SENT."""
         hass = _make_hass(entity_id="media_player.kitchen", features=0)

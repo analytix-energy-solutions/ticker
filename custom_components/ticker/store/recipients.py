@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 from ..const import (
     ATTR_USER_LINK,
+    CHIME_TTS_GAP,
+    CHIME_WAIT_TIMEOUT,
     DELIVERY_FORMAT_RICH,
     DELIVERY_FORMAT_TTS,
     DEVICE_TYPE_PUSH,
@@ -24,7 +26,6 @@ from ..const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
 
 class RecipientMixin:
     """Mixin providing recipient (non-user device) functionality for TickerStore.
@@ -80,11 +81,14 @@ class RecipientMixin:
         device_type: str = DEVICE_TYPE_PUSH,
         media_player_entity_id: str | None = None,
         tts_service: str | None = None,
+        tts_entity_id: str | None = None,
         resume_after_tts: bool = False,
         tts_buffer_delay: float = TTS_BUFFER_DELAY_DEFAULT,
         conditions: dict[str, Any] | None = None,
         chime_media_content_id: str | None = None,
         volume_override: float | None = None,
+        chime_wait_timeout: float = CHIME_WAIT_TIMEOUT,
+        chime_tts_gap: float = CHIME_TTS_GAP,
     ) -> dict[str, Any]:
         """Create a new recipient.
 
@@ -100,6 +104,7 @@ class RecipientMixin:
             device_type: 'push' or 'tts'.
             media_player_entity_id: Media player entity for TTS devices.
             tts_service: TTS service (e.g., 'tts.google_translate_say').
+            tts_entity_id: TTS engine entity used by modern ``tts.speak``.
             resume_after_tts: Whether to resume media after TTS playback.
             tts_buffer_delay: Seconds to wait before TTS playback (Chromecast).
             conditions: Device-level conditions dict (time/state rules).
@@ -148,8 +153,11 @@ class RecipientMixin:
             "delivery_format": delivery_format,
             "media_player_entity_id": media_player_entity_id,
             "tts_service": tts_service,
+            "tts_entity_id": tts_entity_id,
             "resume_after_tts": resume_after_tts,
             "tts_buffer_delay": tts_buffer_delay,
+            "chime_wait_timeout": float(chime_wait_timeout),
+            "chime_tts_gap": float(chime_tts_gap),
             "enabled": enabled,
             "created_at": now,
             "updated_at": now,
@@ -218,8 +226,9 @@ class RecipientMixin:
         allowed_fields = {
             "name", "icon", "notify_services", "delivery_format", "enabled",
             "device_type", "media_player_entity_id", "tts_service",
-            "resume_after_tts", "tts_buffer_delay", "conditions",
+            "tts_entity_id", "resume_after_tts", "tts_buffer_delay", "conditions",
             "chime_media_content_id", "volume_override",
+            "chime_wait_timeout", "chime_tts_gap",
         }
         unknown = set(kwargs) - allowed_fields
         if unknown:
@@ -233,6 +242,12 @@ class RecipientMixin:
                 if key == "conditions" and value is None:
                     # Sparse storage: remove conditions key when cleared
                     self._recipients[recipient_id].pop("conditions", None)
+                elif key == "tts_entity_id":
+                    cleaned = value.strip() if isinstance(value, str) else ""
+                    if cleaned:
+                        self._recipients[recipient_id]["tts_entity_id"] = cleaned
+                    else:
+                        self._recipients[recipient_id].pop("tts_entity_id", None)
                 elif key == "chime_media_content_id":
                     # F-35: sparse storage — strip + remove key when blank
                     cleaned = (value or "").strip() if isinstance(value, str) else ""
@@ -449,8 +464,11 @@ class RecipientMixin:
                 # Ensure TTS fields exist even on already-migrated data
                 recipient.setdefault("media_player_entity_id", None)
                 recipient.setdefault("tts_service", None)
+                recipient.setdefault("tts_entity_id", None)
                 recipient.setdefault("resume_after_tts", False)
                 recipient.setdefault("tts_buffer_delay", TTS_BUFFER_DELAY_DEFAULT)
+                recipient.setdefault("chime_wait_timeout", CHIME_WAIT_TIMEOUT)
+                recipient.setdefault("chime_tts_gap", CHIME_TTS_GAP)
                 continue
 
             old_format = recipient.get("delivery_format", DELIVERY_FORMAT_RICH)
@@ -466,8 +484,11 @@ class RecipientMixin:
 
             recipient.setdefault("media_player_entity_id", None)
             recipient.setdefault("tts_service", None)
+            recipient.setdefault("tts_entity_id", None)
             recipient.setdefault("resume_after_tts", False)
             recipient.setdefault("tts_buffer_delay", TTS_BUFFER_DELAY_DEFAULT)
+            recipient.setdefault("chime_wait_timeout", CHIME_WAIT_TIMEOUT)
+            recipient.setdefault("chime_tts_gap", CHIME_TTS_GAP)
             migrated += 1
             _LOGGER.info(
                 "Migrated recipient %s: device_type=%s (was format=%s)",

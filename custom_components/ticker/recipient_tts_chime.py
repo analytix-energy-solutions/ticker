@@ -40,7 +40,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-
 # ---------------------------------------------------------------------------
 # BUG-109 iteration 2: cast-platform detection
 # ---------------------------------------------------------------------------
@@ -84,6 +83,7 @@ async def _wait_for_chime_complete(
     entity_id: str,
     chime_url: str,
     timeout: float = CHIME_WAIT_TIMEOUT,
+    fallback_gap: float = CHIME_TTS_GAP,
     poll_interval: float = 0.2,
     detect_window: float = 1.5,
 ) -> None:
@@ -128,10 +128,12 @@ async def _wait_for_chime_complete(
         current = state.attributes.get("media_content_id") or ""
         return chime_marker in current or current == chime_url
 
-    # Phase 1: wait briefly for the chime to register on the entity
+    # Cap detection to configured budgets so a 1.0s fallback gap does not
+    # still block for the default ~1.5s detection window.
+    effective_detect_window = min(detect_window, timeout, fallback_gap)
     elapsed = 0.0
     started = False
-    while elapsed < detect_window:
+    while elapsed < effective_detect_window:
         if _is_chime_now():
             started = True
             _LOGGER.debug(
@@ -145,11 +147,11 @@ async def _wait_for_chime_complete(
     if not started:
         # Platform doesn't expose chime in content_id — fall back to
         # the fixed gap so we still give the chime time to play.
-        fallback = max(0.0, CHIME_TTS_GAP - elapsed)
+        fallback = max(0.0, fallback_gap - elapsed)
         _LOGGER.debug(
             "Pre-TTS chime: not observed in content_id on %s within "
             "%.1fs; falling back to %.1fs fixed delay",
-            entity_id, detect_window, fallback,
+            entity_id, effective_detect_window, fallback,
         )
         await asyncio.sleep(fallback)
         return
@@ -200,6 +202,8 @@ async def _play_chime(
     chime_id: str,
     announce: bool = False,
     volume_level: float | None = None,
+    chime_wait_timeout: float = CHIME_WAIT_TIMEOUT,
+    chime_tts_gap: float = CHIME_TTS_GAP,
 ) -> None:
     """F-35: Play a pre-TTS chime on entity_id, fail-soft.
 
@@ -300,7 +304,11 @@ async def _play_chime(
         # content_id (HA Voice, most cast/Sonos integrations). For
         # platforms that never expose the chime in content_id we fall
         # back to a CHIME_TTS_GAP fixed delay.
-        await _wait_for_chime_complete(hass, entity_id, chime_id)
+        await _wait_for_chime_complete(
+            hass, entity_id, chime_id,
+            timeout=chime_wait_timeout,
+            fallback_gap=chime_tts_gap,
+        )
     finally:
         if snapshot_volume is not None:
             # Cast: use jiggle for restore (still needs the cache-busting
