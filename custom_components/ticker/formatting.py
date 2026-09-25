@@ -109,6 +109,16 @@ def build_tts_payload(
     """
     clean_message = strip_html(message or "")
 
+    # Amazon Alexa (alexa_devices integration) rejects tts.speak/play_media
+    # ("music is not available as a music provider"). Recipients configured
+    # with a notify.-entity tts_service must be delivered via that entity's
+    # own service call, targeting itself as entity_id.
+    if tts_service and tts_service.lower().startswith("notify."):
+        return {
+            "entity_id": tts_service,
+            "message": clean_message,
+        }
+
     # Modern tts.speak uses media_player_entity_id as the speaker target
     # and entity_id as the TTS engine entity (e.g., tts.google_translate).
     # Ticker only stores the media player, not the TTS engine entity, so
