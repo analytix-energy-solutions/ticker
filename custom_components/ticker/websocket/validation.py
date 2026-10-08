@@ -16,8 +16,11 @@ from ..const import (
     CONDITION_NODE_GROUP,
     CONDITION_OPERATORS,
     DOMAIN,
+    DURATION_COMPARISONS,
     MAX_ACTIONS_PER_SET,
+    MAX_DURATION_MINUTES,
     MAX_NAVIGATE_TO_LENGTH,
+    RULE_TYPE_DURATION,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
     RULE_TYPE_ZONE,
@@ -42,6 +45,10 @@ MAX_COLOR_LENGTH = 20
 CATEGORY_ID_PATTERN = re.compile(r"^[a-z0-9_]+$")
 ICON_PATTERN = re.compile(r"^[a-z0-9_\-:]+$", re.IGNORECASE)
 COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+# domain.object_id with safe characters; shared by validate_entity_id (which
+# also checks a specific domain prefix) and any validator that accepts an
+# entity ID from any domain (e.g. duration rule leaves).
+ENTITY_ID_FORMAT_PATTERN = re.compile(r"^[a-z_]+\.[a-z0-9_]+$")
 
 
 def sanitize_for_storage(value: str | None, max_length: int = 200) -> str | None:
@@ -175,7 +182,7 @@ def validate_entity_id(entity_id: str, domain: str) -> tuple[bool, str | None]:
         return False, f"Invalid {domain} entity ID format"
 
     # Basic format check: domain.object_id with safe characters
-    if not re.match(r"^[a-z_]+\.[a-z0-9_]+$", entity_id):
+    if not ENTITY_ID_FORMAT_PATTERN.match(entity_id):
         return False, f"Invalid {domain} entity ID format"
 
     return True, None
@@ -277,6 +284,51 @@ def _validate_state_leaf(
     return None
 
 
+def _validate_duration_leaf(
+    leaf: dict,
+    hass: HomeAssistant | None,
+) -> tuple[str, str] | None:
+    """Validate a duration leaf node.
+
+    ``entity_id`` is optional (blank defaults to the subscription's own
+    person entity at evaluation time), but when present must be a valid
+    entity ID, and must exist when ``hass`` is provided. ``state`` and
+    a positive ``minutes`` (within ``MAX_DURATION_MINUTES``) are required.
+    ``comparison`` defaults to "within" and must be a known value.
+
+    Returns:
+        (error_code, error_message) tuple if invalid, None if valid.
+    """
+    entity_id = leaf.get("entity_id", "")
+    if entity_id:
+        if not ENTITY_ID_FORMAT_PATTERN.match(entity_id):
+            return ("invalid_duration_rule", f"Invalid entity ID format '{entity_id}'")
+        if hass is not None and not hass.states.get(entity_id):
+            return ("entity_not_found", f"Entity '{entity_id}' does not exist")
+
+    state_val = leaf.get("state", "")
+    if not isinstance(state_val, str) or not state_val:
+        return ("invalid_duration_rule", "'state' is required for duration rules")
+
+    comparison = leaf.get("comparison", DURATION_COMPARISONS[0])
+    if comparison not in DURATION_COMPARISONS:
+        return (
+            "invalid_duration_rule",
+            f"'comparison' must be one of {DURATION_COMPARISONS}",
+        )
+
+    minutes = leaf.get("minutes")
+    if not isinstance(minutes, (int, float)) or isinstance(minutes, bool) or minutes <= 0:
+        return ("invalid_duration_rule", "'minutes' must be a positive number")
+    if minutes > MAX_DURATION_MINUTES:
+        return (
+            "invalid_duration_rule",
+            f"'minutes' must be {MAX_DURATION_MINUTES} or less",
+        )
+
+    return None
+
+
 def _validate_leaf(
     leaf: dict,
     hass: HomeAssistant | None,
@@ -293,6 +345,8 @@ def _validate_leaf(
         return _validate_time_leaf(leaf)
     if leaf_type == RULE_TYPE_STATE:
         return _validate_state_leaf(leaf, hass)
+    if leaf_type == RULE_TYPE_DURATION:
+        return _validate_duration_leaf(leaf, hass)
     return ("invalid_leaf_type", f"Unknown leaf type '{leaf_type}'")
 
 
