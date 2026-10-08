@@ -45,6 +45,7 @@ from .const import (
 from .service_schema import _build_service_schema, _build_service_description
 from .conditions import evaluate_condition_tree
 from .formatting import build_smart_tag
+from .priority_fallback import resolve_priority_group
 from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
     async_send_to_recipient,
@@ -274,6 +275,38 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "dropped": [],
         }
 
+        # Priority fallback: a category-level
+        # "only_home_then_away" / "just_left_then_away" mode narrows the
+        # person list to a single winning presence group for this call,
+        # before subscription mode/conditions are evaluated per person.
+        dispatch_persons = persons
+        priority_fallback = (category or {}).get("priority_fallback")
+        if priority_fallback:
+            dispatch_persons = resolve_priority_group(
+                persons, priority_fallback, dt_util.utcnow(),
+            )
+            winning_ids = {p.entity_id for p in dispatch_persons}
+            # Disabled users are already silently skipped by the
+            # is_user_enabled check below with no log entry; don't log a
+            # misleading "not in winning group" reason for them too.
+            skipped_ids = [
+                p.entity_id for p in persons
+                if p.entity_id not in winning_ids
+                and store.is_user_enabled(p.entity_id)
+            ]
+            for skipped_id in skipped_ids:
+                await store.async_add_log(
+                    category_id=category_id,
+                    person_id=skipped_id,
+                    person_name=_get_person_name(hass, skipped_id),
+                    title=title,
+                    message=message,
+                    outcome=LOG_OUTCOME_SKIPPED,
+                    reason=f"Priority fallback ({priority_fallback.get('mode')}): not in winning group",
+                    notification_id=notification_id,
+                )
+                delivery_results["dropped"].append(f"{skipped_id}: priority fallback")
+
         async def _process_person(person_state) -> None:
             person_id = person_state.entity_id
             person_name = person_state.attributes.get("friendly_name", person_id)
@@ -437,7 +470,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
         # delivery_results dict; asyncio is single-threaded so the list
         # extends are safe. return_exceptions=True keeps a failure in one
         # subscriber from aborting the rest of the fan-out.
-        dispatch_tasks = [_process_person(ps) for ps in persons]
+        dispatch_tasks = [_process_person(ps) for ps in dispatch_persons]
         dispatch_tasks += [
             _process_recipient(r_id, r_data)
             for r_id, r_data in recipients.items()
