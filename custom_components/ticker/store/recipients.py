@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -42,9 +42,9 @@ class RecipientMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _recipients: dict[str, dict[str, Any]]
-    _recipients_store: "Store[dict[str, dict[str, Any]]]"
+    _recipients_store: Store[dict[str, dict[str, Any]]]
     _subscriptions: dict[str, dict[str, Any]]
 
     async def async_save_recipients(self) -> None:
@@ -138,7 +138,7 @@ class RecipientMixin:
             # TTS device type ignores delivery_format
             delivery_format = DELIVERY_FORMAT_RICH  # stored default, unused
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         recipient: dict[str, Any] = {
             "recipient_id": recipient_id,
             "name": name,
@@ -260,7 +260,7 @@ class RecipientMixin:
                     self._recipients[recipient_id][key] = value
 
         self._recipients[recipient_id]["updated_at"] = (
-            datetime.now(timezone.utc).isoformat()
+            datetime.now(UTC).isoformat()
         )
         await self.async_save_recipients()
         _LOGGER.debug("Updated recipient: %s", recipient_id)
@@ -325,7 +325,7 @@ class RecipientMixin:
 
         self._recipients[recipient_id]["enabled"] = enabled
         self._recipients[recipient_id]["updated_at"] = (
-            datetime.now(timezone.utc).isoformat()
+            datetime.now(UTC).isoformat()
         )
         await self.async_save_recipients()
 
@@ -355,7 +355,7 @@ class RecipientMixin:
         else:
             recipient[ATTR_USER_LINK] = person_id
 
-        recipient["updated_at"] = datetime.now(timezone.utc).isoformat()
+        recipient["updated_at"] = datetime.now(UTC).isoformat()
         await self.async_save_recipients()
         _LOGGER.info(
             "Recipient %s user_link %s",
@@ -407,7 +407,7 @@ class RecipientMixin:
             # subs we just seeded.
             self._recipients[rid].pop(ATTR_USER_LINK, None)
             self._recipients[rid]["updated_at"] = (
-                datetime.now(timezone.utc).isoformat()
+                datetime.now(UTC).isoformat()
             )
             _LOGGER.warning(
                 "F-39 orphan fallback: recipient %s was linked to %s "

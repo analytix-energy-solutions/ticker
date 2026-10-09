@@ -23,7 +23,6 @@ _cache_timestamp: float = 0.0
 
 def _is_cache_valid() -> bool:
     """Check if the cache is still valid based on TTL."""
-    global _cache_timestamp
     if not _discovery_cache:
         return False
     return (time.monotonic() - _cache_timestamp) < CACHE_TTL_SECONDS

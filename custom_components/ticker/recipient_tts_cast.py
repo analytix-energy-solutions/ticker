@@ -59,7 +59,7 @@ async def _restore_previous_media(
         )
         _LOGGER.debug("Restored media on %s after TTS", entity_id)
         return True
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _LOGGER.warning(
             "Timeout restoring media on %s after TTS (exceeded %ds)",
             entity_id, NOTIFY_SERVICE_TIMEOUT,

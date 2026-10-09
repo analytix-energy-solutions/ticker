@@ -16,9 +16,9 @@ from homeassistant.util import dt as dt_util
 from .conditions_legacy import convert_legacy_zones_to_rules  # noqa: F401
 from .const import (
     CONDITION_NODE_GROUP,
-    RULE_TYPE_ZONE,
-    RULE_TYPE_TIME,
     RULE_TYPE_STATE,
+    RULE_TYPE_TIME,
+    RULE_TYPE_ZONE,
 )
 
 if TYPE_CHECKING:
@@ -60,7 +60,7 @@ def resolve_zone_name(hass: HomeAssistant, zone_id: str) -> str:
 def evaluate_zone_rule(
     hass: HomeAssistant,
     rule: dict[str, Any],
-    person_state: "State",
+    person_state: State,
 ) -> tuple[bool, str]:
     """Evaluate a zone rule against the person's current zone membership.
 
@@ -158,7 +158,7 @@ def evaluate_state_rule(
 def evaluate_rule(
     hass: HomeAssistant,
     rule: dict[str, Any],
-    person_state: "State | None",
+    person_state: State | None,
     now: datetime | None = None,
 ) -> tuple[bool, str]:
     """Evaluate a single rule by type. Returns (is_met, reason)."""
@@ -181,7 +181,7 @@ def evaluate_rule(
 def evaluate_rules(
     hass: HomeAssistant,
     rules: list[dict[str, Any]],
-    person_state: "State | None",
+    person_state: State | None,
     now: datetime | None = None,
 ) -> tuple[bool, list[tuple[bool, str]]]:
     """Evaluate all rules with AND logic. Returns (all_met, per_rule_results)."""
@@ -235,7 +235,7 @@ def _apply_negate(
 def evaluate_group(
     hass: HomeAssistant,
     group: dict[str, Any],
-    person_state: "State | None",
+    person_state: State | None,
     now: datetime | None = None,
 ) -> tuple[bool, list[tuple[bool, str]]]:
     """Evaluate a condition group node (AND or OR) recursively."""
@@ -286,7 +286,7 @@ def evaluate_group(
 def evaluate_condition_tree(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State | None",
+    person_state: State | None,
     now: datetime | None = None,
 ) -> tuple[bool, list[tuple[bool, str]]]:
     """Evaluate conditions using condition_tree or rules[] (legacy fallback)."""
@@ -302,7 +302,7 @@ def evaluate_condition_tree(
 def should_deliver_now(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State | None",
+    person_state: State | None,
     now: datetime | None = None,
 ) -> tuple[bool, str]:
     """Check if notification should be delivered now based on conditions."""
@@ -335,7 +335,7 @@ def should_deliver_now(
 def should_queue(
     hass: HomeAssistant,
     conditions: dict[str, Any],
-    person_state: "State | None",
+    person_state: State | None,
     now: datetime | None = None,
 ) -> tuple[bool, str]:
     """Check if notification should be queued (conditions not yet met)."""
@@ -452,10 +452,7 @@ def has_any_conditions(conditions: dict[str, Any] | None) -> bool:
     if conditions.get("rules"):
         return True
 
-    if conditions.get("zones"):
-        return True
-
-    return False
+    return bool(conditions.get("zones"))
 
 
 def has_valid_rules(conditions: dict[str, Any] | None) -> bool:

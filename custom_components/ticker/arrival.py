@@ -7,18 +7,19 @@ arrive at configured zones.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
-from homeassistant.core import HomeAssistant, callback, Event
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.entity_registry import (
     EVENT_ENTITY_REGISTRY_UPDATED,
     EventEntityRegistryUpdatedData,
 )
+from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import MODE_CONDITIONAL
-from .conditions import evaluate_condition_tree, resolve_zone_name
 from .bundled_notify import async_send_bundled_notification
+from .conditions import evaluate_condition_tree, resolve_zone_name
+from .const import MODE_CONDITIONAL
 from .recipient_notify import async_send_to_recipient
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_setup_arrival_listener(
     hass: HomeAssistant,
-    entry: "TickerConfigEntry",
+    entry: TickerConfigEntry,
 ) -> Callable[[], None]:
     """Set up listener for person state changes to handle ON_ARRIVAL notifications.
 
@@ -298,7 +299,7 @@ async def async_setup_arrival_listener(
 
 async def async_release_queue_for_conditions(
     hass: HomeAssistant,
-    store: "TickerStore",
+    store: TickerStore,
     person_id: str,
     category_id: str,
 ) -> None:
@@ -379,7 +380,7 @@ async def async_release_queue_for_conditions(
 
 async def _async_deliver_recipient_queue(
     hass: HomeAssistant,
-    store: "TickerStore",
+    store: TickerStore,
     person_id: str,
     category_id: str,
     entries: list[dict],

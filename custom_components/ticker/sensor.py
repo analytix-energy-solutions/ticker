@@ -72,7 +72,7 @@ async def async_setup_entry(
 async def _async_update_sensors_for_categories(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    store: "TickerStore",
+    store: TickerStore,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Update sensors when categories change."""

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from .const import (
@@ -30,9 +30,9 @@ class QueueMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _queue: dict[str, dict[str, Any]]
-    _queue_store: "Store[dict[str, dict[str, Any]]]"
+    _queue_store: Store[dict[str, dict[str, Any]]]
 
     async def async_save_queue(self) -> None:
         """Save queue to storage."""
@@ -44,7 +44,7 @@ class QueueMixin:
         F-25: Before deletion, write a log entry with outcome "expired" so the
         user and admin can see that a queued notification was never delivered.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expired_ids = []
 
         for queue_id, entry in self._queue.items():
@@ -75,7 +75,7 @@ class QueueMixin:
                         image_url=image_url,
                         reason="Queue expired before delivery",
                     )
-                except Exception:  # noqa: BLE001 — never block cleanup on log failure
+                except Exception:
                     _LOGGER.exception(
                         "Failed to write expired log entry for queue %s", queue_id
                     )
@@ -110,7 +110,7 @@ class QueueMixin:
         notification_id: str | None = None,
     ) -> dict[str, Any]:
         """Add a notification to the queue."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         queue_id = str(uuid.uuid4())
 
         entry = {
@@ -188,7 +188,7 @@ class QueueMixin:
         """
         requeued = 0
         discarded = 0
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for entry in entries:
             retry_count = entry.get("retry_count", 0) + 1

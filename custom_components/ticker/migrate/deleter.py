@@ -41,7 +41,7 @@ async def async_delete_notification(
             finding["source_id"],
             finding["action_path"],
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — failure is reported in the result, not raised
         result["success"] = False
         result["error"] = str(e)
         _LOGGER.error("Failed to delete notification: %s", e)
@@ -272,6 +272,10 @@ def _delete_at_path(
             if isinstance(current, dict) and key_str in current:
                 current = current[key_str]
 
-    if parent_list is not None and target_index is not None:
-        if isinstance(parent_list, list) and target_index < len(parent_list):
-            del parent_list[target_index]
+    if (
+        parent_list is not None
+        and target_index is not None
+        and isinstance(parent_list, list)
+        and target_index < len(parent_list)
+    ):
+        del parent_list[target_index]

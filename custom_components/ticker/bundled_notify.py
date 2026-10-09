@@ -15,8 +15,8 @@ from homeassistant.exceptions import HomeAssistantError
 
 from .const import (
     DEFAULT_NAVIGATE_TO,
-    DELIVERY_FORMAT_RICH,
     DELIVERY_FORMAT_PLAIN,
+    DELIVERY_FORMAT_RICH,
     DEVICE_MODE_ALL,
     LOG_OUTCOME_SENT,
     NOTIFY_SERVICE_TIMEOUT,
@@ -40,7 +40,7 @@ async def async_send_bundled_notification(
     hass: HomeAssistant,
     person_id: str,
     entries: list[dict[str, Any]],
-    store: "TickerStore",
+    store: TickerStore,
 ) -> bool:
     """Send a bundled notification summarizing queued notifications.
 
@@ -241,7 +241,7 @@ async def async_send_bundled_notification(
                 service_name_display,
             )
             any_success = True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.error(
                 "Timeout sending bundled notification to %s via %s (exceeded %ds)",
                 person_id,

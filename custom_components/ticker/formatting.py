@@ -10,8 +10,8 @@ Used by F-18 (Non-User Recipient Support) and shared with F-16
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -21,15 +21,15 @@ from homeassistant.util import slugify
 
 from .const import (
     DEFAULT_NAVIGATE_TO,
-    DELIVERY_FORMAT_RICH,
-    DELIVERY_FORMAT_PLAIN,
-    DELIVERY_FORMAT_TTS,
-    DELIVERY_FORMAT_PERSISTENT,
     DELIVERY_FORMAT_PATTERNS,
+    DELIVERY_FORMAT_PERSISTENT,
+    DELIVERY_FORMAT_PLAIN,
+    DELIVERY_FORMAT_RICH,
+    DELIVERY_FORMAT_TTS,
     DEVICE_TYPE_PUSH,
     DEVICE_TYPE_TTS,
-    SMART_TAG_MODE_NONE,
     SMART_TAG_MODE_CATEGORY,
+    SMART_TAG_MODE_NONE,
     SMART_TAG_MODE_TITLE,
 )
 
@@ -367,9 +367,12 @@ def resolve_ios_platform(hass: HomeAssistant, service_id: str) -> bool:
 
     # Path 1: Direct entity lookup (modern notify entities)
     entity_entry = entity_reg.async_get(service_id)
-    if entity_entry and entity_entry.device_id:
-        if _check_device_ios(hass, device_reg, entity_entry.device_id):
-            return True
+    if (
+        entity_entry
+        and entity_entry.device_id
+        and _check_device_ios(hass, device_reg, entity_entry.device_id)
+    ):
+        return True
 
     # Path 2: Legacy mobile_app — match by slugified device_name
     svc_suffix = service_id.split(".", 1)[1]

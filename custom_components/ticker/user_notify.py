@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
+from .actions import build_action_payload, resolve_action_set
 from .const import (
     DEFAULT_NAVIGATE_TO,
     DELIVERY_FORMAT_PLAIN,
@@ -21,7 +22,6 @@ from .const import (
     LOG_OUTCOME_SNOOZED,
     NOTIFY_SERVICE_TIMEOUT,
 )
-from .actions import build_action_payload, resolve_action_set
 from .discovery import async_get_notify_services_for_person
 from .formatting import (
     detect_delivery_format,
@@ -40,7 +40,7 @@ _LOGGER = logging.getLogger(__name__)
 
 async def async_handle_conditional_notification(
     hass: HomeAssistant,
-    store: "TickerStore",
+    store: TickerStore,
     person_id: str,
     person_name: str,
     person_state: Any,
@@ -70,10 +70,10 @@ async def async_handle_conditional_notification(
         Dict with 'delivered', 'queued', 'dropped' lists of service IDs/descriptions.
     """
     from .conditions import (
-        should_deliver_now,
-        should_queue,
         convert_legacy_zones_to_rules,
         has_any_conditions,
+        should_deliver_now,
+        should_queue,
     )
 
     image_url = data.get("image") if data else None
@@ -191,7 +191,7 @@ async def async_handle_conditional_notification(
 
 async def async_send_notification(
     hass: HomeAssistant,
-    store: "TickerStore",
+    store: TickerStore,
     person_id: str,
     person_name: str,
     category_id: str,
@@ -413,7 +413,7 @@ async def async_send_notification(
                 image_url=image_url,
             )
             results["delivered"].append(service_id)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.error(
                 "Timeout sending notification to %s via %s (exceeded %ds)",
                 person_id,
@@ -453,7 +453,7 @@ async def async_send_notification(
                 image_url=image_url,
             )
             results["dropped"].append(f"{service_id}: {err}")
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 — one device failing must not stop the others
             _LOGGER.error(
                 "Unexpected error sending notification to %s via %s: %s",
                 person_id,

@@ -10,15 +10,14 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, ServiceNotFound
 
 from ..const import (
     ATTR_USER_LINK,
-    DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_PERSISTENT,
+    DELIVERY_FORMAT_PLAIN,
     DELIVERY_FORMAT_RICH,
     DEVICE_TYPE_TTS,
     MEDIA_ANNOUNCE_FEATURE,
@@ -125,7 +124,7 @@ async def ws_get_available_notify_services(
                 excluded.add(svc)
 
     # Collect services already assigned to users
-    for _pid, user in store.get_users().items():
+    for user in store.get_users().values():
         for svc in user.get("notify_services_override") or []:
             if isinstance(svc, dict):
                 excluded.add(svc.get("service", ""))
@@ -473,4 +472,4 @@ def _collect_linked_recipients(store: Any, person_id: str) -> list[dict[str, Any
 # b21 (Issue 3) added the cast-target snapshot/restore wrapper around
 # ``ws_test_chime``. Re-exported here so existing imports (tests and
 # ``websocket/__init__.py``) continue to resolve via this module.
-from .chime_helpers import ws_get_bundled_chimes  # noqa: E402,F401
+from .chime_helpers import ws_get_bundled_chimes  # noqa: F401

@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install ruff
+      - run: pip install ruff==0.16.10
       - run: ruff check custom_components/ticker/
 
   security:
@@ -29,5 +29,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: pip install bandit
+      - run: pip install bandit==1.9.4
       - run: bandit -r custom_components/ticker/ -ll -ii -f txt

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -23,9 +23,9 @@ class SnoozeMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _snoozes: dict[str, dict[str, Any]]
-    _snoozes_store: "Store[dict[str, dict[str, Any]]]"
+    _snoozes_store: Store[dict[str, dict[str, Any]]]
 
     async def async_save_snoozes(self) -> None:
         """Save snoozes to storage."""
@@ -41,7 +41,7 @@ class SnoozeMixin:
             return None
 
         expires_at = datetime.fromisoformat(record["expires_at"])
-        if datetime.now(timezone.utc) >= expires_at:
+        if datetime.now(UTC) >= expires_at:
             # Lazy-delete expired snooze
             del self._snoozes[key]
             self.hass.async_create_task(self.async_save_snoozes())
@@ -57,7 +57,7 @@ class SnoozeMixin:
         self, person_id: str, category_id: str, minutes: int
     ) -> dict[str, Any]:
         """Create or overwrite a snooze record."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         key = f"{person_id}:{category_id}"
 
         record = {
@@ -92,7 +92,7 @@ class SnoozeMixin:
         self, person_id: str
     ) -> list[dict[str, Any]]:
         """Get all active snoozes for a person."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         active: list[dict[str, Any]] = []
         expired_keys: list[str] = []
 
@@ -115,7 +115,7 @@ class SnoozeMixin:
 
     async def _async_cleanup_expired_snoozes(self) -> None:
         """Bulk remove expired snoozes. Called on load."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         expired_keys = [
             key
             for key, record in self._snoozes.items()

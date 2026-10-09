@@ -19,39 +19,38 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers.service import async_set_service_schema
-
 from homeassistant.util import dt as dt_util
 
+from .conditions import evaluate_condition_tree
 from .const import (
-    DOMAIN,
-    SERVICE_NOTIFY,
-    ATTR_CATEGORY,
-    ATTR_TITLE,
-    ATTR_MESSAGE,
-    ATTR_EXPIRATION,
-    ATTR_DATA,
-    ATTR_ACTIONS,
     ATTR_ACTION_SET_ID,
-    ATTR_CRITICAL,
-    ATTR_NAVIGATE_TO,
+    ATTR_ACTIONS,
+    ATTR_CATEGORY,
     ATTR_CLEAR_WHEN,
+    ATTR_CRITICAL,
+    ATTR_DATA,
+    ATTR_EXPIRATION,
+    ATTR_MESSAGE,
+    ATTR_NAVIGATE_TO,
+    ATTR_TITLE,
     DEFAULT_EXPIRATION_HOURS,
-    MODE_ALWAYS,
-    MODE_NEVER,
-    MODE_CONDITIONAL,
+    DOMAIN,
     LOG_OUTCOME_SKIPPED,
+    MODE_ALWAYS,
+    MODE_CONDITIONAL,
+    MODE_NEVER,
+    SERVICE_NOTIFY,
     SMART_TAG_MODE_NONE,
 )
-from .service_schema import _build_service_schema, _build_service_description
-from .conditions import evaluate_condition_tree
 from .formatting import build_smart_tag
-from .user_notify import async_handle_conditional_notification, async_send_notification
 from .recipient_notify import (
-    async_send_to_recipient,
     async_handle_conditional_recipient,
+    async_send_to_recipient,
     resolve_effective_subscription_pid,
 )
 from .sensor import get_category_sensor
+from .service_schema import _build_service_description, _build_service_schema
+from .user_notify import async_handle_conditional_notification, async_send_notification
 
 if TYPE_CHECKING:
     from . import TickerConfigEntry
@@ -60,7 +59,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _get_loaded_entry(hass: HomeAssistant) -> "TickerConfigEntry":
+def _get_loaded_entry(hass: HomeAssistant) -> TickerConfigEntry:
     """Get a loaded Ticker config entry or raise ServiceValidationError."""
     entries = hass.config_entries.async_entries(DOMAIN)
 
@@ -81,7 +80,7 @@ def _get_loaded_entry(hass: HomeAssistant) -> "TickerConfigEntry":
     return entry
 
 
-def _resolve_category_id(category_name: str, store: "TickerStore") -> str:
+def _resolve_category_id(category_name: str, store: TickerStore) -> str:
     """Resolve category name to category ID or raise ServiceValidationError."""
     # Check if it's already a valid category ID
     if store.category_exists(category_name):
@@ -246,7 +245,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     async def _dispatch_to_category(
         *,
         hass: HomeAssistant,
-        store: "TickerStore",
+        store: TickerStore,
         category: dict | None,
         category_id: str,
         title: str,
@@ -497,7 +496,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
     _LOGGER.info("Ticker services registered")
 
 
-def register_schema_updater(hass: HomeAssistant, entry: "TickerConfigEntry") -> None:
+def register_schema_updater(hass: HomeAssistant, entry: TickerConfigEntry) -> None:
     """Register callback to update service schema when categories change.
 
     Called from async_setup_entry after store is initialized.

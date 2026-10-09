@@ -10,9 +10,9 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from ..const import (
+    MIGRATE_SERVICES,
     MIGRATE_SOURCE_AUTOMATION,
     MIGRATE_SOURCE_SCRIPT,
-    MIGRATE_SERVICES,
 )
 from .common import normalize_to_list, read_yaml_file, slugify
 from .duplicates import _mark_adjacent_duplicates
@@ -69,7 +69,7 @@ async def _scan_automations(hass: HomeAssistant, match_services: list[str]) -> l
                 entity_id, f = _process_automation(auto, match_services, source_file=".storage/automation.config")
                 findings.extend(f)
                 scanned_ids.add(entity_id)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
         _LOGGER.debug("Could not load UI automations: %s", e)
 
     # Method 2: YAML - single file (automations.yaml)
@@ -86,7 +86,7 @@ async def _scan_automations(hass: HomeAssistant, match_services: list[str]) -> l
                     if entity_id not in scanned_ids:
                         findings.extend(f)
                         scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.warning("Could not read automations.yaml: %s", e)
 
     # Method 3: YAML - directory (!include_dir_list or !include_dir_merge_list)
@@ -106,7 +106,7 @@ async def _scan_automations(hass: HomeAssistant, match_services: list[str]) -> l
                     if entity_id not in scanned_ids:
                         findings.extend(f)
                         scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.warning("Could not read automations directory: %s", e)
 
     # Method 4: Packages directory
@@ -127,7 +127,7 @@ async def _scan_automations(hass: HomeAssistant, match_services: list[str]) -> l
                         if entity_id not in scanned_ids:
                             findings.extend(f)
                             scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.debug("Could not read packages: %s", e)
 
     # Method 5: configuration.yaml inline automations
@@ -146,7 +146,7 @@ async def _scan_automations(hass: HomeAssistant, match_services: list[str]) -> l
                         if entity_id not in scanned_ids:
                             findings.extend(f)
                             scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.debug("Could not check configuration.yaml for automations: %s", e)
 
     return findings
@@ -172,7 +172,7 @@ async def _scan_scripts(hass: HomeAssistant, match_services: list[str]) -> list[
                 f = _process_script(script_id, item, match_services, source_file=".storage/script.config")
                 findings.extend(f)
                 scanned_ids.add(entity_id)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
         _LOGGER.debug("Could not load UI scripts: %s", e)
 
     # Method 2: YAML - single file (scripts.yaml)
@@ -190,7 +190,7 @@ async def _scan_scripts(hass: HomeAssistant, match_services: list[str]) -> list[
                         f = _process_script(script_id, script_config, match_services, source_file="config/scripts.yaml")
                         findings.extend(f)
                         scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.warning("Could not read scripts.yaml: %s", e)
 
     # Method 3: YAML - directory (!include_dir_named or !include_dir_merge_named)
@@ -222,7 +222,7 @@ async def _scan_scripts(hass: HomeAssistant, match_services: list[str]) -> list[
                                     f = _process_script(script_id, script_config, match_services, source_file=rel_path)
                                     findings.extend(f)
                                     scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.warning("Could not read scripts directory: %s", e)
 
     # Method 4: Packages directory
@@ -244,7 +244,7 @@ async def _scan_scripts(hass: HomeAssistant, match_services: list[str]) -> list[
                                     f = _process_script(script_id, script_config, match_services, source_file=rel_path)
                                     findings.extend(f)
                                     scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.debug("Could not read packages for scripts: %s", e)
 
     # Method 5: configuration.yaml inline scripts
@@ -263,7 +263,7 @@ async def _scan_scripts(hass: HomeAssistant, match_services: list[str]) -> list[
                                 f = _process_script(script_id, script_config, match_services, source_file="config/configuration.yaml")
                                 findings.extend(f)
                                 scanned_ids.add(entity_id)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — one unreadable source must not abort the scan
             _LOGGER.debug("Could not check configuration.yaml for scripts: %s", e)
 
     return findings

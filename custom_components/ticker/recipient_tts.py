@@ -88,7 +88,7 @@ __all__ = [
 
 
 async def log_delivery_failure(
-    store: "TickerStore",
+    store: TickerStore,
     category_id: str,
     person_id: str,
     person_name: str,
@@ -116,7 +116,7 @@ async def log_delivery_failure(
 
 async def async_send_tts(
     hass: HomeAssistant,
-    store: "TickerStore",
+    store: TickerStore,
     recipient: dict[str, Any],
     category_id: str,
     title: str,
@@ -233,7 +233,7 @@ async def async_send_tts(
         )
         results["delivered"].append(svc_display)
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         _LOGGER.error(
             "Timeout sending TTS to %s (exceeded %ds)",
             recipient_id, NOTIFY_SERVICE_TIMEOUT,

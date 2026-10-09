@@ -7,8 +7,9 @@ by ID (action_set_id) instead of embedding inline action_set dicts.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -29,11 +30,11 @@ class ActionSetMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _action_sets: dict[str, dict[str, Any]]
-    _action_sets_store: "Store[dict[str, dict[str, Any]]]"
+    _action_sets_store: Store[dict[str, dict[str, Any]]]
     _categories: dict[str, dict[str, Any]]
-    _categories_store: "Store[dict[str, dict[str, Any]]]"
+    _categories_store: Store[dict[str, dict[str, Any]]]
     _action_set_listeners: list[Callable[[], None]]
 
     def _notify_action_set_change(self) -> None:
@@ -41,7 +42,7 @@ class ActionSetMixin:
         for cb in self._action_set_listeners:
             try:
                 cb()
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 — one bad listener must not break the store
                 _LOGGER.error("Error in action set change callback: %s", err)
 
     def register_action_set_listener(self, callback: Callable[[], None]) -> None:
@@ -84,7 +85,7 @@ class ActionSetMixin:
         """
         if action_set_id in self._action_sets:
             raise ValueError(f"Action set '{action_set_id}' already exists")
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         entry: dict[str, Any] = {
             "id": action_set_id,
             "name": name,
@@ -123,7 +124,7 @@ class ActionSetMixin:
             entry["actions"] = actions
         if description is not None:
             entry["description"] = description
-        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+        entry["updated_at"] = datetime.now(UTC).isoformat()
         await self._async_save_action_sets()
         self._notify_action_set_change()
         _LOGGER.debug("Updated action set '%s'", action_set_id)
@@ -184,7 +185,7 @@ class ActionSetMixin:
             if library_id in self._action_sets:
                 library_id = f"{cat_id}_actions_migrated"
 
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(UTC).isoformat()
             self._action_sets[library_id] = {
                 "id": library_id,
                 "name": f"{cat.get('name', cat_id)} Actions",

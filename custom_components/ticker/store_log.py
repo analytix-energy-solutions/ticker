@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import callback
 from homeassistant.helpers.event import async_call_later
 
 from .const import (
-    MAX_LOG_ENTRIES,
     LOG_RETENTION_DAYS,
+    MAX_LOG_ENTRIES,
 )
 
 if TYPE_CHECKING:
@@ -39,9 +40,9 @@ class LogMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _logs: list[dict[str, Any]]
-    _logs_store: "Store[list[dict[str, Any]]]"
+    _logs_store: Store[list[dict[str, Any]]]
     _logs_dirty: bool
     _logs_save_unsub: Callable[[], None] | None
     _logs_first_dirty_time: datetime | None
@@ -55,7 +56,7 @@ class LogMixin:
 
     def _schedule_logs_save(self) -> None:
         """Schedule a debounced save of logs."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         # Track when logs first became dirty
         if self._logs_first_dirty_time is None:
@@ -102,7 +103,7 @@ class LogMixin:
         if not self._logs:
             return
 
-        cutoff = datetime.now(timezone.utc) - timedelta(days=LOG_RETENTION_DAYS)
+        cutoff = datetime.now(UTC) - timedelta(days=LOG_RETENTION_DAYS)
         original_count = len(self._logs)
 
         self._logs = [
@@ -181,7 +182,7 @@ class LogMixin:
     ) -> dict[str, Any]:
         """Add a log entry (with debounced save)."""
         log_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         entry = {
             "log_id": log_id,

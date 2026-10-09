@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.storage import Store
 
@@ -11,8 +12,8 @@ from ..conditions_normalize import normalize_conditions_negate
 from ..const import (
     DEFAULT_SUBSCRIPTION_MODE,
     MODE_ALWAYS,
-    MODE_NEVER,
     MODE_CONDITIONAL,
+    MODE_NEVER,
     SET_BY_USER,
 )
 
@@ -32,9 +33,9 @@ class SubscriptionMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _subscriptions: dict[str, dict[str, Any]]
-    _subscriptions_store: "Store[dict[str, dict[str, Any]]]"
+    _subscriptions_store: Store[dict[str, dict[str, Any]]]
     _subscription_listeners: list[Callable[[], None]]
 
     def register_subscription_listener(

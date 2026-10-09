@@ -100,8 +100,10 @@ def validate_chime_length(chime_id: Any) -> tuple[str, str] | None:
     ):
         return (
             "invalid_chime",
-            f"chime_media_content_id exceeds "
-            f"{MAX_CHIME_MEDIA_CONTENT_ID_LENGTH} characters",
+            (
+                f"chime_media_content_id exceeds "
+                f"{MAX_CHIME_MEDIA_CONTENT_ID_LENGTH} characters"
+            ),
         )
     return None
 

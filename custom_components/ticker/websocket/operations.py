@@ -6,18 +6,17 @@ import logging
 from typing import Any
 
 import voluptuous as vol
-
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
+from ..const import MAX_MIGRATION_MESSAGE_LENGTH, MAX_MIGRATION_TITLE_LENGTH
 from ..discovery import async_get_notify_services_for_person
-from ..const import MAX_MIGRATION_TITLE_LENGTH, MAX_MIGRATION_MESSAGE_LENGTH
 from .validation import (
+    MAX_CATEGORY_NAME_LENGTH,
     sanitize_for_storage,
     validate_category_id,
     validate_entity_id,
-    MAX_CATEGORY_NAME_LENGTH,
 )
 
 _LOGGER = logging.getLogger(__name__)

@@ -20,7 +20,8 @@ IMPORTANT — HA RESTART LIMITATION:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -210,7 +211,7 @@ class AutoClearRegistry:
         for unsub in entry:
             try:
                 unsub()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug(
                     "auto_clear: unsub failed for %s",
                     notification_id,
@@ -242,7 +243,7 @@ class AutoClearRegistry:
             await async_dispatch_clear(
                 self._hass, delivered_services, tag, notification_id
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.exception(
                 "auto_clear: dispatch_clear failed for %s", notification_id
             )
@@ -256,7 +257,7 @@ class AutoClearRegistry:
         for unsub in entry:
             try:
                 unsub()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.debug(
                     "auto_clear: unsub failed for %s",
                     notification_id,

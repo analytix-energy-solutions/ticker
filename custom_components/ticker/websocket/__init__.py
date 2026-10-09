@@ -7,64 +7,49 @@ import logging
 from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
-from .categories import (
-    ws_get_categories,
-    ws_create_category,
-    ws_update_category,
-    ws_delete_category,
-)
-from .users import (
-    ws_get_users,
-    ws_set_user_enabled,
-    ws_get_person,
-)
-from .subscriptions import (
-    ws_get_subscriptions,
-    ws_set_subscription,
-)
-from .queue_log import (
-    ws_get_zones,
-    ws_get_devices,
-    ws_set_device_preference,
-    ws_get_current_person,
-    ws_get_queue,
-    ws_clear_queue,
-    ws_remove_queue_entry,
-    ws_get_logs,
-    ws_get_log_stats,
-    ws_clear_logs,
-)
-from .logs_delete import (
-    ws_remove_log_entry,
-    ws_remove_log_group,
-    ws_clear_logs_for_person,
-)
-from .operations import (
-    ws_test_notification,
-    ws_migrate_scan,
-    ws_migrate_convert,
-    ws_migrate_delete,
+from .action_sets import (
+    ws_action_set_create,
+    ws_action_set_delete,
+    ws_action_set_update,
+    ws_action_sets_list,
 )
 from .actions import (
-    ws_set_action_set,
-    ws_get_snoozes,
     ws_clear_snooze,
+    ws_get_snoozes,
+    ws_set_action_set,
 )
-from .action_sets import (
-    ws_action_sets_list,
-    ws_action_set_create,
-    ws_action_set_update,
-    ws_action_set_delete,
+from .automations import (
+    ws_automations_scan,
+    ws_automations_update,
 )
-from .recipients import (
-    ws_get_recipients,
-    ws_create_recipient,
-    ws_update_recipient,
-    ws_delete_recipient,
+from .categories import (
+    ws_create_category,
+    ws_delete_category,
+    ws_get_categories,
+    ws_update_category,
 )
-from .recipient_subscriptions import (
-    ws_set_recipient_subscription,
-    ws_set_recipient_user_link,
+from .logs_delete import (
+    ws_clear_logs_for_person,
+    ws_remove_log_entry,
+    ws_remove_log_group,
+)
+from .operations import (
+    ws_migrate_convert,
+    ws_migrate_delete,
+    ws_migrate_scan,
+    ws_test_notification,
+)
+from .queue_log import (
+    ws_clear_logs,
+    ws_clear_queue,
+    ws_get_current_person,
+    ws_get_devices,
+    ws_get_log_stats,
+    ws_get_logs,
+    ws_get_queue,
+    ws_get_zones,
+    ws_remove_queue_entry,
+    ws_set_device_preference,
 )
 from .recipient_helpers import (
     ws_get_available_notify_services,
@@ -73,9 +58,24 @@ from .recipient_helpers import (
     ws_test_chime,
     ws_test_recipient,
 )
-from .automations import (
-    ws_automations_scan,
-    ws_automations_update,
+from .recipient_subscriptions import (
+    ws_set_recipient_subscription,
+    ws_set_recipient_user_link,
+)
+from .recipients import (
+    ws_create_recipient,
+    ws_delete_recipient,
+    ws_get_recipients,
+    ws_update_recipient,
+)
+from .subscriptions import (
+    ws_get_subscriptions,
+    ws_set_subscription,
+)
+from .users import (
+    ws_get_person,
+    ws_get_users,
+    ws_set_user_enabled,
 )
 
 _LOGGER = logging.getLogger(__name__)

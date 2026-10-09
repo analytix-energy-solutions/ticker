@@ -14,12 +14,11 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+import voluptuous as vol
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.service import async_set_service_schema
-
-import voluptuous as vol
 
 from .const import (
     ATTR_CATEGORY,
@@ -40,7 +39,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def resolve_category_id(category_name: str, store: "TickerStore") -> str:
+def resolve_category_id(category_name: str, store: TickerStore) -> str:
     """Resolve category name to category ID or raise ServiceValidationError.
 
     Checks if the input is already a valid category ID, then falls back
@@ -83,7 +82,7 @@ def _build_clear_schema() -> vol.Schema:
     )
 
 
-def _build_clear_description(store: "TickerStore | None") -> dict[str, Any]:
+def _build_clear_description(store: TickerStore | None) -> dict[str, Any]:
     """Build service description for clear_notification for the UI."""
     from .const import CATEGORY_DEFAULT_NAME
 
@@ -189,7 +188,7 @@ async def _async_send_clear_to_services(
                 timeout=NOTIFY_SERVICE_TIMEOUT,
             )
             cleared.append(service_id)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             _LOGGER.warning(
                 "Timeout clearing notification on %s for %s",
                 service_id, context_label,
@@ -348,7 +347,7 @@ async def async_handle_clear_notification(
                         "auto_clear: dropped %d pending listener(s) for tag %s",
                         dropped, tag,
                     )
-    except Exception:  # noqa: BLE001
+    except Exception:
         _LOGGER.debug("auto_clear unregister_by_tag failed", exc_info=True)
 
     all_cleared: list[str] = []
@@ -422,7 +421,7 @@ async def async_setup_clear_service(hass: HomeAssistant) -> None:
 
 @callback
 def register_clear_schema_updater(
-    hass: HomeAssistant, store: "TickerStore",
+    hass: HomeAssistant, store: TickerStore,
 ) -> None:
     """Update the clear_notification service schema with current categories.
 

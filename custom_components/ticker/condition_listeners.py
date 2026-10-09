@@ -7,9 +7,10 @@ queued notifications and release them when conditions are met.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant, callback, Event
+from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_call_later,
     async_track_state_change_event,
@@ -17,16 +18,16 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
+from .conditions import (
+    evaluate_condition_tree,
+    get_queue_triggers,
+)
 from .const import (
     CONDITION_NODE_GROUP,
     MODE_CONDITIONAL,
     RULE_TYPE_STATE,
     RULE_TYPE_TIME,
     RULE_TYPE_ZONE,
-)
-from .conditions import (
-    evaluate_condition_tree,
-    get_queue_triggers,
 )
 
 if TYPE_CHECKING:
@@ -94,7 +95,7 @@ class ConditionListenerManager:
     def __init__(
         self,
         hass: HomeAssistant,
-        store: "TickerStore",
+        store: TickerStore,
         on_conditions_met: Callable[[str, str], Any] | None = None,
     ) -> None:
         """Initialize the listener manager.

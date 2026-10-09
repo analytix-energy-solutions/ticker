@@ -1,0 +1,15 @@
+# Ruff configuration.
+#
+# Home Assistant 2025.x runs on Python 3.13, and the Automated tests workflow
+# pins the same version. Declaring it here is what lets the pyupgrade (UP)
+# rules rewrite to the syntax this integration can actually use, rather than
+# guessing from an absent requires-python.
+#
+# The rule selection is deliberately left to Ruff's default. CI pins the Ruff
+# version instead (see .github/workflows/main.yml), because the alternative --
+# an unpinned `pip install ruff` with no configuration -- is what turned the
+# Code Quality job red without a single line of code changing: Ruff widened
+# its default selection in a release, and 140 findings appeared overnight.
+# Pinning keeps the bar exactly where it is today and makes raising it a
+# deliberate change rather than something a dependency does on its own.
+target-version = "py313"

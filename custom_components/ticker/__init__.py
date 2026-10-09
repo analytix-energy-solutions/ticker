@@ -3,61 +3,61 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Callable
 
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.entity_registry import (
     EVENT_ENTITY_REGISTRY_UPDATED,
 )
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.storage import Store
-from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.start import async_at_start
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.typing import ConfigType
 
+from .actions import async_setup_action_listener
+from .arrival import async_release_queue_for_conditions, async_setup_arrival_listener
+from .auto_clear import AutoClearRegistry
+from .clear_notification import (
+    async_setup_clear_service,
+    register_clear_schema_updater,
+)
+from .condition_listeners import ConditionListenerManager
 from .const import (
-    DOMAIN,
-    VERSION,
+    DEVICE_IDENTIFIER,
     DEVICE_MANUFACTURER,
     DEVICE_MODEL,
     DEVICE_NAME,
-    DEVICE_IDENTIFIER,
-    STORAGE_VERSION,
-    STORAGE_KEY_CATEGORIES,
-    STORAGE_KEY_SUBSCRIPTIONS,
-    STORAGE_KEY_USERS,
-    STORAGE_KEY_QUEUE,
-    STORAGE_KEY_LOGS,
-    STORAGE_KEY_SNOOZES,
-    STORAGE_KEY_RECIPIENTS,
-    STORAGE_KEY_ACTION_SETS,
+    DOMAIN,
     EXPIRED_QUEUE_SWEEP_INTERVAL,
     PANEL_ADMIN_NAME,
     PANEL_ADMIN_TITLE,
     PANEL_USER_NAME,
     PANEL_USER_TITLE,
     STATIC_CHIMES_PATH,
+    STORAGE_KEY_ACTION_SETS,
+    STORAGE_KEY_CATEGORIES,
+    STORAGE_KEY_LOGS,
+    STORAGE_KEY_QUEUE,
+    STORAGE_KEY_RECIPIENTS,
+    STORAGE_KEY_SNOOZES,
+    STORAGE_KEY_SUBSCRIPTIONS,
+    STORAGE_KEY_USERS,
+    STORAGE_VERSION,
+    VERSION,
 )
-from .store import TickerStore
-from .actions import async_setup_action_listener
-from .arrival import async_setup_arrival_listener, async_release_queue_for_conditions
-from .auto_clear import AutoClearRegistry
-from .condition_listeners import ConditionListenerManager
 from .discovery import async_discover_notify_services, invalidate_discovery_cache
-from .clear_notification import (
-    async_setup_clear_service,
-    register_clear_schema_updater,
-)
 from .services import async_setup_services, register_schema_updater
+from .store import TickerStore
 from .websocket import async_setup_websocket_api
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -216,7 +216,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
         """Run expired queue cleanup on a fixed interval."""
         try:
             await store._async_cleanup_expired_queue()
-        except Exception:  # noqa: BLE001
+        except Exception:
             _LOGGER.exception("Expired queue sweep failed")
 
     runtime_data.unsub_expired_sweep = async_track_time_interval(
@@ -238,7 +238,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TickerConfigEntry) -> bo
         ):
             try:
                 await store.async_handle_person_removed(data["entity_id"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 _LOGGER.exception(
                     "F-39 orphan fallback failed for %s",
                     data["entity_id"],

@@ -9,9 +9,9 @@ from homeassistant.components import websocket_api
 from homeassistant.core import HomeAssistant
 
 from ..const import (
-    ACTION_TYPES,
     ACTION_TYPE_SCRIPT,
     ACTION_TYPE_SNOOZE,
+    ACTION_TYPES,
     CONDITION_MAX_DEPTH,
     CONDITION_NODE_GROUP,
     CONDITION_OPERATORS,
@@ -418,7 +418,7 @@ def validate_action_set(action_set: dict[str, Any]) -> tuple[bool, str | None]:
     return True, None
 
 
-def get_store(hass: HomeAssistant) -> "TickerStore":
+def get_store(hass: HomeAssistant) -> TickerStore:
     """Get the Ticker store from the config entry runtime data."""
     entries = hass.config_entries.async_entries(DOMAIN)
     if not entries:

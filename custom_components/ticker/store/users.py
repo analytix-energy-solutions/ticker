@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.helpers.storage import Store
@@ -26,9 +26,9 @@ class UserMixin:
     """
 
     # Type hints for mixin attributes (provided by main class)
-    hass: "HomeAssistant"
+    hass: HomeAssistant
     _users: dict[str, dict[str, Any]]
-    _users_store: "Store[dict[str, dict[str, Any]]]"
+    _users_store: Store[dict[str, dict[str, Any]]]
 
     async def async_save_users(self) -> None:
         """Save users to storage."""
@@ -51,7 +51,7 @@ class UserMixin:
 
     def _create_default_user(self, person_id: str) -> dict[str, Any]:
         """Create a default user object."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         return {
             "person_id": person_id,
             "enabled": True,
@@ -80,7 +80,7 @@ class UserMixin:
             self._users[person_id] = self._create_default_user(person_id)
 
         self._users[person_id]["enabled"] = enabled
-        self._users[person_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._users[person_id]["updated_at"] = datetime.now(UTC).isoformat()
         await self.async_save_users()
 
         status = "enabled" if enabled else "disabled"
@@ -98,7 +98,7 @@ class UserMixin:
             if key in ("enabled", "notify_services_override", "device_preference"):
                 self._users[person_id][key] = value
 
-        self._users[person_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._users[person_id]["updated_at"] = datetime.now(UTC).isoformat()
         await self.async_save_users()
         return self._users[person_id]
 
@@ -133,7 +133,7 @@ class UserMixin:
             "mode": mode,
             "devices": devices or [],
         }
-        self._users[person_id]["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._users[person_id]["updated_at"] = datetime.now(UTC).isoformat()
         await self.async_save_users()
 
         _LOGGER.debug(

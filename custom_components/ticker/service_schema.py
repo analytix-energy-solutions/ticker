@@ -5,25 +5,24 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import voluptuous as vol
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 
 from .const import (
-    ATTR_CATEGORY,
-    ATTR_TITLE,
-    ATTR_MESSAGE,
-    ATTR_EXPIRATION,
-    ATTR_DATA,
-    ATTR_ACTIONS,
     ATTR_ACTION_SET_ID,
-    ATTR_CRITICAL,
-    ATTR_NAVIGATE_TO,
+    ATTR_ACTIONS,
+    ATTR_CATEGORY,
     ATTR_CLEAR_WHEN,
+    ATTR_CRITICAL,
+    ATTR_DATA,
+    ATTR_EXPIRATION,
+    ATTR_MESSAGE,
+    ATTR_NAVIGATE_TO,
+    ATTR_TITLE,
+    CATEGORY_DEFAULT_NAME,
     DEFAULT_EXPIRATION_HOURS,
     MAX_EXPIRATION_HOURS,
     MAX_NAVIGATE_TO_LENGTH,
-    CATEGORY_DEFAULT_NAME,
 )
 from .websocket.validation import validate_navigate_to_vol
 
@@ -81,7 +80,7 @@ def _build_service_schema() -> vol.Schema:
 
 
 def _build_service_description(
-    store: "TickerStore | None", hass: HomeAssistant | None = None
+    store: TickerStore | None, hass: HomeAssistant | None = None
 ) -> dict[str, Any]:
     """Build service description with current categories for UI."""
     if store:

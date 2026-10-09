@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from homeassistant.core import HomeAssistant, Event
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
     ACTION_ID_PREFIX,
+    ACTION_TYPE_DISMISS,
     ACTION_TYPE_SCRIPT,
     ACTION_TYPE_SNOOZE,
-    ACTION_TYPE_DISMISS,
 )
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ EVENT_NOTIFICATION_ACTION = "mobile_app_notification_action"
 
 
 async def async_setup_action_listener(
-    hass: HomeAssistant, store: "TickerStore"
+    hass: HomeAssistant, store: TickerStore
 ) -> Callable[[], None]:
     """Register event listener for mobile_app notification actions.
 
@@ -167,7 +168,7 @@ def resolve_person_from_device(hass: HomeAssistant, device_id: str) -> str | Non
     return None
 
 
-def _resolve_person_from_logs(store: "TickerStore", nid_short: str) -> str | None:
+def _resolve_person_from_logs(store: TickerStore, nid_short: str) -> str | None:
     """Fallback: resolve person_id from log entries matching a notification_id prefix."""
     for log in reversed(store._logs):
         nid = log.get("notification_id", "")
@@ -177,7 +178,7 @@ def _resolve_person_from_logs(store: "TickerStore", nid_short: str) -> str | Non
 
 
 async def _async_handle_action_event(
-    hass: HomeAssistant, store: "TickerStore", event: Event
+    hass: HomeAssistant, store: TickerStore, event: Event
 ) -> None:
     """Handle a mobile_app_notification_action event."""
     action_id = event.data.get("action", "")

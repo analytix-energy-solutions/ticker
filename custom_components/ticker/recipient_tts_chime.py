@@ -30,8 +30,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 
 from .const import (
-    CHIME_WAIT_TIMEOUT,
     CHIME_TTS_GAP,
+    CHIME_WAIT_TIMEOUT,
     NOTIFY_SERVICE_TIMEOUT,
     VOLUME_OVERRIDE_MAX,
     VOLUME_OVERRIDE_MIN,
