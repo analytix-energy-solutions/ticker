@@ -274,6 +274,13 @@ async def async_setup_services(hass: HomeAssistant) -> None:
             "dropped": [],
         }
 
+        # Issue #69: notify services already claimed by a subscriber in this
+        # dispatch. Shared by every _process_person below so that a device
+        # belonging to two persons is notified once rather than once per
+        # person. Scoped to this category: two categories matched by one
+        # ticker.notify call are two notifications by design (F-27).
+        claimed_devices: set[str] = set()
+
         async def _process_person(person_state) -> None:
             person_id = person_state.entity_id
             person_name = person_state.attributes.get("friendly_name", person_id)
@@ -314,6 +321,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     suppress_actions=suppress_actions,
                     action_set_id=action_set_id,
                     navigate_to=navigate_to,
+                    claimed_devices=claimed_devices,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])
@@ -335,6 +343,7 @@ async def async_setup_services(hass: HomeAssistant) -> None:
                     suppress_actions=suppress_actions,
                     action_set_id=action_set_id,
                     navigate_to=navigate_to,
+                    claimed_devices=claimed_devices,
                 )
                 delivery_results["delivered"].extend(results["delivered"])
                 delivery_results["queued"].extend(results["queued"])

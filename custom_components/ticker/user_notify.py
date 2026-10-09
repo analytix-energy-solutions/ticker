@@ -53,6 +53,7 @@ async def async_handle_conditional_notification(
     suppress_actions: bool = False,
     action_set_id: str | None = None,
     navigate_to: str | None = None,
+    claimed_devices: set[str] | None = None,
 ) -> dict[str, list[str]]:
     """Handle notification delivery for conditional mode.
 
@@ -65,6 +66,11 @@ async def async_handle_conditional_notification(
     - Send immediately (all rules met + deliver_when_met)
     - Queue for later (queue_until_met rules not met)
     - Skip (no matching delivery path)
+
+    Args:
+        claimed_devices: Shared set of notify services already claimed by an
+            earlier subscriber in this same dispatch. Passed straight through
+            to :func:`async_send_notification`. See issue #69 there.
 
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists of service IDs/descriptions.
@@ -91,6 +97,7 @@ async def async_handle_conditional_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
             action_set_id=action_set_id, navigate_to=navigate_to,
+            claimed_devices=claimed_devices,
         )
 
     # Self-heal legacy zones format: if only zones exist (no tree, no
@@ -117,6 +124,7 @@ async def async_handle_conditional_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
             action_set_id=action_set_id, navigate_to=navigate_to,
+            claimed_devices=claimed_devices,
         )
 
     # Check if we should deliver now (all conditions met + deliver_when_met)
@@ -133,6 +141,7 @@ async def async_handle_conditional_notification(
             hass, store, person_id, person_name, category_id, title, message, data,
             notification_id=notification_id, suppress_actions=suppress_actions,
             action_set_id=action_set_id, navigate_to=navigate_to,
+            claimed_devices=claimed_devices,
         )
 
     # Check if we should queue (has queue_until_met flag and conditions not met)
@@ -202,12 +211,21 @@ async def async_send_notification(
     suppress_actions: bool = False,
     action_set_id: str | None = None,
     navigate_to: str | None = None,
+    claimed_devices: set[str] | None = None,
 ) -> dict[str, list[str]]:
     """Send notification to a person via their notify services.
 
     Respects device preferences:
     - Global device preference (all vs selected devices)
     - Per-category device override (additive)
+
+    Args:
+        claimed_devices: Shared, mutable set of notify services already
+            claimed by an earlier subscriber in this same dispatch. Services
+            found in it are skipped, and the ones this person does send to
+            are added. Pass ``None`` (the default) to disable cross-subscriber
+            deduplication, which is what a standalone send -- a queue replay,
+            an arrival trigger -- wants. See issue #69 below.
 
     Returns:
         Dict with 'delivered', 'queued', 'dropped' lists of service IDs/descriptions.
@@ -309,6 +327,61 @@ async def async_send_notification(
         )
         results["dropped"].append(f"{person_id}: No target devices")
         return results
+
+    # Issue #69: collapse devices an earlier subscriber in this same dispatch has
+    # already claimed.
+    #
+    # A device_tracker may belong to more than one person -- two people sharing
+    # a household tablet, or a second "service" person used by automations.
+    # Home Assistant allows it, and each person then resolves that device
+    # independently here, so the phone received one notification per person.
+    #
+    # Deduplicating on the service id alone is safe because nothing in the
+    # payload built by _send_to_device is person-specific: title, message,
+    # notification_id, actions, smart-notification fields, navigate_to and
+    # android_channel are all dispatch- or category-level, and delivery_format
+    # derives from the service id. person_id reaches only the logs. Two persons
+    # sending to one device therefore produce byte-identical calls.
+    #
+    # This runs after the snooze, subscription-mode and conditional gates, so a
+    # subscriber who was never going to send cannot claim a device away from one
+    # who was. Both statements below are synchronous, so the claim is atomic
+    # even though the subscribers dispatch concurrently.
+    if claimed_devices is not None:
+        duplicate_devices = final_devices & claimed_devices
+        final_devices = final_devices - claimed_devices
+        claimed_devices |= final_devices
+
+        if duplicate_devices:
+            _LOGGER.debug(
+                "Skipping %d device(s) for %s already claimed by an earlier "
+                "subscriber in this dispatch: %s",
+                len(duplicate_devices),
+                person_id,
+                sorted(duplicate_devices),
+            )
+
+        if not final_devices:
+            # Not a failure: somebody else is delivering to every device this
+            # person would have used, so the notification does arrive.
+            await store.async_add_log(
+                category_id=category_id,
+                person_id=person_id,
+                person_name=person_name,
+                title=title,
+                message=message,
+                outcome=LOG_OUTCOME_SKIPPED,
+                reason=(
+                    "Shared device(s) already notified via another subscriber: "
+                    + ", ".join(sorted(duplicate_devices))
+                ),
+                notification_id=notification_id,
+                image_url=image_url,
+            )
+            results["dropped"].append(
+                f"{person_id}: shared device(s) already notified"
+            )
+            return results
 
     _LOGGER.debug(
         "Sending notification to %s via %d device(s): %s",
